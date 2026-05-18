@@ -11,7 +11,6 @@ export default function Login(){
 
   function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
-    // 임시: 이메일에서 이름 추출, 나머지는 목업 데이터
     login({
       name: email.split("@")[0] || "사용자",
       email,
