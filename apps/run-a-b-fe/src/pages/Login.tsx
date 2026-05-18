@@ -1,8 +1,25 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function Login(){
   const [showPassword, setShowPassword] = useState(false);
   const [saveEmail, setSaveEmail] = useState(false);
+  const [email, setEmail] = useState("");
+  const { login } = useAuth();
+  const navigate = useNavigate();
+
+  function handleSubmit(e: React.SyntheticEvent) {
+    e.preventDefault();
+    // 임시: 이메일에서 이름 추출, 나머지는 목업 데이터
+    login({
+      name: email.split("@")[0] || "사용자",
+      email,
+      industry: "음식업",
+      region: "서울",
+    });
+    navigate("/mypage");
+  }
 
   return(
     <div className="bg-primary-100 min-h-screen pt-25 flex flex-col items-center">
@@ -11,11 +28,11 @@ export default function Login(){
       <p className="text-sm mt-2 text-gray-500">소상공인 정책·지원금 AI 플랫폼</p>
 
       <div className="bg-white rounded-2xl w-110 mt-5 shadow-lg">
-        <form action="" className="flex flex-col p-8 ">
+        <form onSubmit={handleSubmit} className="flex flex-col p-8 ">
 
           <h4 className="font-extrabold text-2xl">로그인</h4>
           <label htmlFor="email" className="text-sm font-normal mt-2">이메일</label>
-          <input type="email" name="email" id="email" placeholder="RunaB@email.com" className="border border-gray-300 rounded-xl px-4 py-3 mt-2 hover:border-primary-500" />
+          <input type="email" name="email" id="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="RunaB@email.com" className="border border-gray-300 rounded-xl px-4 py-3 mt-2 hover:border-primary-500" />
 
           <label htmlFor="password" className="text-sm font-normal mt-3">비밀번호</label>
           <div className="relative mt-2">
@@ -57,7 +74,7 @@ export default function Login(){
             이메일 저장
           </label>
 
-          <button type="submit" className="bg-primary-600 py-2 mt-5 text-white rounded-full transition-transform duration-150 hover:-translate-y-[2px] hover:bg-primary-700">로그인</button>
+          <button type="submit" className="bg-primary-600 py-2 mt-5 text-white rounded-full transition-transform duration-150 hover:-translate-y-0.5 hover:bg-primary-700">로그인</button>
 
           <div className="flex items-center gap-3 mt-5">
             <hr className="flex-1 border-gray-200" />
