@@ -6,6 +6,8 @@ import Login from '@/pages/Login'
 import Signup from '@/pages/Signup'
 import MyPage from '@/pages/MyPage'
 import Policies from '@/pages/Policies'
+import PolicyDetail from '@/pages/PolicyDetail'
+import ReportList from '@/pages/ReportList'
 
 export function AppRoutes() {
   return (
@@ -16,6 +18,8 @@ export function AppRoutes() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/mypage/*" element={<MyPage />} />
         <Route path="/policies" element={<Policies />} />
+        <Route path="/policies/:id" element={<PolicyDetail />} />
+        <Route path="/reports" element={<ReportList />} />
       </Route>
     </Routes>
   )
