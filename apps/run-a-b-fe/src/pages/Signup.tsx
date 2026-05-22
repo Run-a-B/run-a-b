@@ -45,8 +45,8 @@ export default function Signup() {
   // Step 1
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
-  const [touched, setTouched] = useState({ name: false, email: false, password: false, confirmPassword: false });
+  const [form, setForm] = useState({ name: "", email: "", age: "", password: "", confirmPassword: "" });
+  const [touched, setTouched] = useState({ name: false, email: false, age: false, password: false, confirmPassword: false });
 
   // Step 2
   const [biz, setBiz] = useState({ status: "사업 중", industry: "", region: "", revenue: "", employees: "" });
@@ -55,6 +55,7 @@ export default function Signup() {
   const errors = {
     name: form.name.length > 0 && (form.name.length < 2 || form.name.length > 20) ? "2~20자로 입력해 주세요" : "",
     email: form.email.length > 0 && !EMAIL_REGEX.test(form.email) ? "올바른 이메일 형식이 아니에요" : "",
+    age: form.age.length > 0 && (isNaN(Number(form.age)) || Number(form.age) < 1 || Number(form.age) > 120) ? "올바른 나이를 입력해 주세요" : "",
     password: form.password.length > 0 && !PASSWORD_REGEX.test(form.password) ? "영어·숫자·특수문자(I@$*)만 사용 가능해요" : "",
     confirmPassword: form.confirmPassword.length > 0 && form.password !== form.confirmPassword ? "비밀번호가 일치하지 않아요" : "",
   };
@@ -73,7 +74,7 @@ export default function Signup() {
 
   function handleStep1Submit(e: React.SyntheticEvent) {
     e.preventDefault();
-    setTouched({ name: true, email: true, password: true, confirmPassword: true });
+    setTouched({ name: true, email: true, age: true, password: true, confirmPassword: true });
     if (!step1Valid) return;
     setStep(2);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -102,6 +103,7 @@ export default function Signup() {
     login({
       name: form.name,
       email: form.email,
+      age: form.age ? Number(form.age) : undefined,
       industry: biz.industry,
       region: biz.region,
     });
@@ -203,6 +205,26 @@ export default function Signup() {
                     <span className="text-xs border border-gray-200 rounded-full px-3 py-1 text-gray-500">영어 가능</span>
                     <span className="text-xs border border-gray-200 rounded-full px-3 py-1 text-gray-500">2~20자</span>
                   </div>
+              }
+
+              {/* Age */}
+              <label htmlFor="age" className="text-sm font-semibold mt-5">
+                나이
+              </label>
+              <input
+                type="number"
+                id="age"
+                value={form.age}
+                placeholder="예: 35"
+                min={1}
+                max={120}
+                onChange={e => handleChange("age", e.target.value)}
+                onBlur={() => handleBlur("age")}
+                className={`mt-2 ${inputClass("age")}`}
+              />
+              {touched.age && errors.age
+                ? <p className="text-xs text-red-500 mt-1">{errors.age}</p>
+                : <p className="text-xs text-gray-400 mt-1.5">AI 리포트 개인화에 활용돼요 (선택)</p>
               }
 
               {/* Email */}

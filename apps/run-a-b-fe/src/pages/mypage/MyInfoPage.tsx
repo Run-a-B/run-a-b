@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const EyeIcon = () => (
@@ -22,7 +22,15 @@ export default function MyInfoPage() {
   const { user, login } = useAuth();
 
   const [name, setName] = useState(user?.name ?? "");
+  const [age, setAge] = useState(user?.age ? String(user.age) : "");
+  const [saved, setSaved] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+
+  useEffect(() => {
+    if (!saved) return;
+    const t = setTimeout(() => setSaved(false), 2500);
+    return () => clearTimeout(t);
+  }, [saved]);
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -37,13 +45,15 @@ export default function MyInfoPage() {
 
   function handleSave() {
     if (!user) return;
-    login({ ...user, name });
+    login({ ...user, name, age: age ? Number(age) : undefined });
     setPw({ current: "", next: "", confirm: "" });
     setIsPasswordOpen(false);
+    setSaved(true);
   }
 
   function handleCancel() {
     setName(user?.name ?? "");
+    setAge(user?.age ? String(user.age) : "");
     setPw({ current: "", next: "", confirm: "" });
     setIsPasswordOpen(false);
   }
@@ -52,6 +62,15 @@ export default function MyInfoPage() {
 
   return (
     <div className="max-w-xl">
+      {/* 저장 완료 토스트 */}
+      <div className={`fixed bottom-8 right-8 z-50 flex items-center gap-3 bg-gray-900 text-white text-sm font-medium px-5 py-3.5 rounded-2xl shadow-xl transition-all duration-300 ${saved ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3 pointer-events-none"}`}>
+        <div className="w-5 h-5 rounded-full bg-green-400 flex items-center justify-center shrink-0">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        </div>
+        내 정보가 저장되었어요
+      </div>
       <h2 className="text-2xl font-extrabold text-gray-900">내 정보</h2>
       <p className="text-sm text-gray-500 mt-1 mb-7">이름, 이메일, 비밀번호를 관리할 수 있어요</p>
 
@@ -76,6 +95,21 @@ export default function MyInfoPage() {
               className={inputBase}
             />
             <p className="text-xs text-gray-400 mt-1.5">한국어·영어 2~20자</p>
+          </div>
+
+          {/* 나이 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">나이</label>
+            <input
+              type="number"
+              value={age}
+              min={1}
+              max={120}
+              placeholder="예: 35"
+              onChange={e => setAge(e.target.value)}
+              className={inputBase}
+            />
+            <p className="text-xs text-gray-400 mt-1.5">AI 리포트 개인화에 활용돼요 (선택)</p>
           </div>
 
           {/* 이메일 */}

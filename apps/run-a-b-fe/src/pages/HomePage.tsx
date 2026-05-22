@@ -51,7 +51,7 @@ export function HomePage() {
           지원사업 신청까지 한 번에 이어드려요.
           </p>
           <div className="flex gap-5 ">
-            <Link to={""} className="font-medium text-white bg-primary-600 px-7 py-4 rounded-2xl hover:bg-primary-700 all duration-300 ease-out hover:transform-[translateY(-1px)]">나에게 맞는 정책 찾기</Link>
+            <Link to={"policies"} className="font-medium text-white bg-primary-600 px-7 py-4 rounded-2xl hover:bg-primary-700 all duration-300 ease-out hover:transform-[translateY(-1px)]">나에게 맞는 정책 찾기</Link>
             <Link to={""} className="font-medium border text-gray-700 border-gray-300 px-7 py-4 rounded-2xl hover:bg-gray-50 hover:border-gray-400">무료로 시작하기 ➔</Link>
           </div>
         </div>
@@ -109,7 +109,7 @@ export function HomePage() {
           <h1 className="font-bold text-2xl pb-3">최신 정책</h1>
           <div className="flex items-center justify-between text-sm text-text-secondary font-medium mb-5">
             <p>최신 사업 정책들이에요</p>
-            <Link to={""} className="text-primary-500">전체 보기 ➔</Link>
+            <Link to={"policies"} className="text-primary-500">전체 보기 ➔</Link>
           </div>
 
           <div className="flex gap-5 mb-10">
@@ -146,7 +146,7 @@ export function HomePage() {
                 <p className="text-gray-300 text-sm font-medium">내 사업과 연관된 정책만 골라 볼 수 있어요.</p>
                 </div>
                 <div className="flex items-center justify-center">
-                  <Link to={""} className="text-base bg-white px-8 py-4 text-primary-600 font-bold rounded-4xl transition-all duration-300 ease-out hover:transform-[scale(1.04)] hover:shadow-[0 8px 24px rgba(0,0,0,0.2)]">정책 모아보기 ➔</Link>
+                  <Link to={"policies"} className="text-base bg-white px-8 py-4 text-primary-600 font-bold rounded-4xl transition-all duration-300 ease-out hover:transform-[scale(1.04)] hover:shadow-[0 8px 24px rgba(0,0,0,0.2)]">정책 모아보기 ➔</Link>
                 </div>
             </div>
               
