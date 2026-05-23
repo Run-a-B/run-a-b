@@ -18,12 +18,15 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column
+    private Integer age;
+
     @Column(nullable = false, unique = true, length = 100)
     private String email;
 
     @Enumerated(EnumType.STRING) // enum의 값을 문자열로 DB에 저장 | ORDINAL로 기본값이 되면 db에 숫자가 저장됨
     @Column(nullable = false, length = 20)
-    private AuthProvider provider;  // 
+    private AuthProvider provider;
 
     @Column(name = "provider_id", length = 255)
     private String providerId;
@@ -46,8 +49,9 @@ public class User {
     private BusinessInfo businessInfo;
 
     @Builder
-    public User(String email, String password, AuthProvider provider, String providerId, String username){
+    public User(String email, Integer age ,String password, AuthProvider provider, String providerId, String username){
         this.email = email;
+        this.age = age;
         this.password = password;
         this.provider = provider;
         this.providerId = providerId;
