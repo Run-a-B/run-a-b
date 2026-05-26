@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
-@JsonInclude(JsonInclude.Include.NON_NULL) // error필드가 null이면 json 응답에서 아예 빼버림
+@JsonInclude(JsonInclude.Include.NON_NULL) // error필드가 null이면 json 응답에서 아예 빼버린다.
 public class ApiResponse<T> {  // <T>은 제네릭 으로 어떤 데이터 타입이든 담을 수 있는 역할 (User, Policy, List등)
 
     private boolean success;
