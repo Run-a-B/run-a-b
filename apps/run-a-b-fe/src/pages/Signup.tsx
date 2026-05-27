@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -31,11 +31,16 @@ const ChevronIcon = () => (
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PASSWORD_REGEX = /^[A-Za-z0-9!@$*]+$/;
+const RESEND_COOLDOWN = 60;
 
 const INDUSTRY_OPTIONS = ["음식점", "카페/베이커리", "의류/패션", "뷰티/미용", "교육", "IT/소프트웨어", "제조", "도소매", "기타"];
 const REGION_OPTIONS = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"];
 const REVENUE_OPTIONS = ["1억 미만", "1억~3억", "3억~5억", "5억~10억", "10억 이상"];
 const EMPLOYEE_OPTIONS = ["없음 (나 혼자)", "1~4명", "5~9명", "10~29명", "30명 이상"];
+
+function generateCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
 
 export default function Signup() {
   const { login } = useAuth();
@@ -48,7 +53,15 @@ export default function Signup() {
   const [form, setForm] = useState({ name: "", email: "", age: "", password: "", confirmPassword: "" });
   const [touched, setTouched] = useState({ name: false, email: false, age: false, password: false, confirmPassword: false });
 
-  // Step 2
+  // Step 2 — 이메일 인증
+  const [mockCode, setMockCode] = useState("");
+  const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
+  const [codeError, setCodeError] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const digitRefs = useRef<(HTMLInputElement | null)[]>(Array(6).fill(null));
+
+  // Step 3
   const [biz, setBiz] = useState({ status: "사업 중", industry: "", region: "", revenue: "", employees: "" });
 
   // ── Step 1 validation ──────────────────────────────────────────────
@@ -72,14 +85,6 @@ export default function Signup() {
     setTouched(prev => ({ ...prev, [field]: true }));
   }
 
-  function handleStep1Submit(e: React.SyntheticEvent) {
-    e.preventDefault();
-    setTouched({ name: true, email: true, age: true, password: true, confirmPassword: true });
-    if (!step1Valid) return;
-    setStep(2);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
   function inputClass(field: keyof typeof errors) {
     const hasError = touched[field] && errors[field];
     return `border rounded-xl px-4 py-3 w-full focus:outline-none transition-colors ${
@@ -89,9 +94,84 @@ export default function Signup() {
     }`;
   }
 
-  // ── Step 2 ─────────────────────────────────────────────────────────
+  function startCooldown() {
+    setCooldown(RESEND_COOLDOWN);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setCooldown(prev => {
+        if (prev <= 1) { clearInterval(timerRef.current!); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  }
+
+  function resetDigits() {
+    setDigits(Array(6).fill(""));
+    setTimeout(() => digitRefs.current[0]?.focus(), 50);
+  }
+
+  function handleStep1Submit(e: React.SyntheticEvent) {
+    e.preventDefault();
+    setTouched({ name: true, email: true, age: true, password: true, confirmPassword: true });
+    if (!step1Valid) return;
+    const code = generateCode();
+    setMockCode(code);
+    resetDigits();
+    setCodeError("");
+    startCooldown();
+    setStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleResend() {
+    if (cooldown > 0) return;
+    const code = generateCode();
+    setMockCode(code);
+    resetDigits();
+    setCodeError("");
+    startCooldown();
+  }
+
+  function handleDigitChange(index: number, value: string) {
+    const digit = value.replace(/\D/g, "").slice(-1);
+    const next = [...digits];
+    next[index] = digit;
+    setDigits(next);
+    setCodeError("");
+    if (digit && index < 5) digitRefs.current[index + 1]?.focus();
+  }
+
+  function handleDigitKeyDown(index: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && !digits[index] && index > 0) {
+      digitRefs.current[index - 1]?.focus();
+    }
+  }
+
+  function handleDigitPaste(e: React.ClipboardEvent) {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    const next = Array(6).fill("");
+    pasted.split("").forEach((ch, i) => { next[i] = ch; });
+    setDigits(next);
+    digitRefs.current[Math.min(pasted.length, 5)]?.focus();
+  }
+
+  function handleVerifySubmit(e: React.SyntheticEvent) {
+    e.preventDefault();
+    if (digits.join("") !== mockCode) {
+      setCodeError("인증 코드가 올바르지 않아요");
+      return;
+    }
+    setCodeError("");
+    setStep(3);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
+
+  // ── Step 3 ─────────────────────────────────────────────────────────
   const isRunning = biz.status === "사업 중";
-  const step2Valid = biz.industry !== "" && biz.region !== "";
+  const step3Valid = biz.industry !== "" && biz.region !== "";
 
   function handleBizChange(field: keyof typeof biz, value: string) {
     setBiz(prev => ({ ...prev, [field]: value }));
@@ -99,7 +179,7 @@ export default function Signup() {
 
   function handleFinalSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
-    if (!step2Valid) return;
+    if (!step3Valid) return;
     login({
       name: form.name,
       email: form.email,
@@ -111,41 +191,37 @@ export default function Signup() {
   }
 
   // ── Step indicator ─────────────────────────────────────────────────
+  const STEPS = ["내 정보", "이메일 인증", "사업 정보"];
   const StepIndicator = () => (
-    <div className="flex items-start gap-0 mt-8 mb-6">
-      <div className="flex flex-col items-center">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-          step > 1
-            ? "bg-primary-200 text-primary-600 border-2 border-primary-300"
-            : "bg-primary-600 text-white"
-        }`}>
-          {step > 1 ? <CheckIcon /> : "1"}
-        </div>
-        <span className={`text-xs mt-1.5 font-semibold ${step > 1 ? "text-gray-400" : "text-primary-600"}`}>내 정보</span>
-      </div>
-
-      <div className={`w-24 h-0.5 mt-5 mx-1 ${step > 1 ? "bg-primary-400" : "bg-gray-300"}`} />
-
-      <div className="flex flex-col items-center">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-          step === 2
-            ? "bg-primary-600 text-white"
-            : "bg-white border-2 border-gray-200 text-gray-400"
-        }`}>
-          2
-        </div>
-        <span className={`text-xs mt-1.5 font-semibold ${step === 2 ? "text-primary-600" : "text-gray-400"}`}>내 사업 정보</span>
-      </div>
+    <div className="flex items-start mt-8 mb-6">
+      {STEPS.map((label, idx) => {
+        const num = idx + 1;
+        const done = step > num;
+        const active = step === num;
+        return (
+          <div key={label} className="flex items-start">
+            <div className="flex flex-col items-center">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
+                done ? "bg-primary-200 text-primary-600 border-2 border-primary-300"
+                  : active ? "bg-primary-600 text-white"
+                  : "bg-white border-2 border-gray-200 text-gray-400"
+              }`}>
+                {done ? <CheckIcon /> : num}
+              </div>
+              <span className={`text-xs mt-1.5 font-semibold ${active ? "text-primary-600" : "text-gray-400"}`}>{label}</span>
+            </div>
+            {idx < STEPS.length - 1 && (
+              <div className={`w-16 h-0.5 mt-5 mx-1 ${step > num ? "bg-primary-400" : "bg-gray-200"}`} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 
   // ── Select component ───────────────────────────────────────────────
   const SelectField = ({ value, onChange, placeholder, options, disabled }: {
-    value: string;
-    onChange: (v: string) => void;
-    placeholder: string;
-    options: string[];
-    disabled?: boolean;
+    value: string; onChange: (v: string) => void; placeholder: string; options: string[]; disabled?: boolean;
   }) => (
     <div className="relative mt-2">
       <select
@@ -163,15 +239,12 @@ export default function Signup() {
         <option value="" disabled>{placeholder}</option>
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
-      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
-        <ChevronIcon />
-      </span>
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"><ChevronIcon /></span>
     </div>
   );
 
   return (
     <div className="bg-primary-100 min-h-screen pt-20 flex flex-col items-center pb-16">
-
       <StepIndicator />
 
       {/* ── STEP 1 ── */}
@@ -179,7 +252,7 @@ export default function Signup() {
         <>
           <div className="bg-white rounded-2xl w-110 shadow-lg">
             <form onSubmit={handleStep1Submit} className="flex flex-col p-8">
-              <span className="text-xs font-bold text-primary-600 tracking-widest uppercase">Step 1 / 2</span>
+              <span className="text-xs font-bold text-primary-600 tracking-widest uppercase">Step 1 / 3</span>
               <h3 className="font-extrabold text-2xl mt-3 leading-snug">
                 안녕하세요!<br /> 기본 정보를 입력해 주세요
               </h3>
@@ -190,10 +263,7 @@ export default function Signup() {
                 이름 (닉네임) <span className="text-red-500">*</span>
               </label>
               <input
-                type="text"
-                id="name"
-                value={form.name}
-                placeholder="홍길동"
+                type="text" id="name" value={form.name} placeholder="홍길동"
                 onChange={e => handleChange("name", e.target.value)}
                 onBlur={() => handleBlur("name")}
                 className={`mt-2 ${inputClass("name")}`}
@@ -208,16 +278,9 @@ export default function Signup() {
               }
 
               {/* Age */}
-              <label htmlFor="age" className="text-sm font-semibold mt-5">
-                나이
-              </label>
+              <label htmlFor="age" className="text-sm font-semibold mt-5">나이</label>
               <input
-                type="number"
-                id="age"
-                value={form.age}
-                placeholder="예: 35"
-                min={1}
-                max={120}
+                type="number" id="age" value={form.age} placeholder="예: 35" min={1} max={120}
                 onChange={e => handleChange("age", e.target.value)}
                 onBlur={() => handleBlur("age")}
                 className={`mt-2 ${inputClass("age")}`}
@@ -232,17 +295,12 @@ export default function Signup() {
                 이메일 <span className="text-red-500">*</span>
               </label>
               <input
-                type="email"
-                id="email"
-                value={form.email}
-                placeholder="example@email.com"
+                type="email" id="email" value={form.email} placeholder="example@email.com"
                 onChange={e => handleChange("email", e.target.value)}
                 onBlur={() => handleBlur("email")}
                 className={`mt-2 ${inputClass("email")}`}
               />
-              {touched.email && errors.email && (
-                <p className="text-xs text-red-500 mt-1">{errors.email}</p>
-              )}
+              {touched.email && errors.email && <p className="text-xs text-red-500 mt-1">{errors.email}</p>}
 
               {/* Password */}
               <label htmlFor="password" className="text-sm font-semibold mt-5">
@@ -250,20 +308,14 @@ export default function Signup() {
               </label>
               <div className="relative mt-2">
                 <input
-                  type={showPassword ? "text" : "password"}
-                  id="password"
-                  value={form.password}
+                  type={showPassword ? "text" : "password"} id="password" value={form.password}
                   placeholder="비밀번호를 입력해 주세요"
                   onChange={e => handleChange("password", e.target.value)}
                   onBlur={() => handleBlur("password")}
                   className={`pr-12 ${inputClass("password")}`}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(prev => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 보기"}
-                >
+                <button type="button" onClick={() => setShowPassword(p => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
               </div>
@@ -278,20 +330,14 @@ export default function Signup() {
               </label>
               <div className="relative mt-2">
                 <input
-                  type={showConfirmPassword ? "text" : "password"}
-                  id="confirmPassword"
-                  value={form.confirmPassword}
+                  type={showConfirmPassword ? "text" : "password"} id="confirmPassword" value={form.confirmPassword}
                   placeholder="비밀번호를 입력해 주세요"
                   onChange={e => handleChange("confirmPassword", e.target.value)}
                   onBlur={() => handleBlur("confirmPassword")}
                   className={`pr-12 ${inputClass("confirmPassword")}`}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(prev => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  aria-label={showConfirmPassword ? "비밀번호 숨기기" : "비밀번호 보기"}
-                >
+                <button type="button" onClick={() => setShowConfirmPassword(p => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                   {showConfirmPassword ? <EyeOffIcon /> : <EyeIcon />}
                 </button>
               </div>
@@ -304,11 +350,10 @@ export default function Signup() {
                 className="bg-primary-600 py-3.5 mt-8 text-white rounded-full font-semibold hover:bg-primary-700 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
                 disabled={!step1Valid && Object.values(touched).some(Boolean)}
               >
-                다음 단계로 →
+                인증 코드 발송 →
               </button>
             </form>
           </div>
-
           <p className="mt-6 text-sm text-gray-500">
             이미 계정이 있으신가요?{" "}
             <Link to="/login" className="font-bold text-primary-600 hover:underline">로그인하기</Link>
@@ -316,12 +361,82 @@ export default function Signup() {
         </>
       )}
 
-      {/* ── STEP 2 ── */}
+      {/* ── STEP 2: 이메일 인증 ── */}
       {step === 2 && (
         <div className="bg-white rounded-2xl w-110 shadow-lg">
-          <form onSubmit={handleFinalSubmit} className="flex flex-col p-8">
+          <form onSubmit={handleVerifySubmit} className="flex flex-col p-8">
+            <span className="text-xs font-bold text-primary-600 tracking-widest uppercase">Step 2 / 3</span>
+            <h3 className="font-extrabold text-2xl mt-3 leading-snug">이메일 인증</h3>
+            <p className="text-sm text-gray-500 mt-2 leading-6">
+              <span className="font-medium text-gray-800">{form.email}</span>으로<br />
+              6자리 인증 코드를 발송했어요
+            </p>
 
-            {/* Greeting banner */}
+            {/* OTP 박스 */}
+            <div className="flex justify-between mt-8 mb-1">
+              {digits.map((d, i) => (
+                <input
+                  key={i}
+                  ref={el => { digitRefs.current[i] = el; }}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={d}
+                  onChange={e => handleDigitChange(i, e.target.value)}
+                  onKeyDown={e => handleDigitKeyDown(i, e)}
+                  onPaste={handleDigitPaste}
+                  className={`w-12 h-14 text-center text-xl font-bold rounded-xl border focus:outline-none transition-colors ${
+                    codeError
+                      ? "border-red-300 bg-red-50 text-red-500"
+                      : d
+                        ? "border-primary-400 bg-primary-50 text-primary-700"
+                        : "border-gray-200 text-gray-800 hover:border-gray-300 focus:border-primary-400"
+                  }`}
+                />
+              ))}
+            </div>
+            {codeError
+              ? <p className="text-xs text-red-500 mt-2">{codeError}</p>
+              : <p className="text-xs text-gray-300 mt-2">개발용 코드: {mockCode}</p>
+            }
+
+            {/* 재발송 */}
+            <div className="flex items-center gap-1.5 mt-5">
+              <p className="text-xs text-gray-400">코드를 받지 못했나요?</p>
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={cooldown > 0}
+                className="text-xs font-semibold text-primary-600 hover:underline disabled:text-gray-300 disabled:cursor-default"
+              >
+                {cooldown > 0 ? `${cooldown}초 후 재발송` : "재발송하기"}
+              </button>
+            </div>
+
+            <div className="flex gap-3 mt-8">
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className="flex-1 py-3.5 rounded-full font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
+              >
+                ← 이전
+              </button>
+              <button
+                type="submit"
+                disabled={digits.join("").length !== 6}
+                className="grow-2 py-3.5 rounded-full font-semibold text-white bg-primary-600 hover:bg-primary-700 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+              >
+                인증 완료 →
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── STEP 3: 사업 정보 ── */}
+      {step === 3 && (
+        <div className="bg-white rounded-2xl w-110 shadow-lg">
+          <form onSubmit={handleFinalSubmit} className="flex flex-col p-8">
             <div className="bg-primary-50 rounded-xl px-4 py-3 flex items-center gap-3 mb-5">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
@@ -332,7 +447,7 @@ export default function Signup() {
               </div>
             </div>
 
-            <span className="text-xs font-bold text-primary-600 tracking-widest uppercase">Step 2 / 2</span>
+            <span className="text-xs font-bold text-primary-600 tracking-widest uppercase">Step 3 / 3</span>
             <h3 className="font-extrabold text-2xl mt-3 leading-snug">
               내 사업 정보를<br />알려주세요
             </h3>
@@ -341,16 +456,12 @@ export default function Signup() {
               나중에 마이페이지에서 언제든 수정할 수 있어요.
             </p>
 
-            {/* 사업 상태 */}
             <label className="text-sm font-semibold mt-6">
               현재 사업 상태 <span className="text-red-500">*</span>
             </label>
             <div className="grid grid-cols-2 gap-0 mt-2 border border-gray-200 rounded-xl overflow-hidden">
               {["사업 중", "사업 준비 중"].map(status => (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => handleBizChange("status", status)}
+                <button key={status} type="button" onClick={() => handleBizChange("status", status)}
                   className={`py-3 text-sm font-semibold transition-colors ${
                     biz.status === status
                       ? "bg-white text-primary-600 border-2 border-primary-500 rounded-xl -m-px z-10"
@@ -362,74 +473,37 @@ export default function Signup() {
               ))}
             </div>
 
-            {/* 업종 */}
             <label className="text-sm font-semibold mt-5">
               직군 (업종) <span className="text-red-500">*</span>
             </label>
-            <SelectField
-              value={biz.industry}
-              onChange={v => handleBizChange("industry", v)}
-              placeholder="업종을 선택해 주세요"
-              options={INDUSTRY_OPTIONS}
-            />
+            <SelectField value={biz.industry} onChange={v => handleBizChange("industry", v)} placeholder="업종을 선택해 주세요" options={INDUSTRY_OPTIONS} />
 
-            {/* 지역 */}
             <label className="text-sm font-semibold mt-5">
               지역 <span className="text-red-500">*</span>
             </label>
-            <SelectField
-              value={biz.region}
-              onChange={v => handleBizChange("region", v)}
-              placeholder="지역을 선택해 주세요"
-              options={REGION_OPTIONS}
-            />
+            <SelectField value={biz.region} onChange={v => handleBizChange("region", v)} placeholder="지역을 선택해 주세요" options={REGION_OPTIONS} />
 
-            {/* 연 매출 */}
             <label className="text-sm font-semibold mt-5 flex items-center gap-2">
               연 매출
-              {isRunning && (
-                <span className="text-xs bg-primary-100 text-primary-600 font-semibold px-2 py-0.5 rounded-full">사업 중 전용</span>
-              )}
+              {isRunning && <span className="text-xs bg-primary-100 text-primary-600 font-semibold px-2 py-0.5 rounded-full">사업 중 전용</span>}
             </label>
-            <SelectField
-              value={biz.revenue}
-              onChange={v => handleBizChange("revenue", v)}
-              placeholder="연 매출 범위를 선택해 주세요"
-              options={REVENUE_OPTIONS}
-              disabled={!isRunning}
-            />
+            <SelectField value={biz.revenue} onChange={v => handleBizChange("revenue", v)} placeholder="연 매출 범위를 선택해 주세요" options={REVENUE_OPTIONS} disabled={!isRunning} />
             <p className="text-xs text-gray-400 mt-1.5">AI 분석 정확도 향상을 위해 입력해 주세요 (선택)</p>
 
-            {/* 직원 수 */}
             <label className="text-sm font-semibold mt-5 flex items-center gap-2">
               직원 수 (본인 제외)
-              {isRunning && (
-                <span className="text-xs bg-primary-100 text-primary-600 font-semibold px-2 py-0.5 rounded-full">사업 중 전용</span>
-              )}
+              {isRunning && <span className="text-xs bg-primary-100 text-primary-600 font-semibold px-2 py-0.5 rounded-full">사업 중 전용</span>}
             </label>
-            <SelectField
-              value={biz.employees}
-              onChange={v => handleBizChange("employees", v)}
-              placeholder="직원 수를 선택해 주세요"
-              options={EMPLOYEE_OPTIONS}
-              disabled={!isRunning}
-            />
+            <SelectField value={biz.employees} onChange={v => handleBizChange("employees", v)} placeholder="직원 수를 선택해 주세요" options={EMPLOYEE_OPTIONS} disabled={!isRunning} />
             <p className="text-xs text-gray-400 mt-1.5">최저임금 영향도 등 인건비 관련 분석에 사용돼요 (선택)</p>
 
-            {/* Buttons */}
             <div className="flex gap-3 mt-8">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="flex-1 py-3.5 rounded-full font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
-              >
+              <button type="button" onClick={() => setStep(2)}
+                className="flex-1 py-3.5 rounded-full font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
                 ← 이전
               </button>
-              <button
-                type="submit"
-                disabled={!step2Valid}
-                className="flex-2 flex-grow-[2] py-3.5 rounded-full font-semibold text-white bg-primary-600 hover:bg-primary-700 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-              >
+              <button type="submit" disabled={!step3Valid}
+                className="grow-2 py-3.5 rounded-full font-semibold text-white bg-primary-600 hover:bg-primary-700 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
                 가입 완료!
               </button>
             </div>
