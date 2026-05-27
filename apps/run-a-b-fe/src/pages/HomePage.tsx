@@ -52,7 +52,6 @@ export function HomePage() {
           </p>
           <div className="flex gap-5 ">
             <Link to={"policies"} className="font-medium text-white bg-primary-600 px-7 py-4 rounded-2xl hover:bg-primary-700 all duration-300 ease-out hover:transform-[translateY(-1px)]">나에게 맞는 정책 찾기</Link>
-            <Link to={""} className="font-medium border text-gray-700 border-gray-300 px-7 py-4 rounded-2xl hover:bg-gray-50 hover:border-gray-400">무료로 시작하기 ➔</Link>
           </div>
         </div>
         <div className="flex-1 pl-40 h-110">

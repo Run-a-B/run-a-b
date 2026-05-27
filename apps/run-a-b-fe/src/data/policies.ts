@@ -34,6 +34,8 @@ export interface PolicyDetailData {
     details: string[];
     relatedIds: number[];
   };
+  applicationChecklist: { id: string; label: string; required: boolean; description?: string }[];
+  applicationUrl: string;
 }
 
 export const MOCK_POLICIES: Policy[] = [
@@ -238,6 +240,15 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [2, 11],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "유효한 사업자등록증 (발급일 3개월 이내 권장)" },
+      { id: "employment-ins", label: "고용보험 가입 확인서", required: true, description: "근로복지공단 발급, 가입 근로자 명단 포함" },
+      { id: "labor-contract", label: "근로계약서 사본", required: true, description: "지원 신청 대상 근로자 전원" },
+      { id: "payslip", label: "최근 3개월 급여명세서", required: true, description: "최저임금 이상 지급 확인용" },
+      { id: "bank-copy", label: "사업용 통장 사본", required: true, description: "지원금 수령 계좌" },
+      { id: "id-card", label: "사업주 신분증 사본", required: false, description: "방문 접수 시 필요" },
+    ],
+    applicationUrl: "https://www.ei.go.kr",
   },
   2: {
     announcementNo: "고용부-2026-0120",
@@ -281,6 +292,14 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [1, 11],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "유효한 사업자등록증" },
+      { id: "four-ins", label: "4대보험 가입 확인서", required: true, description: "근로복지공단 발급" },
+      { id: "worker-list", label: "근로자 명부", required: true, description: "재직 근로자 전원 명단 (급여 포함)" },
+      { id: "bank-copy", label: "사업용 통장 사본", required: true, description: "지원금 수령 계좌" },
+      { id: "payslip", label: "최근 월 급여명세서", required: false, description: "월평균 보수 260만원 미만 확인용" },
+    ],
+    applicationUrl: "https://www.4insure.or.kr",
   },
   3: {
     announcementNo: "중기부-2026-0203",
@@ -324,6 +343,15 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [12],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "유효한 사업자등록증" },
+      { id: "credit-consent", label: "개인신용정보 조회 동의서", required: true, description: "신용점수 600점 이상 확인용" },
+      { id: "sales-proof", label: "최근 1년 매출 확인서", required: true, description: "부가세 신고서 또는 카드매출 확인서" },
+      { id: "lease", label: "임대차계약서 사본", required: true, description: "현재 사업장 임대 계약 서류" },
+      { id: "bank-copy", label: "사업용 통장 사본", required: true, description: "대출금 수령 계좌" },
+      { id: "id-card", label: "대표자 신분증 사본", required: true },
+    ],
+    applicationUrl: "https://www.sbiz.or.kr",
   },
   4: {
     announcementNo: "산업부-2026-0128",
@@ -368,6 +396,15 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [5],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "서울시 소재 사업장 확인용" },
+      { id: "operation-cert", label: "6개월 이상 영업 확인서", required: true, description: "사업자등록증 또는 부가세 신고 내역으로 대체 가능" },
+      { id: "energy-bill", label: "최근 3개월 에너지 요금 납부 내역", required: true, description: "전기·가스 사용량 확인용" },
+      { id: "estimate", label: "설치업체 견적서", required: true, description: "지원 신청 설비별 견적서 (업체 직인 포함)" },
+      { id: "bank-copy", label: "사업용 통장 사본", required: true, description: "바우처 지급 계좌" },
+      { id: "photo", label: "현재 설비 사진", required: false, description: "기존 설비 상태 확인용 (노후 설비 교체 시)" },
+    ],
+    applicationUrl: "https://www.energy.or.kr",
   },
   5: {
     announcementNo: "중기부-2026-0210",
@@ -412,6 +449,15 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [4, 9],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "사업자등록 1년 이상 확인용" },
+      { id: "no-device-cert", label: "기존 디지털 기기 미보유 확인서", required: true, description: "자가 작성 확인서 또는 현장 확인" },
+      { id: "estimate", label: "기기 구매 견적서", required: true, description: "키오스크·POS 공급업체 견적서 (업체 직인 포함)" },
+      { id: "bank-copy", label: "사업용 통장 사본", required: true, description: "바우처 지급 계좌" },
+      { id: "id-card", label: "대표자 신분증 사본", required: true },
+      { id: "prev-support", label: "동일 사업 미지원 확인서", required: false, description: "기존 지원 이력이 없는 경우 생략 가능" },
+    ],
+    applicationUrl: "https://www.sbiz.or.kr",
   },
   6: {
     announcementNo: "기재부-2026-0105",
@@ -455,6 +501,12 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [8],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "개인사업자 여부 및 업종 확인용" },
+      { id: "vat-return", label: "직전 연도 부가세 신고서", required: true, description: "연매출 1억 400만원 미만 확인용" },
+      { id: "nts-notice", label: "국세청 간이과세 전환 안내문", required: false, description: "자동 적용 대상자에게 국세청이 발송" },
+    ],
+    applicationUrl: "https://www.nts.go.kr",
   },
   7: {
     announcementNo: "중기부-2026-0301",
@@ -498,6 +550,15 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [3, 9],
     },
+    applicationChecklist: [
+      { id: "id-card", label: "대표자 신분증 사본", required: true },
+      { id: "biz-plan", label: "사업계획서", required: true, description: "창업 아이템, 목표 시장, 예상 매출 포함 (A4 5매 이내)" },
+      { id: "biz-reg", label: "사업자등록증 사본", required: false, description: "예비창업자는 미제출, 창업 1년 이내자만 제출" },
+      { id: "residence-cert", label: "경기도 거주 또는 사업장 확인서", required: true, description: "주민등록등본 또는 임대차계약서" },
+      { id: "portfolio", label: "창업 아이템 포트폴리오", required: false, description: "메뉴판, 제품 사진 등 (해당 시)" },
+      { id: "bank-copy", label: "통장 사본", required: true, description: "지원금 수령 계좌" },
+    ],
+    applicationUrl: "https://www.sbiz.or.kr",
   },
   8: {
     announcementNo: "국세청-2026-0220",
@@ -540,6 +601,14 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [3, 6],
     },
+    applicationChecklist: [
+      { id: "lease-original", label: "임대차계약서 원본", required: true, description: "기존 임대차 계약서 (인하 전 금액 확인용)" },
+      { id: "rent-reduction", label: "임대료 인하 합의서", required: true, description: "건물주·임차인 서명 날인, 인하율 5% 이상 명시" },
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "소상공인 임차인 확인용" },
+      { id: "landlord-id", label: "임대인 신분증 사본", required: true, description: "종합소득세 신고 시 임대인이 준비" },
+      { id: "receipt", label: "임대료 납부 내역", required: false, description: "계좌이체 내역 또는 영수증 (인하 전후 비교)" },
+    ],
+    applicationUrl: "https://www.nts.go.kr",
   },
   9: {
     announcementNo: "진흥원-2026-0110",
@@ -583,6 +652,11 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [5, 7],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "소상공인 마당 회원가입 시 인증용" },
+      { id: "sbiz-signup", label: "소상공인 마당 회원가입", required: true, description: "sbiz.or.kr에서 사전 가입 필요" },
+    ],
+    applicationUrl: "https://www.sbiz.or.kr",
   },
   10: {
     announcementNo: "중기부-2026-0315",
@@ -627,6 +701,14 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [5],
     },
+    applicationChecklist: [
+      { id: "market-cert", label: "전통시장 등록 확인서", required: true, description: "시장관리공단 또는 지자체 발급" },
+      { id: "merchants-assoc", label: "상인회 가입 확인서", required: true, description: "상인회 또는 시장관리공단 발급" },
+      { id: "biz-reg", label: "점포 사업자등록증 사본", required: true, description: "신청 점포 전체 (시장 단위 신청 시 일괄 제출)" },
+      { id: "estimate", label: "스마트 설비 구축 견적서", required: true, description: "Wi-Fi·CCTV·무인결제 단말기 항목별 견적" },
+      { id: "store-count", label: "점포 수 확인서", required: true, description: "100개 점포 이상 요건 충족 서류" },
+    ],
+    applicationUrl: "https://www.sbiz.or.kr",
   },
   11: {
     announcementNo: "고용부-2026-0215",
@@ -670,6 +752,14 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [2, 1],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "자영업자 확인용" },
+      { id: "join-form", label: "고용보험 임의 가입 신청서", required: true, description: "고용보험 홈페이지에서 출력 또는 고용센터 비치" },
+      { id: "bank-copy", label: "보험료 납부 통장 사본", required: true, description: "자동이체 설정 계좌" },
+      { id: "id-card", label: "대표자 신분증 사본", required: true },
+      { id: "income-cert", label: "최근 1년 소득 확인서", required: false, description: "소득 기준 보험료 산정용 (종합소득세 신고 내역)" },
+    ],
+    applicationUrl: "https://www.ei.go.kr",
   },
   12: {
     announcementNo: "진흥원-2026-0125",
@@ -713,5 +803,14 @@ export const POLICY_DETAILS: Record<number, PolicyDetailData> = {
       ],
       relatedIds: [3],
     },
+    applicationChecklist: [
+      { id: "biz-reg", label: "사업자등록증 사본", required: true, description: "소상공인 확인용 (5인 미만)" },
+      { id: "disaster-cert", label: "재난 피해 확인서", required: true, description: "지자체(시·군·구청) 발급 — 최우선 준비 서류" },
+      { id: "damage-photo", label: "피해 현장 사진·영상", required: true, description: "피해 규모 및 복구 비용 산정용" },
+      { id: "bank-copy", label: "사업용 통장 사본", required: true, description: "대출금 수령 계좌" },
+      { id: "lease", label: "임대차계약서 사본", required: true, description: "사업장 소재지 확인용" },
+      { id: "repair-estimate", label: "시설 복구 견적서", required: false, description: "복구업체 발행 견적서 (시설자금 신청 시 필요)" },
+    ],
+    applicationUrl: "https://www.sbiz.or.kr",
   },
 };

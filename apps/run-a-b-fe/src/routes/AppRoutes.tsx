@@ -7,6 +7,7 @@ import Signup from '@/pages/Signup'
 import MyPage from '@/pages/MyPage'
 import Policies from '@/pages/Policies'
 import PolicyDetail from '@/pages/PolicyDetail'
+import PolicyChecklist from '@/pages/PolicyChecklist'
 import ReportList from '@/pages/ReportList'
 
 export function AppRoutes() {
@@ -19,6 +20,7 @@ export function AppRoutes() {
         <Route path="/mypage/*" element={<MyPage />} />
         <Route path="/policies" element={<Policies />} />
         <Route path="/policies/:id" element={<PolicyDetail />} />
+        <Route path="/policies/:id/checklist" element={<PolicyChecklist />} />
         <Route path="/reports" element={<ReportList />} />
       </Route>
     </Routes>

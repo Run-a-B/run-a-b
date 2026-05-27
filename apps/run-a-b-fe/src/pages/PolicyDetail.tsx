@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { MOCK_POLICIES, POLICY_DETAILS } from "@/data/policies";
-import { saveReport } from "@/data/reports";
+import { saveReport, getSavedReports } from "@/data/reports";
 import { markPolicyVisited } from "@/data/visited";
 
 const HIGHLIGHT_ICONS: Record<string, React.ReactNode> = {
@@ -51,7 +51,9 @@ export default function PolicyDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const policyId = Number(id);
-  const [reportState, setReportState] = useState<"idle" | "loading" | "done">("idle");
+  const [reportState, setReportState] = useState<"idle" | "loading" | "done">(() =>
+    getSavedReports().some((r) => r.policyId === policyId) ? "done" : "idle"
+  );
 
   const policy = MOCK_POLICIES.find((p) => p.id === policyId);
   const detail = POLICY_DETAILS[policyId];
@@ -95,8 +97,8 @@ export default function PolicyDetail() {
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
 
   return (
-    <div className="bg-gray-50 min-h-screen">
-      <div className="px-40 py-4 bg-white border-b border-gray-200">
+    <div className="bg-gray-50 min-h-screen pt-15">
+      <div className="px-40 py-4">
         <nav className="flex items-center gap-1.5 text-sm text-gray-500">
           <Link to="/" className="hover:text-gray-700 transition-colors">홈</Link>
           <span className="text-gray-300">›</span>
@@ -150,10 +152,10 @@ export default function PolicyDetail() {
               </div>
 
               {/* Title */}
-              <h1 className="text-xl font-bold text-gray-900 leading-snug mb-6">{policy.title}</h1>
+              <h1 className="text-2xl font-bold text-gray-900 leading-snug mb-6">{policy.title}</h1>
 
               {/* Metadata grid */}
-              <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden text-sm mb-8">
+              <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden text-base mb-8">
                 {[
                   { label: "담당 부서", value: detail.department },
                   { label: "공고 번호", value: detail.announcementNo },
@@ -163,7 +165,7 @@ export default function PolicyDetail() {
                   { label: "지원 대상", value: detail.targetGroup },
                 ].map(({ label, value }, idx) => (
                   <div key={label} className={`flex px-4 py-3 ${idx < 4 ? "border-b border-gray-100" : ""} ${idx % 2 === 0 ? "border-r border-gray-100" : ""}`}>
-                    <span className="text-gray-500 w-20 shrink-0">{label}</span>
+                    <span className="text-gray-500 w-24 shrink-0">{label}</span>
                     <span className="text-gray-800 font-medium">{value}</span>
                   </div>
                 ))}
@@ -171,24 +173,24 @@ export default function PolicyDetail() {
 
               {/* Section 1 */}
               <section className="mb-6">
-                <h2 className="text-base font-bold text-gray-900 mb-3">1. 사업 목적</h2>
-                <p className="text-sm text-gray-700 leading-7">{detail.purposeText}</p>
+                <h2 className="text-lg font-bold text-gray-900 mb-3">1. 사업 목적</h2>
+                <p className="text-base text-gray-700 leading-8">{detail.purposeText}</p>
               </section>
 
               {/* Section 2 */}
               <section className="mb-6">
-                <h2 className="text-base font-bold text-gray-900 mb-3">2. 지원 대상</h2>
-                <p className="text-sm text-gray-600 mb-3">다음 각 호에 해당하는 사업장을 운영하는 사업주를 지원 대상으로 합니다.</p>
+                <h2 className="text-lg font-bold text-gray-900 mb-3">2. 지원 대상</h2>
+                <p className="text-base text-gray-600 mb-3">다음 각 호에 해당하는 사업장을 운영하는 사업주를 지원 대상으로 합니다.</p>
                 <ul className="space-y-2">
                   {detail.targetConditions.map((cond) => (
-                    <li key={cond} className="flex items-start gap-2 text-sm text-gray-700">
-                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary-400 shrink-0" />
+                    <li key={cond} className="flex items-start gap-2 text-base text-gray-700">
+                      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-primary-400 shrink-0" />
                       {cond}
                     </li>
                   ))}
                   {detail.exclusions.map((exc) => (
-                    <li key={exc} className="flex items-start gap-2 text-sm text-gray-500">
-                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
+                    <li key={exc} className="flex items-start gap-2 text-base text-gray-500">
+                      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
                       단, {exc}은 제외
                     </li>
                   ))}
@@ -197,9 +199,9 @@ export default function PolicyDetail() {
 
               {/* Section 3 */}
               <section className="mb-6">
-                <h2 className="text-base font-bold text-gray-900 mb-3">3. 지원 내용</h2>
+                <h2 className="text-lg font-bold text-gray-900 mb-3">3. 지원 내용</h2>
                 <div className="overflow-hidden rounded-xl border border-gray-200">
-                  <table className="w-full text-sm">
+                  <table className="w-full text-base">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
                         <th className="text-left px-4 py-3 font-semibold text-gray-600 w-1/3">구분</th>
@@ -222,8 +224,8 @@ export default function PolicyDetail() {
 
               {/* Section 4 */}
               <section>
-                <h2 className="text-base font-bold text-gray-900 mb-3">4. 신청 방법</h2>
-                <p className="text-sm text-gray-700 leading-7">{detail.applicationMethod}</p>
+                <h2 className="text-lg font-bold text-gray-900 mb-3">4. 신청 방법</h2>
+                <p className="text-base text-gray-700 leading-8">{detail.applicationMethod}</p>
               </section>
             </div>
           </div>
@@ -249,7 +251,7 @@ export default function PolicyDetail() {
             </div>
 
             <div className="px-5 py-4 flex flex-col gap-4">
-              <p className="text-sm text-gray-600 leading-6">{detail.aiSummaryText}</p>
+              <p className="text-sm text-gray-600 leading-7">{detail.aiSummaryText}</p>
 
               {/* Highlights */}
               <div className="flex flex-col gap-2">
@@ -257,8 +259,8 @@ export default function PolicyDetail() {
                   <div key={h.label} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
                     <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
                     <div>
-                      <p className="text-xs font-semibold text-gray-700 mb-0.5">{h.label}</p>
-                      <p className="text-xs text-gray-500 leading-5">{h.content}</p>
+                      <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
+                      <p className="text-sm text-gray-500 leading-6">{h.content}</p>
                     </div>
                   </div>
                 ))}
@@ -335,18 +337,18 @@ export default function PolicyDetail() {
 
                 {/* 내 사업 영향도 */}
                 <div className="bg-primary-50 rounded-xl border border-primary-100 p-4">
-                  <p className="text-xs font-bold text-primary-600 mb-4">내 사업 영향도 미리보기</p>
+                  <p className="text-sm font-bold text-primary-600 mb-4">내 사업 영향도 미리보기</p>
                   <div className="flex flex-col gap-3">
                     {detail.businessImpact.map((item) => (
                       <div key={item.label} className="flex items-center gap-3">
-                        <span className="text-xs text-gray-500 w-12 shrink-0">{item.label}</span>
+                        <span className="text-sm text-gray-500 w-14 shrink-0">{item.label}</span>
                         <div className="flex-1 h-2 bg-white rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full ${item.barColor}`}
                             style={{ width: `${item.level}%` }}
                           />
                         </div>
-                        <span className={`flex items-center gap-1 text-xs font-semibold shrink-0 whitespace-nowrap ${item.tagColor}`}>
+                        <span className={`flex items-center gap-1 text-sm font-semibold shrink-0 whitespace-nowrap ${item.tagColor}`}>
                           {item.direction === "up" ? (
                             <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,1 9,9 1,9"/></svg>
                           ) : (
@@ -360,14 +362,14 @@ export default function PolicyDetail() {
                 </div>
 
                 {/* 요약 */}
-                <p className="text-sm text-gray-700 leading-6">{detail.reportData.summary}</p>
+                <p className="text-sm text-gray-700 leading-7">{detail.reportData.summary}</p>
 
                 {/* 상세 분석 */}
                 <div className="border-t border-gray-100 pt-4">
-                  <p className="text-xs text-gray-400 mb-2.5">상세 분석</p>
+                  <p className="text-sm text-gray-400 mb-2.5">상세 분석</p>
                   <div className="flex flex-col gap-3">
                     {detail.reportData.details.map((text, i) => (
-                      <p key={i} className="text-xs text-gray-600 leading-5">{text}</p>
+                      <p key={i} className="text-sm text-gray-600 leading-6">{text}</p>
                     ))}
                   </div>
                 </div>
@@ -375,7 +377,7 @@ export default function PolicyDetail() {
                 {/* 함께 신청하면 좋아요 */}
                 {detail.reportData.relatedIds.length > 0 && (
                   <div className="border-t border-gray-100 pt-4">
-                    <p className="text-xs text-gray-400 mb-2.5">함께 신청하면 좋아요</p>
+                    <p className="text-sm text-gray-400 mb-2.5">함께 신청하면 좋아요</p>
                     <div className="flex flex-col gap-2">
                       {detail.reportData.relatedIds.map((relId) => {
                         const rel = MOCK_POLICIES.find((p) => p.id === relId);
@@ -395,8 +397,8 @@ export default function PolicyDetail() {
                               </svg>
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-gray-800 line-clamp-1">{rel.title}</p>
-                              <p className="text-xs text-primary-500 mt-0.5">{rel.agency}</p>
+                              <p className="text-sm font-semibold text-gray-800 line-clamp-1">{rel.title}</p>
+                              <p className="text-sm text-primary-500 mt-0.5">{rel.agency}</p>
                             </div>
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
                               <polyline points="9 18 15 12 9 6"/>
@@ -415,8 +417,20 @@ export default function PolicyDetail() {
                       <polyline points="20 6 9 17 4 12"/>
                     </svg>
                   </div>
-                  <p className="text-xs text-green-700 leading-5">리포트가 저장되었어요! 리포트 모아보기에서 언제든 확인할 수 있어요.</p>
+                  <p className="text-sm text-green-700 leading-6">리포트가 저장되었어요! 리포트 모아보기에서 언제든 확인할 수 있어요.</p>
                 </div>
+
+                {/* 신청 준비하기 버튼 */}
+                <Link
+                  to={`/policies/${policyId}/checklist`}
+                  className="w-full flex items-center justify-center gap-1.5 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 py-3 rounded-xl transition-colors"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 11l3 3L22 4"/>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                  </svg>
+                  신청 준비하기
+                </Link>
 
                 {/* 리포트 모아보기 버튼 */}
                 <Link
