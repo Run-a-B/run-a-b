@@ -21,6 +21,11 @@ public enum ErrorCode {
     USER_NOT_FOUND("USER_NOT_FOUND", 401, "등록되지 않은 이메일입니다"),
     WRONG_PASSWORD("WRONG_PASSWORD", 401, "비밀번호가 올바르지 않습니다"),
     GOOGLE_AUTH_FAILED("GOOGLE_AUTH_FAILED", 401, "구글 인증에 실패했습니다"),
+    // ErrorCode.java enum에 추가
+
+    CURRENT_PASSWORD_REQUIRED("CURRENT_PASSWORD_REQUIRED", 400, "현재 비밀번호를 입력해주세요"),
+    BUSINESS_INFO_NOT_FOUND("BUSINESS_INFO_NOT_FOUND", 404, "사업 정보를 찾을 수 없습니다"),
+
 
     // 비즈니스일때
     BUSINESS_FIELD_NOT_ALLOWED("BUSINESS_FIELD_NOT_ALLOWED", 400, "사업 준비중 상태에서 매출/직원수는 입력할 수 없습니다"),
