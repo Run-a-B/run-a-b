@@ -24,6 +24,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final BusinessFieldConverter converter;
+    private final EmailService emailService;
 
     // ===== 1) 회원가입 1단계 =====
     @Transactional
@@ -36,6 +37,11 @@ public class AuthService {
         // 1-2) 이메일 중복 체크
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
+        }
+
+        // 1-2.5) 이메일 인증 여부 확인
+        if (!emailService.isVerified(request.getEmail())) {
+            throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
 
         // 1-3) 비밀번호 해싱 후 User 저장
