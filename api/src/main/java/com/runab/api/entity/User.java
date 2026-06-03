@@ -21,6 +21,10 @@ public class User {
     @Column
     private Integer age;
 
+    public void changeAge(Integer newAge){
+        this.age = newAge;
+    }
+
     @Column(nullable = false, unique = true, length = 100)
     private String email;
 
