@@ -30,7 +30,7 @@ public enum ErrorCode {
     VERIFICATION_NOT_FOUND("VERIFICATION_NOT_FOUND", 404, "인증 요청을 찾을 수 없습니다"),
     VERIFICATION_FAILED("VERIFICATION_FAILED", 400, "인증 코드가 올바르지 않거나 만료되었습니다"),
     EMAIL_NOT_VERIFIED("EMAIL_NOT_VERIFIED", 400, "이메일 인증이 필요합니다"),
-    
+
 
     // 비즈니스일때
     BUSINESS_FIELD_NOT_ALLOWED("BUSINESS_FIELD_NOT_ALLOWED", 400, "사업 준비중 상태에서 매출/직원수는 입력할 수 없습니다"),

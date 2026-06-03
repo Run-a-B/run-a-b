@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import api from "@/lib/api";
+import { useEffect } from "react";
 
 const INDUSTRY_OPTIONS = [
   "음식점업 (한식·양식·중식 등)", "카페/음료", "의류/패션", "뷰티/미용",
@@ -52,18 +54,43 @@ function SelectField({ value, onChange, placeholder, options, disabled }: {
 
 export default function MyBusinessPage() {
   const { user, login } = useAuth();
-
   const [status, setStatus] = useState("사업 중");
   const [industry, setIndustry] = useState(user?.industry ?? "");
   const [region, setRegion] = useState(user?.region ?? "");
   const [revenue, setRevenue] = useState("");
   const [employees, setEmployees] = useState("");
 
+  useEffect(() => {
+    api.get("/api/v1/users/me/business")
+      .then(res => {
+        const b = res.data.data;
+        setStatus(b.businessStatus ? "사업 중" : "사업 준비 중");
+        setIndustry(b.jobCategory ?? "");
+        setRegion(b.region ?? "");
+        setRevenue(b.annualRevenue ?? "");
+        setEmployees(b.employeeCount ?? "");
+      })
+      .catch(() => {});
+  }, []);
+
   const isRunning = status === "사업 중";
 
-  function handleSave() {
+  async function handleSave() {
     if (!user) return;
-    login({ ...user, industry, region });
+    try {
+      const res = await api.patch("/api/v1/users/me/business", {
+        businessStatus: status === "사업 중",
+        jobCategory: industry,
+        region: region,
+        annualRevenue: revenue || null,
+        employeeCount: employees || null,
+      });
+      const b = res.data.data;
+      login({ ...user, industry: b.jobCategory, region: b.region });
+      alert("사업 정보가 저장되었어요");
+    } catch (err: any) {
+      alert(err.response?.data?.message || "저장에 실패했어요");
+    }
   }
 
   function handleCancel() {
