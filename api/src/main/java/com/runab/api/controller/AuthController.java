@@ -3,6 +3,7 @@ package com.runab.api.controller;
 import com.runab.api.dto.auth.*;
 import com.runab.api.dto.common.ApiResponse;
 import com.runab.api.service.AuthService;
+import com.runab.api.service.GoogleAuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
     private final AuthService authService;
+    private final GoogleAuthService googleAuthService;
 
     //  회원가입 1단계
     @PostMapping("/signup")
@@ -43,10 +45,18 @@ public class AuthController {
         return ApiResponse.success(response, "로그인 성공");
     }
 
+    // 구글 로그인
+    @PostMapping("/google")
+    public ApiResponse<LoginResponse> googleLogin(@Valid @RequestBody GoogleLoginRequest request) {
+        return ApiResponse.success(googleAuthService.googleLogin(request), "구글 로그인 성공");
+    }
+
     //  로그아웃
     @PostMapping("/logout")
     public ApiResponse<Void> logout() {
         authService.logout();
         return ApiResponse.success("로그아웃 되었습니다");
     }
+
+
 }
