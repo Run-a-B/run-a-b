@@ -1,24 +1,51 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import api from "@/lib/api";
+import { useGoogleLogin } from "@react-oauth/google";
 
 export default function Login(){
   const [showPassword, setShowPassword] = useState(false);
   const [saveEmail, setSaveEmail] = useState(false);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  function handleSubmit(e: React.SyntheticEvent) {
+  async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
-    login({
-      name: email.split("@")[0] || "사용자",
-      email,
-      industry: "음식업",
-      region: "서울",
-    });
-    navigate("/mypage");
+    try {
+      const res = await api.post("/api/v1/auth/login", {
+        email,
+        password,
+      });
+      const { access_token, user } = res.data.data;
+      localStorage.setItem("access_token", access_token);
+      login(user);
+      navigate("/mypage");
+    } catch (err: any) {
+      alert(err.response?.data?.message || "로그인에 실패했어요");
+    }
   }
+
+  const googleLogin = useGoogleLogin({
+    flow: "implicit",
+    onSuccess: async (tokenResponse) => {
+      try {
+        // 구글 access_token으로 유저정보 받아서 id_token 대신 처리
+        const res = await api.post("/api/v1/auth/google", {
+          id_token: tokenResponse.access_token,
+        });
+        const { access_token, user } = res.data.data;
+        localStorage.setItem("access_token", access_token);
+        login(user);
+        navigate("/mypage");
+      } catch (err: any) {
+        alert(err.response?.data?.message || "구글 로그인에 실패했어요");
+      }
+    },
+    onError: () => alert("구글 로그인에 실패했어요"),
+  });
 
   return(
     <div className="bg-primary-100 min-h-screen pt-25 flex flex-col items-center">
@@ -39,6 +66,8 @@ export default function Login(){
               type={showPassword ? "text" : "password"}
               name="password"
               id="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
               placeholder="비밀번호를 입력해 주세요"
               className="border border-gray-300 rounded-xl px-4 py-3 w-full pr-12 hover:border-primary-500"
             />
@@ -81,7 +110,7 @@ export default function Login(){
             <hr className="flex-1 border-gray-200" />
           </div>
 
-          <button type="button" className="flex items-center justify-center gap-3 mt-4 border border-gray-200 rounded-xl py-3 hover:bg-gray-50 transition-colors duration-150">
+          <button type="button" onClick={() => googleLogin()} className="flex items-center justify-center gap-3 mt-4 border border-gray-200 rounded-xl py-3 hover:bg-gray-50 transition-colors duration-150">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48">
               <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
               <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>

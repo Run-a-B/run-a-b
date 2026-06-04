@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
+import api from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+
+
 
 const EyeIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -19,18 +22,30 @@ const EyeOffIcon = () => (
 const PASSWORD_REGEX = /^[A-Za-z0-9!@$*]{6,}$/;
 
 export default function MyInfoPage() {
-  const { user, login } = useAuth();
 
+  const { user, login } = useAuth();
   const [name, setName] = useState(user?.name ?? "");
   const [age, setAge] = useState(user?.age ? String(user.age) : "");
   const [saved, setSaved] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
 
   useEffect(() => {
+    api.get("/api/v1/users/me")
+      .then(res => {
+        const me = res.data.data;
+        setName(me.name ?? "");
+        setAge(me.age ? String(me.age) : "");
+        login({ ...user!, name: me.name, age: me.age, email: me.email });
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (!saved) return;
     const t = setTimeout(() => setSaved(false), 2500);
     return () => clearTimeout(t);
   }, [saved]);
+
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -43,12 +58,27 @@ export default function MyInfoPage() {
     ? "비밀번호가 일치하지 않아요"
     : "";
 
-  function handleSave() {
+  async function handleSave() {
     if (!user) return;
-    login({ ...user, name, age: age ? Number(age) : undefined });
-    setPw({ current: "", next: "", confirm: "" });
-    setIsPasswordOpen(false);
-    setSaved(true);
+    try {
+      const body: any = {
+        name,
+        age: age ? Number(age) : null,
+      };
+      // 비밀번호 변경하는 경우만 포함
+      if (pw.next) {
+        body.currentPassword = pw.current;
+        body.newPassword = pw.next;
+      }
+      const res = await api.patch("/api/v1/users/me", body);
+      const me = res.data.data;
+      login({ ...user, name: me.name, age: me.age });
+      setPw({ current: "", next: "", confirm: "" });
+      setIsPasswordOpen(false);
+      setSaved(true);
+    } catch (err: any) {
+      alert(err.response?.data?.message || "저장에 실패했어요");
+    }
   }
 
   function handleCancel() {

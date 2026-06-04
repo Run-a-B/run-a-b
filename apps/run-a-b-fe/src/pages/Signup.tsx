@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import api from "@/lib/api";
 
 const EyeIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -110,26 +111,32 @@ export default function Signup() {
     setTimeout(() => digitRefs.current[0]?.focus(), 50);
   }
 
-  function handleStep1Submit(e: React.SyntheticEvent) {
+  async function handleStep1Submit(e: React.SyntheticEvent) {
     e.preventDefault();
     setTouched({ name: true, email: true, age: true, password: true, confirmPassword: true });
     if (!step1Valid) return;
-    const code = generateCode();
-    setMockCode(code);
-    resetDigits();
-    setCodeError("");
-    startCooldown();
-    setStep(2);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    try {
+      await api.post("/api/v1/auth/email/send", { email: form.email });
+      resetDigits();
+      setCodeError("");
+      startCooldown();
+      setStep(2);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err: any) {
+      alert(err.response?.data?.message || "인증 코드 발송에 실패했어요");
+    }
   }
 
-  function handleResend() {
+  async function handleResend() {
     if (cooldown > 0) return;
-    const code = generateCode();
-    setMockCode(code);
-    resetDigits();
-    setCodeError("");
-    startCooldown();
+    try {
+      await api.post("/api/v1/auth/email/send", { email: form.email });
+      resetDigits();
+      setCodeError("");
+      startCooldown();
+    } catch (err: any) {
+      alert(err.response?.data?.message || "재발송에 실패했어요");
+    }
   }
 
   function handleDigitChange(index: number, value: string) {
@@ -156,15 +163,19 @@ export default function Signup() {
     digitRefs.current[Math.min(pasted.length, 5)]?.focus();
   }
 
-  function handleVerifySubmit(e: React.SyntheticEvent) {
+  async function handleVerifySubmit(e: React.SyntheticEvent) {
     e.preventDefault();
-    if (digits.join("") !== mockCode) {
-      setCodeError("인증 코드가 올바르지 않아요");
-      return;
+    try {
+      await api.post("/api/v1/auth/email/verify", {
+        email: form.email,
+        code: digits.join(""),
+      });
+      setCodeError("");
+      setStep(3);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err: any) {
+      setCodeError(err.response?.data?.message || "인증 코드가 올바르지 않아요");
     }
-    setCodeError("");
-    setStep(3);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
@@ -177,17 +188,42 @@ export default function Signup() {
     setBiz(prev => ({ ...prev, [field]: value }));
   }
 
-  function handleFinalSubmit(e: React.SyntheticEvent) {
+  async function handleFinalSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
     if (!step3Valid) return;
-    login({
-      name: form.name,
-      email: form.email,
-      age: form.age ? Number(form.age) : undefined,
-      industry: biz.industry,
-      region: biz.region,
-    });
-    navigate("/mypage");
+    try {
+      // 1단계: 회원가입 (TEMP 토큰 받음)
+      const signupRes = await api.post("/api/v1/auth/signup", {
+        name: form.name,
+        email: form.email,
+        age: form.age ? Number(form.age) : null,
+        password: form.password,
+        passwordConfirm: form.confirmPassword,
+      });
+      const tempToken = signupRes.data.data.temp_token;
+
+      // 2단계: 사업 정보 등록 (TEMP 토큰 헤더로, ACCESS 토큰 받음)
+      const bizRes = await api.post(
+        "/api/v1/auth/signup/business",
+        {
+          businessStatus: biz.status === "사업 중",
+          jobCategory: biz.industry,
+          region: biz.region,
+          annualRevenue: biz.revenue || null,
+          employeeCount: biz.employees || null,
+        },
+        { headers: { Authorization: `Bearer ${tempToken}` } }
+      );
+
+      // ACCESS 토큰 저장 + 유저 정보 세팅
+      const { access_token, user } = bizRes.data.data;
+      localStorage.setItem("access_token", access_token);
+      login(user);
+
+      navigate("/mypage");
+    } catch (err: any) {
+      alert(err.response?.data?.message || "회원가입에 실패했어요");
+    }
   }
 
   // ── Step indicator ─────────────────────────────────────────────────
