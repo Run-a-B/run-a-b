@@ -50,7 +50,10 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/auth/signup",
                                 "/api/v1/auth/login",
+                                "/api/v1/auth/email/send",
+                                "/api/v1/auth/email/verify",
                                 "/api/v1/auth/google"
+
                         ).permitAll() //누가 접근 가능한지를 봄
 
                         // 회원가입 2단계: TEMP 토큰 가진 사람만함
