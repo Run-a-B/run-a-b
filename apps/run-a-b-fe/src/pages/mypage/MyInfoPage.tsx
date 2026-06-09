@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -24,6 +25,7 @@ const PASSWORD_REGEX = /^[A-Za-z0-9!@$*]{6,}$/;
 export default function MyInfoPage() {
 
   const { user, login } = useAuth();
+  const navigate = useNavigate();
   const [name, setName] = useState(user?.name ?? "");
   const [age, setAge] = useState(user?.age ? String(user.age) : "");
   const [saved, setSaved] = useState(false);
@@ -86,6 +88,24 @@ export default function MyInfoPage() {
     setAge(user?.age ? String(user.age) : "");
     setPw({ current: "", next: "", confirm: "" });
     setIsPasswordOpen(false);
+  }
+
+  // 계정 삭제 (회원 탈퇴)
+  async function handleDeleteAccount() {
+    // 1단계 확인 — 실수 방지
+    const ok = window.confirm(
+      "정말 계정을 삭제하시겠어요?\n모든 리포트와 저장된 정보가 사라지며, 되돌릴 수 없어요.");
+    if (!ok) return;
+
+    try {
+      await api.delete("/api/v1/users/me");
+      // 토큰 제거 후 로그인 페이지로
+      localStorage.removeItem("access_token");
+      alert("계정이 삭제되었어요. 그동안 이용해 주셔서 감사합니다. ^^ ");
+      navigate("/login");
+    } catch (err: any) {
+      alert(err.response?.data?.message || "계정 삭제에 실패했어요");
+    }
   }
 
   const inputBase = "w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-primary-500 hover:border-primary-400 transition-colors text-sm";
@@ -272,7 +292,9 @@ export default function MyInfoPage() {
           <p className="font-semibold text-red-500 text-sm">위험 구역</p>
         </div>
         <p className="text-xs text-gray-500 mb-3">계정을 삭제하면 모든 리포트, 저장된 정책 정보가 영구적으로 삭제돼요. 이 작업은 되돌릴 수 없어요.</p>
-        <button className="text-sm font-semibold text-red-500 border border-red-300 px-4 py-2 rounded-full hover:bg-red-100 transition-colors">
+        <button 
+        onClick={handleDeleteAccount}
+        className="text-sm font-semibold text-red-500 border border-red-300 px-4 py-2 rounded-full hover:bg-red-100 transition-colors">
           계정 삭제
         </button>
       </section>

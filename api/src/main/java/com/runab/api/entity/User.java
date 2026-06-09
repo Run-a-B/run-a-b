@@ -47,6 +47,12 @@ public class User {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(nullable = false)
+    private boolean deleted = false;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     //--------------------------------------------------------------------------------------------------------
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
@@ -84,5 +90,11 @@ public class User {
     // 비즈니스 매서드: 유저명 변경
     public void changeUsername(String newUsername){
         this.username = newUsername;
+    }
+
+    // 비즈니스 메서드: 회원 탈퇴 (soft delete)
+    public void softDelete() {
+        this.deleted = true;
+        this.deletedAt = LocalDateTime.now();
     }
 }

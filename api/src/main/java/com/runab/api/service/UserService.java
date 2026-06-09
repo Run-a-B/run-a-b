@@ -99,6 +99,14 @@ public class UserService {
         return BusinessInfoResponse.from(info, revenueText, employeeText);
     }
 
+    // ===== 5) 회원 탈퇴 (soft delete) =====
+    @Transactional
+    public void deleteMyAccount(Long userId) {
+        User user = findUser(userId);
+        user.softDelete();
+    }
+
+
     // ===== 공통: 사용자 조회 =====
     private User findUser(Long userId) {
         return userRepository.findById(userId)
