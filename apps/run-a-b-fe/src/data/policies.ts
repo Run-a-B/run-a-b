@@ -38,6 +38,112 @@ export interface PolicyDetailData {
   applicationUrl: string;
 }
 
+// 유저 지역(단축) → 정책 지역(풀네임) 매핑
+const REGION_MAP: Record<string, string> = {
+  "서울": "서울특별시", "부산": "부산광역시", "대구": "대구광역시",
+  "인천": "인천광역시", "광주": "광주광역시", "대전": "대전광역시",
+  "울산": "울산광역시", "세종": "세종특별자치시", "경기": "경기도",
+  "강원": "강원도", "충북": "충청북도", "충남": "충청남도",
+  "전북": "전라북도", "전남": "전라남도", "경북": "경상북도",
+  "경남": "경상남도", "제주": "제주도",
+};
+
+// 수도권 인접 그룹
+const METRO = new Set(["서울특별시", "경기도", "인천광역시"]);
+
+// 유저 업종 → 정책 업종 정확 일치 매핑
+const INDUSTRY_EXACT: Record<string, string> = {
+  "음식점": "음식점업",
+  "도소매": "도소매업",
+};
+
+// 유저 업종 → 정책 업종 유사 매핑
+const INDUSTRY_SIMILAR: Record<string, string> = {
+  "카페/베이커리": "음식점업",
+  "의류/패션": "도소매업",
+  "뷰티/미용": "도소매업",
+};
+
+interface UserInfo {
+  industry: string;
+  region: string;
+  bizStatus?: string;
+  revenue?: string;
+  employees?: string;
+}
+
+export function calcRelevance(policy: Policy, user: UserInfo | null): number {
+  // 비로그인 시 하드코딩값 그대로
+  if (!user) return policy.relevance;
+
+  let score = 0;
+
+  // ① 지역 적합도 (0~30)
+  const userRegion = REGION_MAP[user.region] ?? user.region;
+  if (policy.region === "전국") {
+    score += 22;
+  } else if (policy.region === userRegion) {
+    score += 30;
+  } else if (METRO.has(policy.region) && METRO.has(userRegion)) {
+    score += 10;
+  }
+
+  // ② 업종 적합도 (0~30)
+  const exactMatch = INDUSTRY_EXACT[user.industry];
+  const similarMatch = INDUSTRY_SIMILAR[user.industry];
+  if (policy.industry === "전체") {
+    score += 15;
+  } else if (exactMatch && policy.industry === exactMatch) {
+    score += 30;
+  } else if (similarMatch && policy.industry === similarMatch) {
+    score += 20;
+  }
+
+  // ③ 사업 상태 × 카테고리 적합도 (0~20)
+  const fc = policy.filterCategory;
+  const cat = policy.category;
+  const isRunning = (user.bizStatus ?? "사업 중") === "사업 중";
+
+  if (!isRunning) {
+    // 사업 준비 중
+    if (fc === "창업 지원") score += 20;
+    else if (fc === "자금 지원") score += 12;
+    else score += 5;
+  } else {
+    // 사업 중
+    if (["인건비 지원", "세금 감면", "임차료 지원", "자금 지원"].includes(fc)) score += 20;
+    else if (cat === "디지털" || cat === "교육") score += 15;
+    else if (fc === "창업 지원") score += 5;
+    else score += 10;
+  }
+
+  // ④ 직원 수 × 카테고리 적합도 (0~10)
+  const emp = user.employees;
+  const hasEmployees = emp && emp !== "없음 (나 혼자)";
+  if (fc === "인건비 지원") {
+    score += hasEmployees ? 10 : 0;
+  } else {
+    score += 5; // 중립
+  }
+
+  // ⑤ 매출 × 카테고리 적합도 (0~5)
+  const rev = user.revenue;
+  if (!rev) {
+    score += 2;
+  } else if (fc === "세금 감면" && (rev === "1억 미만" || rev === "1억~3억")) {
+    score += 5;
+  } else if (fc === "자금 지원") {
+    score += 3;
+  } else {
+    score += 2;
+  }
+
+  // ⑥ AI 추천 보정 승수
+  const multiplier = policy.isAIRecommended ? 1.12 : 1.0;
+
+  return Math.min(99, Math.round(score * multiplier));
+}
+
 export const MOCK_POLICIES: Policy[] = [
   {
     id: 1,

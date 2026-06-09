@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import Dropdown from "@/components/common/Dropdown";
 import { useNavigate } from "react-router-dom";
-import { MOCK_POLICIES, type Policy } from "@/data/policies";
+import { MOCK_POLICIES, calcRelevance, type Policy } from "@/data/policies";
 import { getVisitedPolicies } from "@/data/visited";
+import { useAuth } from "@/contexts/AuthContext";
 
 const REGIONS = ["전체 지역", "서울특별시", "부산광역시", "대구광역시", "인천광역시", "경기도", "강원도", "충청남도", "전라남도", "경상남도", "제주도"];
 const INDUSTRIES = ["전체 업종", "음식점업", "카페/음료", "의류/패션", "뷰티/미용", "교육/학원", "IT/소프트웨어", "제조업", "도소매업"];
@@ -23,7 +24,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const PER_PAGE = 6;
 
-function PolicyCard({ policy, visited }: { policy: Policy; visited: boolean }) {
+function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
 
@@ -64,9 +65,9 @@ function PolicyCard({ policy, visited }: { policy: Policy; visited: boolean }) {
       <div className="flex items-end justify-between pt-1">
         <div className="flex items-center gap-2">
           <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary-500 rounded-full" style={{ width: `${policy.relevance}%` }} />
+            <div className="h-full bg-primary-500 rounded-full" style={{ width: `${relevance}%` }} />
           </div>
-          <span className="text-xs font-medium text-primary-600">관련도 {policy.relevance}%</span>
+          <span className="text-xs font-medium text-primary-600">관련도 {relevance}%</span>
         </div>
         <div className="text-right">
           <p className="text-xs text-gray-500">{policy.agency}</p>
@@ -77,14 +78,14 @@ function PolicyCard({ policy, visited }: { policy: Policy; visited: boolean }) {
   );
 }
 
-function PolicyListItem({ policy }: { policy: Policy }) {
+function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
 
   return (
     <div
       onClick={() => navigate(`/policies/${policy.id}`)}
-      className="bg-white rounded-2xl border border-gray-200 px-6 py-4 flex items-center gap-5 hover:shadow-md transition-shadow cursor-pointer"
+      className={`rounded-2xl border px-6 py-4 flex items-center gap-5 hover:shadow-md transition-shadow cursor-pointer ${visited ? "bg-gray-50 border-gray-100" : "bg-white border-gray-200"}`}
     >
       <div className="flex flex-col gap-2 flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -99,6 +100,15 @@ function PolicyListItem({ policy }: { policy: Policy }) {
               AI 추천
             </span>
           )}
+          {visited && (
+            <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              읽음
+            </span>
+          )}
           <span className="text-xs text-gray-400 ml-auto shrink-0">{policy.date}</span>
         </div>
         <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-1">{policy.title}</h3>
@@ -108,9 +118,9 @@ function PolicyListItem({ policy }: { policy: Policy }) {
       <div className="flex items-center gap-4 shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary-500 rounded-full" style={{ width: `${policy.relevance}%` }} />
+            <div className="h-full bg-primary-500 rounded-full" style={{ width: `${relevance}%` }} />
           </div>
-          <span className="text-xs font-medium text-primary-600 w-16">관련도 {policy.relevance}%</span>
+          <span className="text-xs font-medium text-primary-600 w-16">관련도 {relevance}%</span>
         </div>
         <span className="text-xs text-gray-500 w-20 text-right">{policy.agency}</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
@@ -122,6 +132,7 @@ function PolicyListItem({ policy }: { policy: Policy }) {
 }
 
 export default function Policies() {
+  const { user } = useAuth();
   const [region, setRegion] = useState("전체 지역");
   const [industry, setIndustry] = useState("전체 업종");
   const [category, setCategory] = useState("전체 카테고리");
@@ -158,7 +169,7 @@ export default function Policies() {
   });
 
   const sorted = [...filtered].sort((a, b) => {
-    if (sort === "관련도 높은순") return b.relevance - a.relevance;
+    if (sort === "관련도 높은순") return calcRelevance(b, user) - calcRelevance(a, user);
     if (sort === "최신순") return b.date.localeCompare(a.date);
     if (sort === "마감임박순") return a.date.localeCompare(b.date);
     return 0;
@@ -249,13 +260,13 @@ export default function Policies() {
             {viewMode === "grid" ? (
               <div className="grid grid-cols-3 gap-4">
                 {paged.map(policy => (
-                  <PolicyCard key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} />
+                  <PolicyCard key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={calcRelevance(policy, user)} />
                 ))}
               </div>
             ) : (
               <div className="flex flex-col gap-3">
                 {paged.map(policy => (
-                  <PolicyListItem key={policy.id} policy={policy} />
+                  <PolicyListItem key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={calcRelevance(policy, user)} />
                 ))}
               </div>
             )}
