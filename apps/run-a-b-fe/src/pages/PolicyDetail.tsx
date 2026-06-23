@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { MOCK_POLICIES, POLICY_DETAILS } from "@/data/policies";
+import api from "@/lib/api";
 import { saveReport, getSavedReports } from "@/data/reports";
 import { markPolicyVisited } from "@/data/visited";
 
@@ -28,15 +28,14 @@ const HIGHLIGHT_ICONS: Record<string, React.ReactNode> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  최저임금: "bg-gray-100 text-gray-600",
-  "노동·복지": "bg-blue-100 text-blue-700",
-  "대출·자금": "bg-indigo-100 text-indigo-700",
-  에너지: "bg-orange-100 text-orange-700",
-  디지털: "bg-violet-100 text-violet-700",
-  세금: "bg-green-100 text-green-700",
-  창업지원: "bg-emerald-100 text-emerald-700",
-  임차료: "bg-pink-100 text-pink-700",
-  교육: "bg-sky-100 text-sky-700",
+  "기술": "bg-violet-100 text-violet-700",
+  "금융": "bg-indigo-100 text-indigo-700",
+  "인력": "bg-blue-100 text-blue-700",
+  "경영": "bg-emerald-100 text-emerald-700",
+  "창업": "bg-orange-100 text-orange-700",
+  "수출": "bg-sky-100 text-sky-700",
+  "내수": "bg-teal-100 text-teal-700",
+  "기타": "bg-gray-100 text-gray-600",
 };
 
 const TAG_COLORS = [
@@ -47,54 +46,114 @@ const TAG_COLORS = [
   "bg-orange-50 text-orange-700",
 ];
 
+interface ApiDetail {
+  id: number;
+  title: string;
+  description: string | null;
+  date: string | null;
+  announcementNo: string | null;
+  department: string | null;
+  applicationPeriod: string | null;
+  supportScale: string | null;
+  targetGroup: string | null;
+  purposeText: string | null;
+  applicationMethod: string | null;
+  applicationUrl: string | null;
+  detailUrl: string | null;
+  category: string;
+  region: string;
+  industry: string;
+  agency: string;
+}
+
+// AI/미구현 필드 기본값 — AI 연동 후 API 응답으로 교체 예정
+const AI_DEFAULTS = {
+  tags: [] as string[],
+  targetConditions: [] as string[],
+  exclusions: [] as string[],
+  supportItems: [] as { category: string; amount: string; method: string }[],
+  aiSummaryText: "AI 요약 기능이 준비 중이에요. 곧 이 정책에 대한 맞춤 요약을 제공할 예정입니다.",
+  aiHighlights: [] as { icon: string; label: string; content: string }[],
+  businessImpact: [] as { label: string; level: number; direction: "up" | "down"; tag: string; barColor: string; tagColor: string }[],
+  reportData: {
+    impactLabel: "분석 준비 중",
+    impactStyle: "bg-gray-100 text-gray-600",
+    summary: "AI 분석이 준비 중입니다.",
+    details: [] as string[],
+    relatedIds: [] as number[],
+  },
+  applicationChecklist: [] as { id: string; label: string; required: boolean; description?: string }[],
+};
+
 export default function PolicyDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const policyId = Number(id);
+
+  const [apiDetail, setApiDetail] = useState<ApiDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [reportState, setReportState] = useState<"idle" | "loading" | "done">(() =>
     getSavedReports().some((r) => r.policyId === policyId) ? "done" : "idle"
   );
 
-  const policy = MOCK_POLICIES.find((p) => p.id === policyId);
-  const detail = POLICY_DETAILS[policyId];
-
   useEffect(() => {
-    if (policy) markPolicyVisited(policyId);
-  }, [policyId, policy]);
+    setLoading(true);
+    setNotFound(false);
+    api.get(`/api/v1/policies/${policyId}`)
+      .then(res => {
+        const data: ApiDetail = res.data.data;
+        setApiDetail(data);
+        markPolicyVisited(policyId);
+      })
+      .catch(err => {
+        if (err.response?.status === 404) setNotFound(true);
+      })
+      .finally(() => setLoading(false));
+  }, [policyId]);
 
   function handleGenerateReport() {
+    if (!apiDetail) return;
     setReportState("loading");
     setTimeout(() => {
-      if (policy && detail) {
-        saveReport({
-          policyId: policy.id,
-          policyTitle: policy.title,
-          impactLabel: detail.reportData.impactLabel,
-          impactStyle: detail.reportData.impactStyle,
-          summary: detail.reportData.summary,
-          details: detail.reportData.details,
-          relatedIds: detail.reportData.relatedIds,
-        });
-      }
+      saveReport({
+        policyId: apiDetail.id,
+        policyTitle: apiDetail.title,
+        impactLabel: AI_DEFAULTS.reportData.impactLabel,
+        impactStyle: AI_DEFAULTS.reportData.impactStyle,
+        summary: AI_DEFAULTS.reportData.summary,
+        details: AI_DEFAULTS.reportData.details,
+        relatedIds: AI_DEFAULTS.reportData.relatedIds,
+      });
       setReportState("done");
     }, 1600);
   }
 
-  if (!policy || !detail) {
+  if (loading) {
+    return (
+      <div className="bg-gray-50 min-h-screen pt-15 px-40 py-8">
+        <div className="flex flex-col gap-4 animate-pulse">
+          <div className="w-48 h-4 bg-gray-200 rounded" />
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 flex flex-col gap-4">
+            <div className="w-3/4 h-7 bg-gray-200 rounded" />
+            <div className="w-full h-4 bg-gray-100 rounded" />
+            <div className="w-2/3 h-4 bg-gray-100 rounded" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (notFound || !apiDetail) {
     return (
       <div className="flex flex-col items-center justify-center py-40 text-gray-400">
         <p className="text-lg font-semibold mb-2">정책을 찾을 수 없어요</p>
-        <button
-          onClick={() => navigate("/policies")}
-          className="mt-4 text-sm text-primary-600 hover:underline"
-        >
+        <button onClick={() => navigate("/policies")} className="mt-4 text-sm text-primary-600 hover:underline">
           정책 목록으로 돌아가기
         </button>
       </div>
     );
   }
-
-  const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
 
   return (
     <div className="bg-gray-50 min-h-screen pt-15">
@@ -104,7 +163,7 @@ export default function PolicyDetail() {
           <span className="text-gray-300">›</span>
           <Link to="/policies" className="hover:text-gray-700 transition-colors">정책 모아보기</Link>
           <span className="text-gray-300">›</span>
-          <span className="text-gray-700 font-medium truncate max-w-xs">{policy.title}</span>
+          <span className="text-gray-700 font-medium truncate max-w-xs">{apiDetail.title}</span>
         </nav>
       </div>
 
@@ -112,7 +171,6 @@ export default function PolicyDetail() {
         {/* Left: Policy Document */}
         <div className="flex-1 min-w-0">
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            {/* Card header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-gray-700">정책 원문</span>
@@ -120,7 +178,7 @@ export default function PolicyDetail() {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => navigator.clipboard.writeText(policy.title)}
+                  onClick={() => navigator.clipboard.writeText(apiDetail.title)}
                   className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -129,104 +187,107 @@ export default function PolicyDetail() {
                   </svg>
                   복사
                 </button>
-                <button className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                    <polyline points="15 3 21 3 21 9"/>
-                    <line x1="10" y1="14" x2="21" y2="3"/>
-                  </svg>
-                  원문 링크
-                </button>
+                {(apiDetail.detailUrl || apiDetail.applicationUrl) ? (
+                  <a
+                    href={(apiDetail.detailUrl || apiDetail.applicationUrl)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs text-primary-600 border border-primary-200 bg-primary-50 rounded-lg px-3 py-1.5 hover:bg-primary-100 transition-colors font-medium"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                      <polyline points="15 3 21 3 21 9"/>
+                      <line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                    원문 공고 보기
+                  </a>
+                ) : null}
               </div>
             </div>
 
-            {/* Policy body */}
             <div className="px-6 py-6">
               {/* Tags */}
-              <div className="flex items-center gap-2 mb-4">
-                {detail.tags.map((tag, i) => (
-                  <span key={tag} className={`text-xs font-medium px-2.5 py-1 rounded-full ${TAG_COLORS[i % TAG_COLORS.length]}`}>
-                    {tag}
-                  </span>
-                ))}
-              </div>
+              {AI_DEFAULTS.tags.length > 0 && (
+                <div className="flex items-center gap-2 mb-4">
+                  {AI_DEFAULTS.tags.map((tag, i) => (
+                    <span key={tag} className={`text-xs font-medium px-2.5 py-1 rounded-full ${TAG_COLORS[i % TAG_COLORS.length]}`}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
 
-              {/* Title */}
-              <h1 className="text-2xl font-bold text-gray-900 leading-snug mb-6">{policy.title}</h1>
+              {/* Category + Title */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[apiDetail.category] ?? "bg-gray-100 text-gray-600"}`}>
+                  {apiDetail.category}
+                </span>
+                <span className="text-xs text-gray-400">{apiDetail.region}</span>
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900 leading-snug mb-6">{apiDetail.title}</h1>
 
               {/* Metadata grid */}
-              <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden text-base mb-8">
+              <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden text-sm mb-8">
                 {[
-                  { label: "담당 부서", value: detail.department },
-                  { label: "공고 번호", value: detail.announcementNo },
-                  { label: "공고일", value: policy.date },
-                  { label: "신청 기간", value: detail.applicationPeriod },
-                  { label: "지원 규모", value: detail.supportScale },
-                  { label: "지원 대상", value: detail.targetGroup },
+                  { label: "주관 기관", value: apiDetail.agency },
+                  { label: "지역", value: apiDetail.region },
+                  { label: "지원 분야", value: apiDetail.category },
+                  { label: "업종", value: apiDetail.industry },
+                  { label: "공고일", value: apiDetail.date ?? "-" },
+                  { label: "신청 기간", value: apiDetail.applicationPeriod || "-" },
                 ].map(({ label, value }, idx) => (
                   <div key={label} className={`flex px-4 py-3 ${idx < 4 ? "border-b border-gray-100" : ""} ${idx % 2 === 0 ? "border-r border-gray-100" : ""}`}>
-                    <span className="text-gray-500 w-24 shrink-0">{label}</span>
+                    <span className="text-gray-400 w-20 shrink-0">{label}</span>
                     <span className="text-gray-800 font-medium">{value}</span>
                   </div>
                 ))}
               </div>
 
-              {/* Section 1 */}
-              <section className="mb-6">
-                <h2 className="text-lg font-bold text-gray-900 mb-3">1. 사업 목적</h2>
-                <p className="text-base text-gray-700 leading-8">{detail.purposeText}</p>
-              </section>
-
-              {/* Section 2 */}
-              <section className="mb-6">
-                <h2 className="text-lg font-bold text-gray-900 mb-3">2. 지원 대상</h2>
-                <p className="text-base text-gray-600 mb-3">다음 각 호에 해당하는 사업장을 운영하는 사업주를 지원 대상으로 합니다.</p>
-                <ul className="space-y-2">
-                  {detail.targetConditions.map((cond) => (
-                    <li key={cond} className="flex items-start gap-2 text-base text-gray-700">
-                      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-primary-400 shrink-0" />
-                      {cond}
-                    </li>
-                  ))}
-                  {detail.exclusions.map((exc) => (
-                    <li key={exc} className="flex items-start gap-2 text-base text-gray-500">
-                      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-gray-300 shrink-0" />
-                      단, {exc}은 제외
-                    </li>
-                  ))}
-                </ul>
-              </section>
-
-              {/* Section 3 */}
-              <section className="mb-6">
-                <h2 className="text-lg font-bold text-gray-900 mb-3">3. 지원 내용</h2>
-                <div className="overflow-hidden rounded-xl border border-gray-200">
-                  <table className="w-full text-base">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="text-left px-4 py-3 font-semibold text-gray-600 w-1/3">구분</th>
-                        <th className="text-left px-4 py-3 font-semibold text-primary-600 w-1/3">지원 금액</th>
-                        <th className="text-left px-4 py-3 font-semibold text-gray-600 w-1/3">지원 방식</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.supportItems.map((item, idx) => (
-                        <tr key={item.category} className={idx < detail.supportItems.length - 1 ? "border-b border-gray-100" : ""}>
-                          <td className="px-4 py-3 text-gray-700">{item.category}</td>
-                          <td className="px-4 py-3 text-gray-800 font-medium">{item.amount}</td>
-                          <td className="px-4 py-3 text-gray-600">{item.method}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {/* 지원 대상 배지 */}
+              {apiDetail.targetGroup && (
+                <div className="flex items-center gap-2 mb-5">
+                  <span className="text-xs font-semibold text-gray-400 shrink-0">지원 대상</span>
+                  <span className="text-xs font-medium px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                    {apiDetail.targetGroup}
+                  </span>
                 </div>
-              </section>
+              )}
 
-              {/* Section 4 */}
-              <section>
-                <h2 className="text-lg font-bold text-gray-900 mb-3">4. 신청 방법</h2>
-                <p className="text-base text-gray-700 leading-8">{detail.applicationMethod}</p>
-              </section>
+              {/* 사업 내용 */}
+              {apiDetail.description && (
+                <section className="mb-6">
+                  <h2 className="text-lg font-bold text-gray-900 mb-3">사업 내용</h2>
+                  <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.description}</p>
+                </section>
+              )}
+
+              {/* 신청 방법 */}
+              {apiDetail.applicationMethod && (
+                <section className="mb-6">
+                  <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
+                  <p className="text-base text-gray-700 leading-8">{apiDetail.applicationMethod}</p>
+                </section>
+              )}
+
+              {/* 더 자세한 내용 안내 */}
+              {(apiDetail.detailUrl || apiDetail.applicationUrl) && (
+                <div className="mt-2 flex items-center gap-3 bg-primary-50 border border-primary-100 rounded-xl px-5 py-4">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <p className="text-sm text-gray-600 flex-1">더 자세한 내용은 원문 공고에서 확인할 수 있어요.</p>
+                  <a
+                    href={(apiDetail.detailUrl || apiDetail.applicationUrl)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 text-sm font-semibold text-primary-600 hover:underline"
+                  >
+                    원문 보기 →
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -244,28 +305,27 @@ export default function PolicyDetail() {
                 </div>
                 <span className="text-sm font-bold text-gray-800">AI 요약</span>
               </div>
-              <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-primary-600 border border-primary-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-primary-400 inline-block" />
-                AI 분석 완료
+              <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
+                준비 중
               </span>
             </div>
 
             <div className="px-5 py-4 flex flex-col gap-4">
-              <p className="text-sm text-gray-600 leading-7">{detail.aiSummaryText}</p>
-
-              {/* Highlights */}
-              <div className="flex flex-col gap-2">
-                {detail.aiHighlights.map((h) => (
-                  <div key={h.label} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
-                    <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
-                      <p className="text-sm text-gray-500 leading-6">{h.content}</p>
+              <p className="text-sm text-gray-500 leading-7">{AI_DEFAULTS.aiSummaryText}</p>
+              {AI_DEFAULTS.aiHighlights.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {AI_DEFAULTS.aiHighlights.map((h) => (
+                    <div key={h.label} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
+                      <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
+                        <p className="text-sm text-gray-500 leading-6">{h.content}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -281,7 +341,6 @@ export default function PolicyDetail() {
               )}
             </div>
 
-            {/* idle */}
             {reportState === "idle" && (
               <div className="px-5 py-6 flex flex-col items-center gap-3">
                 <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
@@ -309,7 +368,6 @@ export default function PolicyDetail() {
               </div>
             )}
 
-            {/* loading */}
             {reportState === "loading" && (
               <div className="px-5 py-10 flex flex-col items-center gap-4">
                 <div className="w-10 h-10 rounded-full border-[3px] border-primary-200 border-t-primary-600 animate-spin" />
@@ -320,97 +378,56 @@ export default function PolicyDetail() {
               </div>
             )}
 
-            {/* done */}
             {reportState === "done" && (
               <div className="px-5 py-5 flex flex-col gap-4">
-                {/* 영향 방향 */}
                 <div>
                   <p className="text-xs text-gray-400 mb-2">영향 방향</p>
-                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg ${detail.reportData.impactStyle}`}>
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg ${AI_DEFAULTS.reportData.impactStyle}`}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                       <polyline points="14 2 14 8 20 8"/>
                     </svg>
-                    {detail.reportData.impactLabel}
+                    {AI_DEFAULTS.reportData.impactLabel}
                   </span>
                 </div>
 
-                {/* 내 사업 영향도 */}
-                <div className="bg-primary-50 rounded-xl border border-primary-100 p-4">
-                  <p className="text-sm font-bold text-primary-600 mb-4">내 사업 영향도 미리보기</p>
-                  <div className="flex flex-col gap-3">
-                    {detail.businessImpact.map((item) => (
-                      <div key={item.label} className="flex items-center gap-3">
-                        <span className="text-sm text-gray-500 w-14 shrink-0">{item.label}</span>
-                        <div className="flex-1 h-2 bg-white rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${item.barColor}`}
-                            style={{ width: `${item.level}%` }}
-                          />
+                {AI_DEFAULTS.businessImpact.length > 0 && (
+                  <div className="bg-primary-50 rounded-xl border border-primary-100 p-4">
+                    <p className="text-sm font-bold text-primary-600 mb-4">내 사업 영향도 미리보기</p>
+                    <div className="flex flex-col gap-3">
+                      {AI_DEFAULTS.businessImpact.map((item) => (
+                        <div key={item.label} className="flex items-center gap-3">
+                          <span className="text-sm text-gray-500 w-14 shrink-0">{item.label}</span>
+                          <div className="flex-1 h-2 bg-white rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${item.barColor}`} style={{ width: `${item.level}%` }} />
+                          </div>
+                          <span className={`flex items-center gap-1 text-sm font-semibold shrink-0 whitespace-nowrap ${item.tagColor}`}>
+                            {item.direction === "up" ? (
+                              <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,1 9,9 1,9"/></svg>
+                            ) : (
+                              <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,9 9,1 1,1"/></svg>
+                            )}
+                            {item.tag}
+                          </span>
                         </div>
-                        <span className={`flex items-center gap-1 text-sm font-semibold shrink-0 whitespace-nowrap ${item.tagColor}`}>
-                          {item.direction === "up" ? (
-                            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,1 9,9 1,9"/></svg>
-                          ) : (
-                            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,9 9,1 1,1"/></svg>
-                          )}
-                          {item.tag}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 요약 */}
-                <p className="text-sm text-gray-700 leading-7">{detail.reportData.summary}</p>
-
-                {/* 상세 분석 */}
-                <div className="border-t border-gray-100 pt-4">
-                  <p className="text-sm text-gray-400 mb-2.5">상세 분석</p>
-                  <div className="flex flex-col gap-3">
-                    {detail.reportData.details.map((text, i) => (
-                      <p key={i} className="text-sm text-gray-600 leading-6">{text}</p>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 함께 신청하면 좋아요 */}
-                {detail.reportData.relatedIds.length > 0 && (
-                  <div className="border-t border-gray-100 pt-4">
-                    <p className="text-sm text-gray-400 mb-2.5">함께 신청하면 좋아요</p>
-                    <div className="flex flex-col gap-2">
-                      {detail.reportData.relatedIds.map((relId) => {
-                        const rel = MOCK_POLICIES.find((p) => p.id === relId);
-                        if (!rel) return null;
-                        return (
-                          <button
-                            key={relId}
-                            onClick={() => navigate(`/policies/${relId}`)}
-                            className="flex items-center gap-3 text-left bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-xl p-3 transition-colors"
-                          >
-                            <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                <polyline points="14 2 14 8 20 8"/>
-                                <line x1="16" y1="13" x2="8" y2="13"/>
-                                <line x1="16" y1="17" x2="8" y2="17"/>
-                              </svg>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-gray-800 line-clamp-1">{rel.title}</p>
-                              <p className="text-sm text-primary-500 mt-0.5">{rel.agency}</p>
-                            </div>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
-                              <polyline points="9 18 15 12 9 6"/>
-                            </svg>
-                          </button>
-                        );
-                      })}
+                      ))}
                     </div>
                   </div>
                 )}
 
-                {/* 저장 완료 배너 */}
+                <p className="text-sm text-gray-700 leading-7">{AI_DEFAULTS.reportData.summary}</p>
+
+                {AI_DEFAULTS.reportData.details.length > 0 && (
+                  <div className="border-t border-gray-100 pt-4">
+                    <p className="text-sm text-gray-400 mb-2.5">상세 분석</p>
+                    <div className="flex flex-col gap-3">
+                      {AI_DEFAULTS.reportData.details.map((text, i) => (
+                        <p key={i} className="text-sm text-gray-600 leading-6">{text}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-start gap-2 bg-green-50 border border-green-100 rounded-xl p-3">
                   <div className="w-5 h-5 rounded-full bg-green-400 flex items-center justify-center shrink-0 mt-0.5">
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
@@ -420,7 +437,6 @@ export default function PolicyDetail() {
                   <p className="text-sm text-green-700 leading-6">리포트가 저장되었어요! 리포트 모아보기에서 언제든 확인할 수 있어요.</p>
                 </div>
 
-                {/* 신청 준비하기 버튼 */}
                 <Link
                   to={`/policies/${policyId}/checklist`}
                   className="w-full flex items-center justify-center gap-1.5 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 py-3 rounded-xl transition-colors"
@@ -432,7 +448,6 @@ export default function PolicyDetail() {
                   신청 준비하기
                 </Link>
 
-                {/* 리포트 모아보기 버튼 */}
                 <Link
                   to="/reports"
                   className="w-full flex items-center justify-center gap-1.5 text-sm font-semibold text-gray-700 border border-gray-200 py-3 rounded-xl hover:bg-gray-50 transition-colors"
@@ -447,7 +462,6 @@ export default function PolicyDetail() {
             )}
           </div>
 
-          {/* Back link */}
           <button
             onClick={() => navigate(-1)}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors justify-center py-2"

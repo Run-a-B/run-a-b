@@ -55,14 +55,14 @@ public class PolicySyncService {
 
             String title = truncate(item.getPblancNm(), 500);
             String category = item.getPldirSportRealmLclasCodeNm();
-            String description = truncate(stripHtml(item.getBsnsSumryCn()), 1000);
+            String description = stripHtml(item.getBsnsSumryCn());
             String region = extractRegion(item.getHashtags());
             String agency = truncate(item.getJrsdInsttNm(), 100);
             LocalDate startDate = parsePeriod(item.getReqstBeginEndDe(), true);
             LocalDate endDate = parsePeriod(item.getReqstBeginEndDe(), false);
             LocalDate publishedDate = parseDate(item.getCreatPnttm());
             String targetGroup = truncate(item.getTrgetNm(), 200);
-            String applicationMethod = truncate(stripHtml(item.getReqstMthPapersCn()), 500);
+            String applicationMethod = stripHtml(item.getReqstMthPapersCn());
             String applicationUrl = fitUrl(item.getRceptEngnHmpgUrl(), 500);
             String detailUrl = fitUrl(toAbsoluteUrl(item.getPblancUrl()), 500);
 

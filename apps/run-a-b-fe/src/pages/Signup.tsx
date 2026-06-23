@@ -39,8 +39,60 @@ const REGION_OPTIONS = ["서울", "부산", "대구", "인천", "광주", "대�
 const REVENUE_OPTIONS = ["1억 미만", "1억~3억", "3억~5억", "5억~10억", "10억 이상"];
 const EMPLOYEE_OPTIONS = ["없음 (나 혼자)", "1~4명", "5~9명", "10~29명", "30명 이상"];
 
-function generateCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
+const STEPS = ["내 정보", "이메일 인증", "사업 정보"];
+
+function SelectField({ value, onChange, placeholder, options, disabled }: {
+  value: string; onChange: (v: string) => void; placeholder: string; options: string[]; disabled?: boolean;
+}) {
+  return (
+    <div className="relative mt-2">
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        disabled={disabled}
+        className={`w-full border rounded-xl px-4 py-3 appearance-none focus:outline-none transition-colors pr-10 ${
+          disabled
+            ? "bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed"
+            : value
+              ? "border-gray-300 text-gray-800 hover:border-primary-500 focus:border-primary-500"
+              : "border-gray-300 text-gray-400 hover:border-primary-500 focus:border-primary-500"
+        }`}
+      >
+        <option value="" disabled>{placeholder}</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"><ChevronIcon /></span>
+    </div>
+  );
+}
+
+function StepIndicator({ step }: { step: number }) {
+  return (
+    <div className="flex items-start mt-8 mb-6">
+      {STEPS.map((label, idx) => {
+        const num = idx + 1;
+        const done = step > num;
+        const active = step === num;
+        return (
+          <div key={label} className="flex items-start">
+            <div className="flex flex-col items-center">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
+                done ? "bg-primary-200 text-primary-600 border-2 border-primary-300"
+                  : active ? "bg-primary-600 text-white"
+                  : "bg-white border-2 border-gray-200 text-gray-400"
+              }`}>
+                {done ? <CheckIcon /> : num}
+              </div>
+              <span className={`text-xs mt-1.5 font-semibold ${active ? "text-primary-600" : "text-gray-400"}`}>{label}</span>
+            </div>
+            {idx < STEPS.length - 1 && (
+              <div className={`w-16 h-0.5 mt-5 mx-1 ${step > num ? "bg-primary-400" : "bg-gray-200"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function Signup() {
@@ -55,7 +107,7 @@ export default function Signup() {
   const [touched, setTouched] = useState({ name: false, email: false, age: false, password: false, confirmPassword: false });
 
   // Step 2 — 이메일 인증
-  const [mockCode, setMockCode] = useState("");
+  const [mockCode] = useState("");
   const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
   const [codeError, setCodeError] = useState("");
   const [cooldown, setCooldown] = useState(0);
@@ -226,62 +278,9 @@ export default function Signup() {
     }
   }
 
-  // ── Step indicator ─────────────────────────────────────────────────
-  const STEPS = ["내 정보", "이메일 인증", "사업 정보"];
-  const StepIndicator = () => (
-    <div className="flex items-start mt-8 mb-6">
-      {STEPS.map((label, idx) => {
-        const num = idx + 1;
-        const done = step > num;
-        const active = step === num;
-        return (
-          <div key={label} className="flex items-start">
-            <div className="flex flex-col items-center">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-colors ${
-                done ? "bg-primary-200 text-primary-600 border-2 border-primary-300"
-                  : active ? "bg-primary-600 text-white"
-                  : "bg-white border-2 border-gray-200 text-gray-400"
-              }`}>
-                {done ? <CheckIcon /> : num}
-              </div>
-              <span className={`text-xs mt-1.5 font-semibold ${active ? "text-primary-600" : "text-gray-400"}`}>{label}</span>
-            </div>
-            {idx < STEPS.length - 1 && (
-              <div className={`w-16 h-0.5 mt-5 mx-1 ${step > num ? "bg-primary-400" : "bg-gray-200"}`} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-
-  // ── Select component ───────────────────────────────────────────────
-  const SelectField = ({ value, onChange, placeholder, options, disabled }: {
-    value: string; onChange: (v: string) => void; placeholder: string; options: string[]; disabled?: boolean;
-  }) => (
-    <div className="relative mt-2">
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        disabled={disabled}
-        className={`w-full border rounded-xl px-4 py-3 appearance-none focus:outline-none transition-colors pr-10 ${
-          disabled
-            ? "bg-gray-50 border-gray-200 text-gray-400 cursor-not-allowed"
-            : value
-              ? "border-gray-300 text-gray-800 hover:border-primary-500 focus:border-primary-500"
-              : "border-gray-300 text-gray-400 hover:border-primary-500 focus:border-primary-500"
-        }`}
-      >
-        <option value="" disabled>{placeholder}</option>
-        {options.map(o => <option key={o} value={o}>{o}</option>)}
-      </select>
-      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2"><ChevronIcon /></span>
-    </div>
-  );
-
   return (
     <div className="bg-primary-100 min-h-screen pt-20 flex flex-col items-center pb-16">
-      <StepIndicator />
+      <StepIndicator step={step} />
 
       {/* ── STEP 1 ── */}
       {step === 1 && (

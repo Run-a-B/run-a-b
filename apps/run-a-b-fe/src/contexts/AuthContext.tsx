@@ -6,6 +6,9 @@ interface User {
   age?: number;
   industry: string;
   region: string;
+  bizStatus: string;
+  revenue?: string;
+  employees?: string;
 }
 
 interface AuthContextType {
