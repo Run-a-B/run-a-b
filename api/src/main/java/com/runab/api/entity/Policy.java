@@ -84,7 +84,7 @@ public class Policy {
     private String purposeText;
 
     // 신청방법. 상세용
-    @Column(name = "application_method", length = 500)
+    @Column(name = "application_method", columnDefinition = "TEXT")
     private String applicationMethod;
 
     // 신청 링크

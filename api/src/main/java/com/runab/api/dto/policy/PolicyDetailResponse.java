@@ -19,14 +19,17 @@ public class PolicyDetailResponse {
 
     private Long id;
     private String title;
+    private String description;
+    private String date;
     private String announcementNo;
     private String department;
-    private String applicationPeriod;  // "yyyy.MM.dd ~ yyyy.MM.dd" 조합 문자열
+    private String applicationPeriod;
     private String supportScale;
     private String targetGroup;
     private String purposeText;
     private String applicationMethod;
     private String applicationUrl;
+    private String detailUrl;
     private String category;
     private String region;
     private String industry;
@@ -36,6 +39,9 @@ public class PolicyDetailResponse {
         return PolicyDetailResponse.builder()
                 .id(policy.getId())
                 .title(policy.getTitle())
+                .description(policy.getDescription())
+                .date(policy.getPublishedDate() != null
+                        ? policy.getPublishedDate().format(DATE_FORMATTER) : null)
                 .announcementNo(policy.getAnnouncementNo())
                 .department(policy.getDepartment())
                 .applicationPeriod(formatPeriod(
@@ -46,6 +52,7 @@ public class PolicyDetailResponse {
                 .purposeText(policy.getPurposeText())
                 .applicationMethod(policy.getApplicationMethod())
                 .applicationUrl(policy.getApplicationUrl())
+                .detailUrl(policy.getDetailUrl())
                 .category(policy.getCategory())
                 .region(policy.getRegion())
                 .industry(policy.getIndustry())

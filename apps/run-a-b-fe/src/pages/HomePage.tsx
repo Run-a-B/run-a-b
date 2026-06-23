@@ -1,39 +1,59 @@
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import api from "@/lib/api";
 
-const policies = [
-  {
-    id: 1,
-    tag: "최저임금",
-    tagStyle: "bg-primary-100 text-primary-600",
-    date: "2026.01.15",
-    title: "2026년 최저임금 인상에 따른 소상공인 인건비 부담 완화 지원",
-    description: "최저임금 1만 30원 적용에 따라 소규모 사업장 인건비 부담이 증가합니다. 일자리 안정자금 및 사회보험료 지원을 통해 실질적인 지원을 받을 수 있어요.",
-    relevance: 92,
-    source: "고용노동부",
-  },
-  {
-    id: 2,
-    tag: "지원금",
-    tagStyle: "bg-green-100 text-green-600",
-    date: "2026.02.03",
-    title: "소상공인 경영안정자금 대출 한도 확대 및 금리 인하",
-    description: "소상공인시장진흥공단에서 운영하는 경영안정자금의 대출 한도가 기존 2천만원에서 3천만원으로 확대되며, 연 2.5% 고정금리가 적용돼요.",
-    relevance: 85,
-    source: "중소벤처기업부",
-  },
-  {
-    id: 3,
-    tag: "에너지",
-    tagStyle: "bg-yellow-100 text-yellow-600",
-    date: "2026.01.28",
-    title: "소상공인 전기료·가스비 절감 에너지 바우처 2026년 확대 시행",
-    description: "음식업·소매업 소상공인을 대상으로 에너지 효율화 설비 구축 비용의 최대 80%를 지원합니다. 1인당 지원 한도 500만원.",
-    relevance: 78,
-    source: "산업통상자원부",
-  },
-]
+const CATEGORY_COLORS: Record<string, string> = {
+  "기술": "bg-violet-100 text-violet-700",
+  "금융": "bg-indigo-100 text-indigo-700",
+  "인력": "bg-blue-100 text-blue-700",
+  "경영": "bg-emerald-100 text-emerald-700",
+  "창업": "bg-orange-100 text-orange-700",
+  "수출": "bg-sky-100 text-sky-700",
+  "내수": "bg-teal-100 text-teal-700",
+  "기타": "bg-gray-100 text-gray-600",
+};
+
+interface LatestPolicy {
+  id: number;
+  title: string;
+  description: string;
+  category: string;
+  date: string;
+  agency: string;
+  relevance: number;
+}
+
+function PolicyCardSkeleton() {
+  return (
+    <div className="flex-1 border-2 border-gray-100 bg-white rounded-2xl p-6 flex flex-col gap-3 animate-pulse">
+      <div className="flex items-center justify-between">
+        <div className="w-16 h-5 bg-gray-200 rounded-full" />
+        <div className="w-20 h-4 bg-gray-100 rounded" />
+      </div>
+      <div className="w-full h-5 bg-gray-200 rounded" />
+      <div className="w-4/5 h-5 bg-gray-200 rounded" />
+      <div className="w-full h-4 bg-gray-100 rounded" />
+      <div className="w-3/4 h-4 bg-gray-100 rounded" />
+      <div className="flex items-center justify-between mt-auto pt-2">
+        <div className="w-28 h-6 bg-gray-100 rounded-full" />
+        <div className="w-20 h-4 bg-gray-100 rounded" />
+      </div>
+    </div>
+  );
+}
 
 export function HomePage() {
+  const navigate = useNavigate();
+  const [latestPolicies, setLatestPolicies] = useState<LatestPolicy[]>([]);
+  const [policyLoading, setPolicyLoading] = useState(true);
+
+  useEffect(() => {
+    api.get("/api/v1/policies?sort=최신순&page=1&size=3")
+      .then(res => setLatestPolicies(res.data.data.policies))
+      .catch(() => {})
+      .finally(() => setPolicyLoading(false));
+  }, []);
+
   return (
     <div>
       <section className="pt-30 px-40 flex bg-white pb-25 gap-5 border-b border-gray-200 truncate">
@@ -112,25 +132,34 @@ export function HomePage() {
           </div>
 
           <div className="flex gap-5 mb-10">
-            {policies.map((policy) => (
-              <div key={policy.id} className="flex-1 border-2 border-gray-200 bg-white rounded-2xl p-6 flex flex-col gap-3 transition-all duration-300 ease-out hover:border-primary-300 hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)]">
-                <div className="flex items-center justify-between">
-                  <div className={`${policy.tagStyle} px-3 py-1 text-xs font-medium rounded-full`}>{policy.tag}</div>
-                  <p className="text-xs text-text-secondary">{policy.date}</p>
-                </div>
-                <h2 className="text-base font-bold leading-snug line-clamp-2">{policy.title}</h2>
-                <p className="text-sm text-text-secondary leading-relaxed line-clamp-2">{policy.description}</p>
-                <div className="flex items-center justify-between mt-auto pt-2">
-                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary-100">
-                    <div className="w-10 h-1 rounded-full bg-gray-300 overflow-hidden">
-                      <div className="h-full rounded-full bg-primary-600" style={{ width: `${policy.relevance}%` }} />
-                    </div>
-                    <span className="text-xs font-bold text-primary-600">관련도 {policy.relevance}%</span>
+            {policyLoading ? (
+              [1, 2, 3].map(i => <PolicyCardSkeleton key={i} />)
+            ) : latestPolicies.map((policy) => {
+              const tagStyle = CATEGORY_COLORS[policy.category] ?? "bg-primary-100 text-primary-600";
+              return (
+                <div
+                  key={policy.id}
+                  onClick={() => navigate(`/policies/${policy.id}`)}
+                  className="flex-1 border-2 border-gray-200 bg-white rounded-2xl p-6 flex flex-col gap-3 will-change-transform transition-[transform,box-shadow,border-color] duration-300 ease-out hover:border-primary-300 hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)] cursor-pointer"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className={`${tagStyle} px-3 py-1 text-xs font-medium rounded-full`}>{policy.category}</div>
+                    <p className="text-xs text-text-secondary">{policy.date}</p>
                   </div>
-                  <span className="text-xs text-text-secondary">{policy.source}</span>
+                  <h2 className="text-base font-bold leading-snug line-clamp-2">{policy.title}</h2>
+                  <p className="text-sm text-text-secondary leading-relaxed line-clamp-2">{policy.description}</p>
+                  <div className="flex items-center justify-between mt-auto pt-2">
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary-100">
+                      <div className="w-10 h-1 rounded-full bg-gray-300 overflow-hidden">
+                        <div className="h-full rounded-full bg-primary-600" style={{ width: `${policy.relevance}%` }} />
+                      </div>
+                      <span className="text-xs font-bold text-primary-600">관련도 {policy.relevance}%</span>
+                    </div>
+                    <span className="text-xs text-text-secondary">{policy.agency}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           
           <div className="w-full bg-primary-600 rounded-2xl px-6 py-10">
@@ -145,7 +174,7 @@ export function HomePage() {
                 <p className="text-gray-300 text-sm font-medium">내 사업과 연관된 정책만 골라 볼 수 있어요.</p>
                 </div>
                 <div className="flex items-center justify-center">
-                  <Link to={"policies"} className="text-base bg-white px-8 py-4 text-primary-600 font-bold rounded-4xl transition-all duration-300 ease-out hover:transform-[scale(1.04)] hover:shadow-[0 8px 24px rgba(0,0,0,0.2)]">정책 모아보기 ➔</Link>
+                  <Link to={"policies"} className="text-base bg-white px-8 py-4 text-primary-600 font-bold rounded-4xl will-change-transform transition-[transform,box-shadow] duration-300 ease-out hover:scale-[1.04] hover:shadow-[0_8px_24px_rgba(0,0,0,0.2)]">정책 모아보기 ➔</Link>
                 </div>
             </div>
               
@@ -157,17 +186,17 @@ export function HomePage() {
         <p className="text-xs font-medium text-primary-500 mb-3">서비스 소개</p>
         <h2 className="text-2xl font-bold mb-10">Run a B만의 3가지 차별점</h2>
         <div className="flex gap-5">
-          <div className="flex-1 bg-white rounded-2xl p-8 flex flex-col gap-5 border border-gray-200 transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)] hover:border-primary-300">
+          <div className="flex-1 bg-white rounded-2xl p-8 flex flex-col gap-5 border border-gray-200 will-change-transform transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)] hover:border-primary-300">
             <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center"><img src="/box.svg" alt="box" className="w-6 h-6" /></div>
             <h3 className="text-base font-bold">통합 정책 허브</h3>
             <p className="text-sm text-text-secondary leading-7">흩어진 정책·지원사업을 한 곳에서 탐색할 수 있어요. 내 업종·지역 필터로 관련 정책만 쏙 골라보세요.</p>
           </div>
-          <div className="flex-1 bg-white rounded-2xl p-8 flex flex-col gap-5 border border-primary-200 transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)] hover:border-primary-300">
+          <div className="flex-1 bg-white rounded-2xl p-8 flex flex-col gap-5 border border-primary-200 will-change-transform transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)] hover:border-primary-300">
             <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center"><img src="/ai.svg" alt="ai" className="w-6 h-6" /></div>
             <h3 className="text-base font-bold">AI 맞춤 리포트</h3>
             <p className="text-sm text-text-secondary leading-7">복잡한 공고문을 AI가 쉬운 말로 요약하고, 내 사업 조건(업종·지역·매출·직원수)에 대입해 영향을 분석한 리포트를 생성해 드려요.</p>
           </div>
-          <div className="flex-1 bg-white rounded-2xl p-8 flex flex-col gap-5 border border-gray-200 transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)] hover:border-primary-300">
+          <div className="flex-1 bg-white rounded-2xl p-8 flex flex-col gap-5 border border-gray-200 will-change-transform transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)] hover:border-primary-300">
             <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center"><img src="/lamp.svg" alt="lamp" className="w-6 h-6" /></div>
             <h3 className="text-base font-bold">지원사업 맥락 추천</h3>
             <p className="text-sm text-text-secondary leading-7">단순 자격 매칭이 아니라, 정책 영향 분석 결과에 기반한 지원사업을 추천해 드려요. 피해를 줄이거나 혜택을 극대화할 수 있는 지원을 찾아드려요.</p>

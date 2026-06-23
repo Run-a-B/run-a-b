@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import api from "@/lib/api";
 import { useGoogleLogin } from "@react-oauth/google";
 
-export default function Login(){
+export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [saveEmail, setSaveEmail] = useState(false);
   const [email, setEmail] = useState("");
@@ -47,11 +47,10 @@ export default function Login(){
     onError: () => alert("구글 로그인에 실패했어요"),
   });
 
-  return(
-    <div className="bg-primary-100 min-h-screen pt-25 flex flex-col items-center">
-      <div className="flex items-center justify-center w-15 h-15 rounded-2xl font-bold text-2xl text-white bg-[linear-gradient(135deg,var(--color-primary-400),var(--color-primary-600))]">R</div>
-      <h4 className="font-bold text-2xl text-primary-700 mt-3">Run a B</h4>
-      <p className="text-sm mt-2 text-gray-500">소상공인 정책·지원금 AI 플랫폼</p>
+  return (
+    <div className="bg-primary-100 min-h-screen pt-35 flex flex-col items-center">
+      <h1 className="text-primary-600 text-5xl" style={{ fontFamily: '"Grand Hotel", cursive', lineHeight: 1 }}>Run a B</h1>
+      <p className="text-sm mt-3 text-gray-500">소상공인 정책·지원금 AI 플랫폼</p>
 
       <div className="bg-white rounded-2xl w-110 mt-5 shadow-lg">
         <form onSubmit={handleSubmit} className="flex flex-col p-8 ">
@@ -79,14 +78,14 @@ export default function Login(){
             >
               {showPassword ? (
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                  <line x1="1" y1="1" x2="23" y2="23"/>
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
                 </svg>
               ) : (
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
                 </svg>
               )}
             </button>
@@ -112,10 +111,10 @@ export default function Login(){
 
           <button type="button" onClick={() => googleLogin()} className="flex items-center justify-center gap-3 mt-4 border border-gray-200 rounded-xl py-3 hover:bg-gray-50 transition-colors duration-150">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48">
-              <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
-              <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
-              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
-              <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              <path fill="#4285F4" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+              <path fill="#34A853" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+              <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+              <path fill="#EA4335" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
             </svg>
             <span className="text-sm font-medium text-gray-700">Google로 계속하기</span>
           </button>

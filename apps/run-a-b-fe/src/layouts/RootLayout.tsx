@@ -12,9 +12,8 @@ export function RootLayout() {
 
   return (
     <div>
-      <nav className='fixed flex w-full h-15 bg-white px-40 items-center border-b border-gray-200 z-50'>
-        <Link to="/" className='flex items-center font-bold text-lg text-primary-600 mr-10'>
-          <div className='mr-3 w-10 h-10 flex items-center justify-center rounded-xl font-bold text-lg text-white bg-[linear-gradient(135deg,var(--color-primary-400),var(--color-primary-600))]'>R</div>
+      <nav className='fixed flex w-full h-15 bg-white px-40 items-center border-b border-gray-200 z-50 will-change-transform'>
+        <Link to="/" className='mr-10 text-[28px] text-primary-600' style={{ fontFamily: '"Grand Hotel", cursive', lineHeight: 1 }}>
           Run a B
         </Link>
 

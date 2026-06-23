@@ -38,6 +38,42 @@ const EyeOffIcon = () => (
 
 const PASSWORD_REGEX = /^[A-Za-z0-9!@$*]{6,}$/;
 
+function MyInfoSkeleton() {
+    return (
+        <div className="max-w-xl animate-pulse">
+            <div className="w-32 h-7 bg-gray-200 rounded mb-2" />
+            <div className="w-56 h-4 bg-gray-100 rounded mb-7" />
+            <div className="border border-gray-100 rounded-xl overflow-hidden mb-4">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100">
+                    <div className="w-4 h-4 bg-gray-200 rounded" />
+                    <div className="w-24 h-4 bg-gray-200 rounded" />
+                </div>
+                <div className="px-5 py-5 flex flex-col gap-5">
+                    {[1, 2, 3].map(i => (
+                        <div key={i}>
+                            <div className="w-16 h-4 bg-gray-200 rounded mb-2" />
+                            <div className="w-full h-11 bg-gray-100 rounded-xl" />
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div className="border border-gray-100 rounded-xl overflow-hidden mb-6">
+                <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100">
+                    <div className="w-4 h-4 bg-gray-200 rounded" />
+                    <div className="w-20 h-4 bg-gray-200 rounded" />
+                </div>
+                <div className="px-5 py-5">
+                    <div className="w-full h-11 bg-gray-100 rounded-xl" />
+                </div>
+            </div>
+            <div className="flex gap-3 justify-end">
+                <div className="w-20 h-10 bg-gray-100 rounded-xl" />
+                <div className="w-20 h-10 bg-gray-200 rounded-xl" />
+            </div>
+        </div>
+    );
+}
+
 export default function MyInfoPage() {
     const { user, login } = useAuth();
     const navigate = useNavigate();
@@ -45,6 +81,7 @@ export default function MyInfoPage() {
     const [age, setAge] = useState(user?.age ? String(user.age) : "");
     const [saved, setSaved] = useState(false);
     const [isPasswordOpen, setIsPasswordOpen] = useState(false);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         api.get("/api/v1/users/me")
@@ -59,7 +96,8 @@ export default function MyInfoPage() {
                     email: me.email,
                 });
             })
-            .catch(() => {});
+            .catch(() => {})
+            .finally(() => setLoading(false));
     }, []);
 
     useEffect(() => {
@@ -133,6 +171,8 @@ export default function MyInfoPage() {
 
     const inputBase =
         "w-full border border-gray-200 rounded-xl px-4 py-3 focus:outline-none focus:border-primary-500 hover:border-primary-400 transition-colors text-sm";
+
+    if (loading) return <MyInfoSkeleton />;
 
     return (
         <div className="max-w-xl">

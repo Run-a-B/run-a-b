@@ -1,28 +1,32 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Dropdown from "@/components/common/Dropdown";
 import { useNavigate } from "react-router-dom";
-import { MOCK_POLICIES, calcRelevance, type Policy } from "@/data/policies";
+import api from "@/lib/api";
+import { type Policy } from "@/data/policies";
 import { getVisitedPolicies } from "@/data/visited";
-import { useAuth } from "@/contexts/AuthContext";
 
-const REGIONS = ["전체 지역", "서울특별시", "부산광역시", "대구광역시", "인천광역시", "경기도", "강원도", "충청남도", "전라남도", "경상남도", "제주도"];
+const REGIONS = [
+  "전체 지역", "서울특별시", "부산광역시", "대구광역시", "인천광역시",
+  "광주광역시", "대전광역시", "울산광역시", "세종특별자치시",
+  "경기도", "강원특별자치도", "충청북도", "충청남도",
+  "전북특별자치도", "전라남도", "경상북도", "경상남도", "제주특별자치도", "전국",
+];
 const INDUSTRIES = ["전체 업종", "음식점업", "카페/음료", "의류/패션", "뷰티/미용", "교육/학원", "IT/소프트웨어", "제조업", "도소매업"];
-const CATEGORIES = ["전체 카테고리", "창업 지원", "자금 지원", "세금 감면", "인건비 지원", "임차료 지원", "교육/컨설팅"];
+const CATEGORIES = ["전체 카테고리", "기술", "경영", "수출", "인력", "창업", "금융", "내수", "기타"];
 const SORT_OPTIONS = ["관련도 높은순", "최신순", "마감임박순"];
 
 const CATEGORY_COLORS: Record<string, string> = {
-  "최저임금": "bg-gray-100 text-gray-600",
-  "노동·복지": "bg-blue-100 text-blue-700",
-  "대출·자금": "bg-indigo-100 text-indigo-700",
-  "에너지": "bg-orange-100 text-orange-700",
-  "디지털": "bg-violet-100 text-violet-700",
-  "세금": "bg-green-100 text-green-700",
-  "창업지원": "bg-emerald-100 text-emerald-700",
-  "임차료": "bg-pink-100 text-pink-700",
-  "교육": "bg-sky-100 text-sky-700",
+  "기술": "bg-violet-100 text-violet-700",
+  "금융": "bg-indigo-100 text-indigo-700",
+  "인력": "bg-blue-100 text-blue-700",
+  "경영": "bg-emerald-100 text-emerald-700",
+  "창업": "bg-orange-100 text-orange-700",
+  "수출": "bg-sky-100 text-sky-700",
+  "내수": "bg-teal-100 text-teal-700",
+  "기타": "bg-gray-100 text-gray-600",
 };
 
-const PER_PAGE = 6;
+const PER_PAGE = 12;
 
 function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
   const navigate = useNavigate();
@@ -31,7 +35,7 @@ function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: b
   return (
     <div
       onClick={() => navigate(`/policies/${policy.id}`)}
-      className={`rounded-2xl border p-5 flex flex-col gap-3 hover:shadow-md transition-shadow cursor-pointer ${visited ? "bg-gray-50 border-gray-100" : "bg-white border-gray-200"}`}
+      className={`rounded-2xl border p-5 flex flex-col gap-3 hover:shadow-md transition-shadow cursor-pointer will-change-transform ${visited ? "bg-gray-50 border-gray-100" : "bg-white border-gray-200"}`}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
@@ -41,8 +45,8 @@ function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: b
           {visited && (
             <span className="flex items-center gap-1 text-xs text-gray-400">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
               </svg>
               읽음
             </span>
@@ -51,7 +55,7 @@ function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: b
         {policy.isAIRecommended && (
           <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-primary-50 text-primary-600">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="#FBBF24">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
             </svg>
             AI 추천
           </span>
@@ -59,7 +63,6 @@ function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: b
       </div>
 
       <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-2">{policy.title}</h3>
-
       <p className="text-xs text-gray-500 leading-relaxed line-clamp-2 flex-1">{policy.description}</p>
 
       <div className="flex items-end justify-between pt-1">
@@ -85,7 +88,7 @@ function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visite
   return (
     <div
       onClick={() => navigate(`/policies/${policy.id}`)}
-      className={`rounded-2xl border px-6 py-4 flex items-center gap-5 hover:shadow-md transition-shadow cursor-pointer ${visited ? "bg-gray-50 border-gray-100" : "bg-white border-gray-200"}`}
+      className={`rounded-2xl border px-6 py-4 flex items-center gap-5 hover:shadow-md transition-shadow cursor-pointer will-change-transform ${visited ? "bg-gray-50 border-gray-100" : "bg-white border-gray-200"}`}
     >
       <div className="flex flex-col gap-2 flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -95,7 +98,7 @@ function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visite
           {policy.isAIRecommended && (
             <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full bg-primary-50 text-primary-600 shrink-0">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="#FBBF24">
-                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
               </svg>
               AI 추천
             </span>
@@ -103,8 +106,8 @@ function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visite
           {visited && (
             <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                <circle cx="12" cy="12" r="3"/>
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
               </svg>
               읽음
             </span>
@@ -124,15 +127,68 @@ function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visite
         </div>
         <span className="text-xs text-gray-500 w-20 text-right">{policy.agency}</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
-          <polyline points="9 18 15 12 9 6"/>
+          <polyline points="9 18 15 12 9 6" />
         </svg>
       </div>
     </div>
   );
 }
 
+function LoadingSkeleton({ viewMode }: { viewMode: "grid" | "list" }) {
+  const items = Array.from({ length: 6 });
+  if (viewMode === "grid") {
+    return (
+      <div className="grid grid-cols-3 gap-4">
+        {items.map((_, i) => (
+          <div key={i} className="rounded-2xl border border-gray-200 bg-white p-5 flex flex-col gap-3 animate-pulse">
+            <div className="flex items-center justify-between">
+              <div className="w-16 h-6 bg-gray-200 rounded-full" />
+            </div>
+            <div className="w-full h-4 bg-gray-200 rounded-md" />
+            <div className="w-5/6 h-4 bg-gray-200 rounded-md" />
+            <div className="w-full h-3 bg-gray-100 rounded-md" />
+            <div className="w-2/3 h-3 bg-gray-100 rounded-md" />
+            <div className="flex items-center justify-between pt-2 mt-auto">
+              <div className="flex items-center gap-2">
+                <div className="w-12 h-1.5 bg-gray-200 rounded-full" />
+                <div className="w-14 h-3 bg-gray-200 rounded" />
+              </div>
+              <div className="flex flex-col gap-1 items-end">
+                <div className="w-16 h-3 bg-gray-200 rounded" />
+                <div className="w-12 h-3 bg-gray-100 rounded" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      {items.map((_, i) => (
+        <div key={i} className="rounded-2xl border border-gray-200 bg-white px-6 py-4 flex items-center gap-5 animate-pulse">
+          <div className="flex flex-col gap-2.5 flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <div className="w-16 h-5 bg-gray-200 rounded-full shrink-0" />
+              <div className="w-20 h-3 bg-gray-100 rounded ml-auto shrink-0" />
+            </div>
+            <div className="w-3/4 h-4 bg-gray-200 rounded-md" />
+            <div className="w-1/2 h-3 bg-gray-100 rounded-md" />
+          </div>
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="flex items-center gap-2">
+              <div className="w-16 h-2 bg-gray-200 rounded-full" />
+              <div className="w-16 h-3 bg-gray-200 rounded" />
+            </div>
+            <div className="w-20 h-3 bg-gray-100 rounded" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Policies() {
-  const { user } = useAuth();
   const [region, setRegion] = useState("전체 지역");
   const [industry, setIndustry] = useState("전체 업종");
   const [category, setCategory] = useState("전체 카테고리");
@@ -142,11 +198,49 @@ export default function Policies() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [visitedIds, setVisitedIds] = useState<Set<number>>(() => getVisitedPolicies());
 
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
   useEffect(() => {
     const onFocus = () => setVisitedIds(getVisitedPolicies());
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, []);
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    const delay = query ? 400 : 0;
+    debounceRef.current = setTimeout(fetchPolicies, delay);
+    return () => clearTimeout(debounceRef.current);
+  }, [region, industry, category, query, sort, page]);
+
+  async function fetchPolicies() {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        region,
+        industry,
+        category,
+        sort,
+        page: String(page),
+        size: String(PER_PAGE),
+      });
+      if (query) params.set("query", query);
+      const res = await api.get(`/api/v1/policies?${params}`);
+      const data = res.data.data;
+      setPolicies(data.policies);
+      setTotalPages(data.totalPages);
+      setTotalElements(data.totalElements);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   function handleFilter(setter: (v: string) => void) {
     return (v: string) => { setter(v); setPage(1); };
@@ -160,23 +254,17 @@ export default function Policies() {
     setPage(1);
   }
 
-  const filtered = MOCK_POLICIES.filter(p => {
-    if (region !== "전체 지역" && p.region !== "전국" && p.region !== region) return false;
-    if (industry !== "전체 업종" && p.industry !== "전체" && p.industry !== industry) return false;
-    if (category !== "전체 카테고리" && p.filterCategory !== category) return false;
-    if (query && !p.title.includes(query) && !p.description.includes(query)) return false;
-    return true;
-  });
-
-  const sorted = [...filtered].sort((a, b) => {
-    if (sort === "관련도 높은순") return calcRelevance(b, user) - calcRelevance(a, user);
-    if (sort === "최신순") return b.date.localeCompare(a.date);
-    if (sort === "마감임박순") return a.date.localeCompare(b.date);
-    return 0;
-  });
-
-  const totalPages = Math.ceil(sorted.length / PER_PAGE);
-  const paged = sorted.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const pageNumbers = useMemo((): (number | "...")[] => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
+    const pages: (number | "...")[] = [1];
+    if (page > 4) pages.push("...");
+    for (let i = Math.max(2, page - 2); i <= Math.min(totalPages - 1, page + 2); i++) {
+      pages.push(i);
+    }
+    if (page < totalPages - 3) pages.push("...");
+    pages.push(totalPages);
+    return pages;
+  }, [page, totalPages]);
 
   return (
     <div>
@@ -187,14 +275,14 @@ export default function Policies() {
       </div>
 
       <div className="px-40 border border-x-0 border-gray-200 py-4 flex items-center gap-3">
-        <Dropdown value={region}   onChange={handleFilter(setRegion)}   options={REGIONS} />
+        <Dropdown value={region} onChange={handleFilter(setRegion)} options={REGIONS} />
         <Dropdown value={industry} onChange={handleFilter(setIndustry)} options={INDUSTRIES} />
         <Dropdown value={category} onChange={handleFilter(setCategory)} options={CATEGORIES} />
 
         <div className="flex-1 flex items-center gap-2.5 border border-gray-200 rounded-2xl px-4 py-2.5 focus-within:border-primary-400 transition-colors bg-white">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
-            <circle cx="11" cy="11" r="8"/>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
           </svg>
           <input
             type="text"
@@ -210,8 +298,8 @@ export default function Policies() {
           className="flex items-center gap-1.5 border border-gray-200 rounded-2xl px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors shrink-0"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-            <path d="M3 3v5h5"/>
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
           </svg>
           초기화
         </button>
@@ -219,7 +307,9 @@ export default function Policies() {
 
       <div className="px-40 py-8">
         <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-gray-500">총 <span className="font-semibold text-gray-900">{sorted.length}개</span>의 정책이 있어요</p>
+          <p className="text-sm text-gray-500">
+            총 <span className="font-semibold text-gray-900">{totalElements.toLocaleString()}개</span>의 정책이 있어요
+          </p>
           <div className="flex items-center gap-3">
             <Dropdown value={sort} onChange={handleFilter(setSort)} options={SORT_OPTIONS} />
             <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden">
@@ -229,8 +319,8 @@ export default function Policies() {
                 aria-label="그리드 보기"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                  <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                  <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
                 </svg>
               </button>
               <button
@@ -239,19 +329,21 @@ export default function Policies() {
                 aria-label="리스트 보기"
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                  <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                  <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
                 </svg>
               </button>
             </div>
           </div>
         </div>
 
-        {sorted.length === 0 ? (
+        {loading ? (
+          <LoadingSkeleton viewMode={viewMode} />
+        ) : policies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3">
-              <circle cx="11" cy="11" r="8"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
             <p className="text-sm">조건에 맞는 정책이 없어요</p>
           </div>
@@ -259,39 +351,47 @@ export default function Policies() {
           <>
             {viewMode === "grid" ? (
               <div className="grid grid-cols-3 gap-4">
-                {paged.map(policy => (
-                  <PolicyCard key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={calcRelevance(policy, user)} />
+                {policies.map(policy => (
+                  <PolicyCard key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} />
                 ))}
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {paged.map(policy => (
-                  <PolicyListItem key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={calcRelevance(policy, user)} />
+                {policies.map(policy => (
+                  <PolicyListItem key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} />
                 ))}
               </div>
             )}
 
             {totalPages > 1 && (
               <div className="flex items-center justify-center gap-1 mt-10">
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                  <button
-                    key={p}
-                    onClick={() => setPage(p)}
-                    className={`w-9 h-9 rounded-full text-sm font-medium transition-colors ${
-                      p === page ? "bg-primary-600 text-white" : "text-gray-600 hover:bg-gray-100"
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-                {page < totalPages && (
-                  <button
-                    onClick={() => setPage(p => Math.min(p + 1, totalPages))}
-                    className="w-9 h-9 flex items-center justify-center text-gray-500 hover:bg-gray-100 rounded-full text-lg leading-none"
-                  >
-                    ›
-                  </button>
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="w-9 h-9 flex items-center justify-center text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-full text-lg leading-none"
+                >
+                  ‹
+                </button>
+                {pageNumbers.map((p: number | "...", i: number) =>
+                  p === "..." ? (
+                    <span key={`dot-${i}`} className="w-9 h-9 flex items-center justify-center text-gray-400 text-sm">···</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      className={`w-9 h-9 rounded-full text-sm font-medium transition-colors ${p === page ? "bg-primary-600 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+                    >
+                      {p}
+                    </button>
+                  )
                 )}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="w-9 h-9 flex items-center justify-center text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed rounded-full text-lg leading-none"
+                >
+                  ›
+                </button>
               </div>
             )}
           </>

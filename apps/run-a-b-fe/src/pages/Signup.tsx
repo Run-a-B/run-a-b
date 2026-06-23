@@ -95,10 +95,6 @@ function StepIndicator({ step }: { step: number }) {
   );
 }
 
-function generateCode() {
-  return String(Math.floor(100000 + Math.random() * 900000));
-}
-
 export default function Signup() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -111,7 +107,7 @@ export default function Signup() {
   const [touched, setTouched] = useState({ name: false, email: false, age: false, password: false, confirmPassword: false });
 
   // Step 2 — 이메일 인증
-  const [mockCode, setMockCode] = useState("");
+  const [mockCode] = useState("");
   const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
   const [codeError, setCodeError] = useState("");
   const [cooldown, setCooldown] = useState(0);

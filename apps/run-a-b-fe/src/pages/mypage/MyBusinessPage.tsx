@@ -52,6 +52,55 @@ function SelectField({ value, onChange, placeholder, options, disabled }: {
   );
 }
 
+function MyBusinessSkeleton() {
+  return (
+    <div className="max-w-xl w-full animate-pulse">
+      <div className="w-36 h-7 bg-gray-200 rounded mb-2" />
+      <div className="w-64 h-4 bg-gray-100 rounded mb-7" />
+      {/* 상태 배너 */}
+      <div className="bg-gray-100 border border-gray-100 rounded-xl px-5 py-4 flex items-center gap-4 mb-4">
+        <div className="w-10 h-10 rounded-xl bg-gray-200 shrink-0" />
+        <div className="flex-1 flex flex-col gap-2">
+          <div className="w-20 h-3 bg-gray-200 rounded" />
+          <div className="w-24 h-5 bg-gray-200 rounded" />
+          <div className="w-48 h-3 bg-gray-100 rounded" />
+        </div>
+        <div className="w-16 h-6 bg-gray-200 rounded-full shrink-0" />
+      </div>
+      {/* 사업 상태 섹션 */}
+      <div className="border border-gray-100 rounded-xl overflow-hidden mb-4">
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100">
+          <div className="w-4 h-4 bg-gray-200 rounded" />
+          <div className="w-20 h-4 bg-gray-200 rounded" />
+        </div>
+        <div className="px-5 py-5">
+          <div className="w-20 h-4 bg-gray-200 rounded mb-2" />
+          <div className="w-full h-12 bg-gray-100 rounded-xl" />
+        </div>
+      </div>
+      {/* 기본 사업 정보 섹션 */}
+      <div className="border border-gray-100 rounded-xl overflow-hidden mb-6">
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-100">
+          <div className="w-4 h-4 bg-gray-200 rounded" />
+          <div className="w-28 h-4 bg-gray-200 rounded" />
+        </div>
+        <div className="px-5 py-5 flex flex-col gap-5">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i}>
+              <div className="w-20 h-4 bg-gray-200 rounded mb-2" />
+              <div className="w-full h-11 bg-gray-100 rounded-xl" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-3 justify-end">
+        <div className="w-20 h-10 bg-gray-100 rounded-xl" />
+        <div className="w-20 h-10 bg-gray-200 rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
 export default function MyBusinessPage() {
   const { user, login } = useAuth();
   const [status, setStatus] = useState("사업 중");
@@ -59,6 +108,7 @@ export default function MyBusinessPage() {
   const [region, setRegion] = useState(user?.region ?? "");
   const [revenue, setRevenue] = useState("");
   const [employees, setEmployees] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.get("/api/v1/users/me/business")
@@ -70,7 +120,8 @@ export default function MyBusinessPage() {
         setRevenue(b.annualRevenue ?? "");
         setEmployees(b.employeeCount ?? "");
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const isRunning = status === "사업 중";
@@ -99,6 +150,8 @@ export default function MyBusinessPage() {
     setRevenue("");
     setEmployees("");
   }
+
+  if (loading) return <MyBusinessSkeleton />;
 
   return (
     <div className="max-w-xl w-full">
