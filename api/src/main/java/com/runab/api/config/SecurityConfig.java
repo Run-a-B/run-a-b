@@ -56,6 +56,13 @@ public class SecurityConfig {
 
                         ).permitAll() //누가 접근 가능한지를 봄
 
+                        // 정책 목록/상세 조회는 비로그인도 가능 (인증 불필요)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/policies/**").permitAll()
+
+                        // bizinfo 동기화: 관리자성 작업이나 발표 데모 편의상 일단 permitAll
+                        // TODO: 추후 ADMIN 권한으로 제한 필요
+                        .requestMatchers(HttpMethod.POST, "/api/v1/policies/sync").permitAll()
+
                         // 회원가입 2단계: TEMP 토큰 가진 사람만함
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/signup/business").hasRole("TEMP")
 

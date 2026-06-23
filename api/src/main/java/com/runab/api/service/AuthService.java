@@ -104,7 +104,7 @@ public class AuthService {
     // ===== 3) 로그인 =====
     public LoginResponse login(LoginRequest request) {
         // 3-1) 이메일로 사용자 찾기
-        User user = userRepository.findByEmail(request.getEmail())
+        User user = userRepository.findByEmailAndDeletedFalse(request.getEmail())
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
         // 3-2) 비밀번호 검증

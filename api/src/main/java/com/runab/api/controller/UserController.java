@@ -46,4 +46,13 @@ public class UserController {
         Long userId = (Long) authentication.getPrincipal();
         return ApiResponse.success(userService.updateMyBusinessInfo(userId, request), "사업 정보가 수정되었습니다");
     }
+
+    // ===== 5) 회원 탈퇴 (soft delete) =====
+    @DeleteMapping("/me")
+    public ApiResponse<Void> deleteMyAccount(Authentication authentication) {
+        Long userId = (Long) authentication.getPrincipal();
+        userService.deleteMyAccount(userId);
+        return ApiResponse.success(null, "회원 탈퇴가 완료되었습니다");
+    }
+
 }
