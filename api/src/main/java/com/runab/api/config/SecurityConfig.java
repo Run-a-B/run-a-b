@@ -88,8 +88,9 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(List.of(
                 "http://localhost:3000",   // React 로컬 개발
-                "http://localhost:5173"    // Vite 로컬 개발
-                // 배포 후 실제 도메인 추가
+                "http://localhost:5173",   // Vite 로컬 개발
+                "https://run-a-b.com",     // 배포 도메인
+                "https://www.run-a-b.com"
         ));
         config.setAllowedMethods(List.of("GET", "POST", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
