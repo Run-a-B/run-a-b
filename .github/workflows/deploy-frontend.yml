@@ -26,6 +26,8 @@ jobs:
       - name: 프론트 빌드
         run: npm run build
         working-directory: ./apps/run-a-b-fe
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
 
       - name: 빌드 결과물 확인
         run: ls -la ./apps/run-a-b-fe/dist
