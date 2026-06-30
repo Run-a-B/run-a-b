@@ -1,5 +1,6 @@
 package com.runab.api.dto.recommend;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
@@ -20,6 +21,7 @@ import java.util.List;
 public class AiRecommendRequest {
 
     private String requestId;            // "req_yyyyMMdd_xxxx"
+    @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate referenceDate;     // 오늘
     private int topN;                    // 5
     private PipelineDto pipeline;
