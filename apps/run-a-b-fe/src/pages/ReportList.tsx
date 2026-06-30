@@ -1,18 +1,25 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getSavedReports, deleteReport, type SavedReport } from "@/data/reports";
-import { MOCK_POLICIES, POLICY_DETAILS } from "@/data/policies";
 
 const CATEGORY_COLORS: Record<string, string> = {
-  최저임금: "bg-gray-100 text-gray-600",
+  "기술": "bg-violet-100 text-violet-700",
+  "금융": "bg-indigo-100 text-indigo-700",
+  "인력": "bg-blue-100 text-blue-700",
+  "경영": "bg-emerald-100 text-emerald-700",
+  "창업": "bg-orange-100 text-orange-700",
+  "수출": "bg-sky-100 text-sky-700",
+  "내수": "bg-teal-100 text-teal-700",
+  "기타": "bg-gray-100 text-gray-600",
+  "최저임금": "bg-gray-100 text-gray-600",
   "노동·복지": "bg-blue-100 text-blue-700",
   "대출·자금": "bg-indigo-100 text-indigo-700",
-  에너지: "bg-orange-100 text-orange-700",
-  디지털: "bg-violet-100 text-violet-700",
-  세금: "bg-green-100 text-green-700",
-  창업지원: "bg-emerald-100 text-emerald-700",
-  임차료: "bg-pink-100 text-pink-700",
-  교육: "bg-sky-100 text-sky-700",
+  "에너지": "bg-orange-100 text-orange-700",
+  "디지털": "bg-violet-100 text-violet-700",
+  "세금": "bg-green-100 text-green-700",
+  "창업지원": "bg-emerald-100 text-emerald-700",
+  "임차료": "bg-pink-100 text-pink-700",
+  "교육": "bg-sky-100 text-sky-700",
 };
 
 function impactDotColor(style: string) {
@@ -33,23 +40,17 @@ type Tab = (typeof TABS)[number];
 export default function ReportList() {
   const navigate = useNavigate();
   const [reports, setReports] = useState<SavedReport[]>([]);
-  const [selected, setSelected] = useState<SavedReport | null>(null);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("최신순");
 
   useEffect(() => {
-    const loaded = getSavedReports();
-    setReports(loaded);
-    if (loaded.length > 0) setSelected(loaded[0]);
+    setReports(getSavedReports());
   }, []);
 
-  function handleDelete(policyId: number) {
+  function handleDelete(e: React.MouseEvent, policyId: number) {
+    e.stopPropagation();
     deleteReport(policyId);
-    const updated = getSavedReports();
-    setReports(updated);
-    if (selected?.policyId === policyId) {
-      setSelected(updated[0] ?? null);
-    }
+    setReports(getSavedReports());
   }
 
   const filtered = reports
@@ -64,24 +65,19 @@ export default function ReportList() {
       return b.savedAt.localeCompare(a.savedAt);
     });
 
-  const selectedPolicy = selected ? MOCK_POLICIES.find((p) => p.id === selected.policyId) : null;
-  const selectedBusinessImpact = selected ? POLICY_DETAILS[selected.policyId]?.businessImpact : null;
-  const selectedRelated = selected
-    ? selected.relatedIds.map((id) => MOCK_POLICIES.find((p) => p.id === id)).filter(Boolean)
-    : [];
-
   return (
-    <div className="flex" style={{ height: "calc(100vh - 60px)" }}>
-      {/* ── Left sidebar ── */}
-      <aside className="w-72 shrink-0 border-r border-gray-200 flex flex-col bg-white">
-        <div className="px-5 pt-6 pb-4">
-          <h2 className="text-base font-bold text-gray-900">내 리포트</h2>
-        </div>
+    <div className="bg-gray-50 min-h-screen">
+      <div className="bg-primary-100 px-40 pt-25 pb-10">
+        <p className="text-sm font-semibold text-primary-600">AI 분석 결과</p>
+        <h4 className="text-3xl font-bold mt-3">내 리포트</h4>
+        <p className="text-base mt-3 text-gray-500">AI가 분석한 정책 리포트를 한 곳에서 확인하세요.</p>
+      </div>
 
-        {/* Search */}
-        <div className="px-4 pb-3">
-          <div className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 focus-within:border-primary-400 transition-colors bg-white">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
+      <div className="px-40 py-8">
+        {/* Search + Tabs */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-2 border border-gray-200 rounded-2xl px-4 py-2.5 focus-within:border-primary-400 transition-colors bg-white flex-1 max-w-sm">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
               <circle cx="11" cy="11" r="8"/>
               <line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
@@ -90,226 +86,89 @@ export default function ReportList() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="리포트 검색..."
-              className="flex-1 text-xs text-gray-700 placeholder-gray-400 focus:outline-none bg-transparent"
+              className="flex-1 text-sm text-gray-700 placeholder-gray-400 focus:outline-none bg-transparent"
             />
+          </div>
+          <div className="flex gap-1.5">
+            {TABS.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`text-sm font-medium px-4 py-2.5 rounded-2xl transition-colors ${
+                  tab === t ? "bg-primary-600 text-white" : "text-gray-500 border border-gray-200 bg-white hover:bg-gray-50"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="px-4 pb-3 flex gap-1.5 flex-wrap">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
-                tab === t ? "bg-primary-600 text-white" : "text-gray-500 hover:bg-gray-100"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-
-        <div className="border-b border-gray-100" />
-
-        {/* Report list */}
-        <div className="flex-1 overflow-y-auto">
-          {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-gray-400 px-4">
-              <p className="text-xs text-center">조건에 맞는 리포트가 없어요</p>
-            </div>
-          ) : (
-            filtered.map((report) => {
-              const policy = MOCK_POLICIES.find((p) => p.id === report.policyId);
-              const categoryColor = CATEGORY_COLORS[policy?.category ?? ""] ?? "bg-gray-100 text-gray-600";
-              const isSelected = selected?.policyId === report.policyId;
-              return (
-                <button
-                  key={report.id}
-                  onClick={() => setSelected(report)}
-                  className={`w-full text-left px-5 py-4 border-b border-gray-100 transition-colors ${
-                    isSelected ? "bg-primary-50" : "hover:bg-gray-50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${categoryColor}`}>
-                      {policy?.category ?? ""}
-                    </span>
-                    <span className="text-xs text-gray-400">{formatDate(report.savedAt)}</span>
-                  </div>
-                  <p className="text-sm font-bold text-gray-900 leading-snug line-clamp-2 mb-1.5">
-                    {report.policyTitle}
-                  </p>
-                  <p className="text-xs text-gray-500 leading-5 line-clamp-2 mb-2">
-                    {report.summary}
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${impactDotColor(report.impactStyle)}`} />
-                    <span className="text-xs text-gray-500">{report.impactLabel}</span>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </aside>
-
-      {/* ── Right panel ── */}
-      <main className="flex-1 overflow-y-auto bg-gray-50">
-        {!selected ? (
-          /* Empty state */
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-400">
-            <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
+        {/* List */}
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-gray-400">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300 mb-4">
               <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
               <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-              <line x1="9" y1="12" x2="15" y2="12"/>
-              <line x1="9" y1="16" x2="13" y2="16"/>
             </svg>
-            <div className="text-center">
-              <p className="text-base font-bold text-gray-600 mb-1">리포트를 선택해 주세요</p>
-              <p className="text-sm text-gray-400 leading-6">
-                왼쪽 목록에서 리포트를 클릭하면<br />AI가 분석한 상세 내용을 확인할 수 있어요.
-              </p>
-            </div>
+            <p className="text-base font-semibold text-gray-500 mb-1">
+              {query || tab !== "최신순" ? "조건에 맞는 리포트가 없어요" : "아직 저장된 리포트가 없어요"}
+            </p>
+            <p className="text-sm text-gray-400 mb-6">정책 상세 페이지에서 AI 리포트를 생성해 보세요.</p>
             <Link
               to="/policies"
               className="bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold px-6 py-3 rounded-xl transition-colors"
             >
-              새 정책 분석하기
+              정책 둘러보기
             </Link>
           </div>
         ) : (
-          /* Report detail */
-          <div className="max-w-2xl mx-auto px-8 py-8 flex flex-col gap-6">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                {selectedPolicy && (
-                  <span className={`text-xs font-medium px-2.5 py-1 rounded-full mb-3 inline-block ${CATEGORY_COLORS[selectedPolicy.category] ?? "bg-gray-100 text-gray-600"}`}>
-                    {selectedPolicy.category}
-                  </span>
-                )}
-                <h1 className="text-lg font-bold text-gray-900 leading-snug">{selected.policyTitle}</h1>
-              </div>
-              <button
-                onClick={() => handleDelete(selected.policyId)}
-                className="shrink-0 text-gray-300 hover:text-red-400 transition-colors mt-1"
-                aria-label="리포트 삭제"
+          <div className="flex flex-col gap-3">
+            {filtered.map((report) => (
+              <div
+                key={report.id}
+                onClick={() => navigate(`/reports/${report.policyId}`)}
+                className="bg-white rounded-2xl border border-gray-200 px-6 py-5 flex items-center gap-5 hover:shadow-md transition-shadow cursor-pointer"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6"/>
-                  <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                  <path d="M10 11v6"/><path d="M14 11v6"/>
-                  <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-                </svg>
-              </button>
-            </div>
-
-            {/* Impact */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 flex flex-col gap-4">
-              <div>
-                <p className="text-xs text-gray-400 mb-2">영향 방향</p>
-                <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg ${selected.impactStyle}`}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                  </svg>
-                  {selected.impactLabel}
-                </span>
-              </div>
-              <p className="text-sm text-gray-700 leading-6">{selected.summary}</p>
-            </div>
-
-            {/* Business Impact */}
-            {selectedBusinessImpact && selectedBusinessImpact.length > 0 && (
-              <div className="bg-primary-50 rounded-2xl border border-primary-100 p-5">
-                <p className="text-xs font-bold text-primary-600 mb-4">내 사업 영향도 미리보기</p>
-                <div className="flex flex-col gap-3">
-                  {selectedBusinessImpact.map((item) => (
-                    <div key={item.label} className="flex items-center gap-3">
-                      <span className="text-xs text-gray-500 w-12 shrink-0">{item.label}</span>
-                      <div className="flex-1 h-2 bg-white rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${item.barColor}`}
-                          style={{ width: `${item.level}%` }}
-                        />
-                      </div>
-                      <span className={`flex items-center gap-1 text-xs font-semibold shrink-0 whitespace-nowrap ${item.tagColor}`}>
-                        {item.direction === "up" ? (
-                          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,1 9,9 1,9"/></svg>
-                        ) : (
-                          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor"><polygon points="5,9 9,1 1,1"/></svg>
-                        )}
-                        {item.tag}
+                <div className="flex flex-col gap-2 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {report.category && (
+                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full shrink-0 ${CATEGORY_COLORS[report.category] ?? "bg-gray-100 text-gray-600"}`}>
+                        {report.category}
                       </span>
-                    </div>
-                  ))}
+                    )}
+                    <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-primary-50 text-primary-600 border border-primary-100 shrink-0">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${impactDotColor(report.impactStyle)}`} />
+                      {report.impactLabel}
+                    </span>
+                    <span className="text-xs text-gray-400 ml-auto shrink-0">{formatDate(report.savedAt)}</span>
+                  </div>
+                  <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-1">{report.policyTitle}</h3>
+                  <p className="text-xs text-gray-500 leading-5 line-clamp-2">{report.summary}</p>
                 </div>
-              </div>
-            )}
 
-            {/* Detail */}
-            <div className="bg-white rounded-2xl border border-gray-200 p-5 flex flex-col gap-3">
-              <p className="text-xs text-gray-400">상세 분석</p>
-              {selected.details.map((text, i) => (
-                <p key={i} className="text-sm text-gray-700 leading-6">{text}</p>
-              ))}
-            </div>
-
-            {/* Related */}
-            {selectedRelated.length > 0 && (
-              <div className="bg-white rounded-2xl border border-gray-200 p-5 flex flex-col gap-3">
-                <p className="text-xs text-gray-400">함께 신청하면 좋아요</p>
-                {selectedRelated.map((rel) => rel && (
+                <div className="flex items-center gap-3 shrink-0">
                   <button
-                    key={rel.id}
-                    onClick={() => navigate(`/policies/${rel.id}`)}
-                    className="flex items-center gap-3 text-left bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-xl p-3 transition-colors"
+                    onClick={(e) => handleDelete(e, report.policyId)}
+                    className="p-1.5 text-gray-300 hover:text-red-400 transition-colors"
+                    aria-label="리포트 삭제"
                   >
-                    <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                        <polyline points="14 2 14 8 20 8"/>
-                        <line x1="16" y1="13" x2="8" y2="13"/>
-                        <line x1="16" y1="17" x2="8" y2="17"/>
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-800 line-clamp-1">{rel.title}</p>
-                      <p className="text-xs text-primary-500 mt-0.5">{rel.agency}</p>
-                    </div>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
-                      <polyline points="9 18 15 12 9 6"/>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                      <path d="M10 11v6"/><path d="M14 11v6"/>
+                      <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
                     </svg>
                   </button>
-                ))}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                </div>
               </div>
-            )}
-
-            {/* Actions */}
-            <div className="flex gap-3">
-              <Link
-                to={`/policies/${selected.policyId}`}
-                className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold text-gray-600 border border-gray-200 py-3 rounded-xl hover:bg-gray-100 transition-colors bg-white"
-              >
-                정책 원문 보기
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="5" y1="12" x2="19" y2="12"/>
-                  <polyline points="12 5 19 12 12 19"/>
-                </svg>
-              </Link>
-              <Link
-                to="/policies"
-                className="flex-1 flex items-center justify-center gap-1.5 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 py-3 rounded-xl transition-colors"
-              >
-                새 정책 분석하기
-              </Link>
-            </div>
-
-            <p className="text-xs text-gray-400 text-center">저장일: {formatDate(selected.savedAt)}</p>
+            ))}
           </div>
         )}
-      </main>
+      </div>
     </div>
   );
 }

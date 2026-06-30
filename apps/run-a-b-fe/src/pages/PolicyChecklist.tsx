@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { MOCK_POLICIES, POLICY_DETAILS } from "@/data/policies";
+import api from "@/lib/api";
 
 const CATEGORY_COLORS: Record<string, string> = {
   최저임금: "bg-gray-100 text-gray-600",
@@ -19,21 +20,83 @@ export default function PolicyChecklist() {
   const navigate = useNavigate();
   const policyId = Number(id);
 
-  const policy = MOCK_POLICIES.find((p) => p.id === policyId);
-  const detail = POLICY_DETAILS[policyId];
+  const mockPolicy = MOCK_POLICIES.find((p) => p.id === policyId);
+  const mockDetail = POLICY_DETAILS[policyId];
+
+  // 실 API 정책 제목 (mock에 없을 때 fallback)
+  const [apiTitle, setApiTitle] = useState<string | null>(null);
+  const [apiUrl, setApiUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!mockPolicy) {
+      api.get(`/api/v1/policies/${policyId}`)
+        .then((res) => {
+          setApiTitle(res.data.data.title);
+          setApiUrl(res.data.data.detailUrl || res.data.data.applicationUrl || null);
+        })
+        .catch(() => {});
+    }
+  }, [policyId, mockPolicy]);
 
   const [checked, setChecked] = useState<Record<string, boolean>>({});
 
-  if (!policy || !detail) {
+  // 실 API 정책 — mock 체크리스트 없음, 준비 중 UI 표시
+  if (!mockPolicy || !mockDetail) {
+    const title = apiTitle ?? "정책 로딩 중...";
     return (
-      <div className="flex flex-col items-center justify-center py-40 text-gray-400">
-        <p className="text-lg font-semibold mb-2">정책을 찾을 수 없어요</p>
-        <button onClick={() => navigate("/policies")} className="mt-4 text-sm text-primary-600 hover:underline">
-          정책 목록으로 돌아가기
-        </button>
+      <div className="bg-gray-50 min-h-screen">
+        <div className="px-40 py-4">
+          <nav className="flex items-center gap-1.5 text-sm text-gray-500">
+            <Link to="/" className="hover:text-gray-700 transition-colors">홈</Link>
+            <span className="text-gray-300">›</span>
+            <Link to="/policies" className="hover:text-gray-700 transition-colors">정책 모아보기</Link>
+            <span className="text-gray-300">›</span>
+            <Link to={`/policies/${policyId}`} className="hover:text-gray-700 transition-colors truncate max-w-xs">{title}</Link>
+            <span className="text-gray-300">›</span>
+            <span className="text-gray-700 font-medium">신청 준비</span>
+          </nav>
+        </div>
+        <div className="flex flex-col items-center justify-center py-24 gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-primary-50 flex items-center justify-center">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary-400">
+              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+              <line x1="9" y1="12" x2="15" y2="12"/>
+              <line x1="9" y1="16" x2="13" y2="16"/>
+            </svg>
+          </div>
+          <div className="text-center">
+            <p className="text-base font-bold text-gray-700 mb-1">신청 체크리스트 준비 중이에요</p>
+            <p className="text-sm text-gray-400 leading-6">
+              이 정책의 맞춤 체크리스트가 곧 제공될 예정이에요.<br />
+              지금은 원문 공고에서 직접 신청 서류를 확인해 주세요.
+            </p>
+          </div>
+          <div className="flex gap-3 mt-2">
+            <button
+              onClick={() => navigate(`/policies/${policyId}`)}
+              className="px-5 py-2.5 text-sm font-semibold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
+            >
+              정책 상세 보기
+            </button>
+            {apiUrl && (
+              <a
+                href={apiUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-5 py-2.5 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-xl transition-colors"
+              >
+                원문 공고 보기
+              </a>
+            )}
+          </div>
+        </div>
       </div>
     );
   }
+
+  const policy = mockPolicy;
+  const detail = mockDetail;
 
   const required = detail.applicationChecklist.filter((i) => i.required);
   const optional = detail.applicationChecklist.filter((i) => !i.required);
