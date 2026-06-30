@@ -10,6 +10,7 @@ const Policies        = lazy(() => import('@/pages/Policies'))
 const PolicyDetail    = lazy(() => import('@/pages/PolicyDetail'))
 const PolicyChecklist = lazy(() => import('@/pages/PolicyChecklist'))
 const ReportList      = lazy(() => import('@/pages/ReportList'))
+const ReportDetail    = lazy(() => import('@/pages/ReportDetail'))
 
 // 앱 로드 직후 백그라운드에서 모든 청크 미리 받아둠 → 이후 이동 즉각 반응
 function usePrefetchRoutes() {
@@ -21,6 +22,7 @@ function usePrefetchRoutes() {
       import('@/pages/Login')
       import('@/pages/Signup')
       import('@/pages/ReportList')
+      import('@/pages/ReportDetail')
       import('@/pages/PolicyChecklist')
     }, 2000) // 초기 렌더 안정화 후 2초 뒤에 prefetch
     return () => clearTimeout(timer)
@@ -50,6 +52,7 @@ export function AppRoutes() {
           <Route path="/policies/:id"           element={<PolicyDetail />} />
           <Route path="/policies/:id/checklist" element={<PolicyChecklist />} />
           <Route path="/reports"                element={<ReportList />} />
+          <Route path="/reports/:id"            element={<ReportDetail />} />
         </Route>
       </Routes>
     </Suspense>

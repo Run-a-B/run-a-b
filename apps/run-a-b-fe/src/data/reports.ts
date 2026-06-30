@@ -1,13 +1,24 @@
+export interface BusinessImpactItem {
+  label: string;
+  level: number;
+  direction: "up" | "down";
+  tag: string;
+  barColor: string;
+  tagColor: string;
+}
+
 export interface SavedReport {
   id: string;
   policyId: number;
   policyTitle: string;
+  category?: string;
   savedAt: string;
   impactLabel: string;
   impactStyle: string;
   summary: string;
   details: string[];
   relatedIds: number[];
+  businessImpact?: BusinessImpactItem[];
 }
 
 const KEY = "rab_reports";
