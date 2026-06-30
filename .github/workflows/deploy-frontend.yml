@@ -1,0 +1,47 @@
+name: Deploy Frontend to EC2
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'apps/run-a-b-fe/**'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 소스코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Node.js 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 의존성 설치
+        run: npm ci
+        working-directory: ./apps/run-a-b-fe
+
+      - name: 프론트 빌드
+        run: npm run build
+        working-directory: ./apps/run-a-b-fe
+
+      - name: 빌드 결과물 확인
+        run: ls -la ./apps/run-a-b-fe/dist
+
+      - name: sshpass 설치
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: EC2로 dist 폴더 동기화 (rsync)
+        run: |
+          sshpass -p "${{ secrets.EC2_PASSWORD }}" rsync -avz --delete \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            ./apps/run-a-b-fe/dist/ \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/ec2-user/run-a-b/apps/run-a-b-fe/dist/
+
+      - name: 배포 결과 확인
+        run: |
+          sshpass -p "${{ secrets.EC2_PASSWORD }}" ssh -o StrictHostKeyChecking=no \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+            "ls -la /home/ec2-user/run-a-b/apps/run-a-b-fe/dist"
