@@ -59,7 +59,7 @@ public class PolicyService {
             if (businessInfo == null) {
                 return PolicyListResponse.from(policy);
             }
-            PolicyCard card = policyCardRepository.findByExternalId(policy.getExternalId()).orElse(null);
+            PolicyCard card = policyCardRepository.findByPolicyId(PolicyCard.toPolicyId(policy.getExternalId())).orElse(null);
             MatchResult match = eligibilityMatcher.match(businessInfo, card);
             return PolicyListResponse.from(policy, match.getScore(), match.getScore() >= AI_RECOMMEND_THRESHOLD && !match.isHardFail());
         });

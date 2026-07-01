@@ -68,6 +68,13 @@ public class PolicyCard {
         this.extractionStatus = extractionStatus;
     }
 
+    // Policy.externalId(PBLN_...) → PolicyCard.policyId 형식으로 변환
+    // ⚠️ PolicyCard.externalId 컬럼은 값이 policyId와 동일하게(접두사 포함) 잘못 들어가 있어 매칭에 못 씀(2026.07.01 확인).
+    //    policyId 컬럼은 항상 이 형식이 보장되므로 이걸로 조회해야 함.
+    public static String toPolicyId(String bizinfoExternalId) {
+        return "bizinfo_support_program:" + bizinfoExternalId;
+    }
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
