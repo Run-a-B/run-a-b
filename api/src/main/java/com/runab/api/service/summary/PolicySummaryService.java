@@ -61,6 +61,8 @@ public class PolicySummaryService {
                     .policyId(policyId)
                     .summaryLinesJson(writeJson(generated.getSummaryLines()))
                     .highlightsJson(writeJson(generated.getHighlights()))
+                    .expandedDescription(generated.getExpandedDescription())
+                    .expandedApplicationMethod(generated.getExpandedApplicationMethod())
                     .build());
         } catch (DataIntegrityViolationException e) {
             log.info("[summary] 동시 생성 감지(policyId={}) → 기존 캐시 사용", policyId);
@@ -81,11 +83,16 @@ public class PolicySummaryService {
                     {"icon": "money", "label": "지원 규모", "content": "한 문장 설명"},
                     {"icon": "check", "label": "지원 대상", "content": "한 문장 설명"},
                     {"icon": "calendar", "label": "신청 기간", "content": "한 문장 설명"}
-                  ]
+                  ],
+                  "expanded_description": "사업 목적/사업 내용을 자연스럽게 풀어쓴 2~4문단 존댓말 문어체",
+                  "expanded_application_method": "신청 방법을 자연스럽게 풀어쓴 문장"
                 }
 
                 - summary_lines: 정확히 3개. 각 줄은 이 정책의 핵심(지원 내용/대상/규모/기간 등)을 담은 한 문장.
                 - highlights: 1~3개. icon은 반드시 money(지원금·자금·규모), check(자격·대상·조건), calendar(기간·일정) 중 하나만.
+                - expanded_description: 주어진 "사업 목적"과 "사업 내용" 필드에 있는 내용만으로 자연스럽고 읽기 좋은 한국어 존댓말 문어체 2~4문단으로 재구성. 원본이 짧으면 짧게. 관련 정보가 전혀 없으면 빈 문자열("").
+                - expanded_application_method: 주어진 "신청 방법" 필드에 있는 내용만으로 자연스러운 문장으로 재구성. 정보가 없으면 빈 문자열("").
+                - ⚠️ 매우 중요: expanded_description/expanded_application_method는 실제 정부·지자체 공고 내용이라 사용자가 신청 판단에 쓴다. 반드시 주어진 필드에 있는 내용만 재구성하고, 새로운 사실·숫자·금액·날짜·조건·절차·기관을 추가하거나 추측·과장하지 마라. 없는 정보를 지어내지 마라. 표현만 매끄럽게 다듬고 내용(사실관계)은 원본과 100% 일치시켜라.
                 - 공고문에 없는 내용을 지어내지 말 것. 정보가 부족하면 있는 것만으로 작성.
                 """;
     }
@@ -135,7 +142,14 @@ public class PolicySummaryService {
         return PolicySummaryResponse.builder()
                 .summaryLines(lines)
                 .highlights(highlights)
+                .expandedDescription(blankToNull(ai.path("expanded_description").asText("")))
+                .expandedApplicationMethod(blankToNull(ai.path("expanded_application_method").asText("")))
                 .build();
+    }
+
+    // 빈 문자열은 null로 통일해 프론트가 원본 폴백을 쓰도록 함
+    private String blankToNull(String s) {
+        return (s == null || s.trim().isEmpty()) ? null : s.trim();
     }
 
     private PolicySummaryResponse toResponse(PolicySummary s) {
@@ -143,6 +157,8 @@ public class PolicySummaryService {
                 .summaryLines(readList(s.getSummaryLinesJson(), new TypeReference<List<String>>() {}))
                 .highlights(readList(s.getHighlightsJson(),
                         new TypeReference<List<PolicySummaryResponse.Highlight>>() {}))
+                .expandedDescription(s.getExpandedDescription())
+                .expandedApplicationMethod(s.getExpandedApplicationMethod())
                 .build();
     }
 

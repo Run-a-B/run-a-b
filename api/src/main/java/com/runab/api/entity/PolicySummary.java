@@ -37,6 +37,14 @@ public class PolicySummary {
     @Column(name = "highlights_json", columnDefinition = "JSON")
     private String highlightsJson;
 
+    // "사업 내용"(description+purposeText)을 원본 정보만으로 자연스럽게 재구성한 문장 (H-2). 없으면 null → 프론트가 원본 폴백.
+    @Column(name = "expanded_description", columnDefinition = "TEXT")
+    private String expandedDescription;
+
+    // "신청 방법"(applicationMethod)을 원본 정보만으로 재구성한 문장 (H-2).
+    @Column(name = "expanded_application_method", columnDefinition = "TEXT")
+    private String expandedApplicationMethod;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -46,16 +54,22 @@ public class PolicySummary {
     //--------------------------------------------------------------------------------------------------------
 
     @Builder
-    public PolicySummary(Long policyId, String summaryLinesJson, String highlightsJson) {
+    public PolicySummary(Long policyId, String summaryLinesJson, String highlightsJson,
+                         String expandedDescription, String expandedApplicationMethod) {
         this.policyId = policyId;
         this.summaryLinesJson = summaryLinesJson;
         this.highlightsJson = highlightsJson;
+        this.expandedDescription = expandedDescription;
+        this.expandedApplicationMethod = expandedApplicationMethod;
     }
 
     // 재생성 시 갱신용 비즈니스 메서드 (setter 금지 원칙). updatedAt은 @PreUpdate가 처리.
-    public void update(String summaryLinesJson, String highlightsJson) {
+    public void update(String summaryLinesJson, String highlightsJson,
+                       String expandedDescription, String expandedApplicationMethod) {
         this.summaryLinesJson = summaryLinesJson;
         this.highlightsJson = highlightsJson;
+        this.expandedDescription = expandedDescription;
+        this.expandedApplicationMethod = expandedApplicationMethod;
     }
 
     @PrePersist
