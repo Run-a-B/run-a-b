@@ -202,4 +202,23 @@ class EligibilityMatcherTest {
         assertThat(result.getFail()).contains("industry");
         assertThat(result.getPass()).doesNotContain("industry");
     }
+
+    // ===== 목록 업종 필터 판정 matchesIndustryFilter (Task G) =====
+    // 드롭다운 선택 업종 기준. 동의어/전업종은 통과, 미매핑/카드없음/빈 industries는 제외.
+
+    @Test
+    @DisplayName("업종필터: 동의어(미용업↔뷰티/미용)/전업종은 통과, 불일치·카드없음·빈배열은 제외")
+    void matchesIndustryFilter_contract() {
+        // 동의어 매칭
+        assertThat(matcher.matchesIndustryFilter(card(industryCard("[\"미용업\"]", "specific")), "뷰티/미용")).isTrue();
+        assertThat(matcher.matchesIndustryFilter(card(industryCard("[\"정보통신업\"]", "specific")), "IT/소프트웨어")).isTrue();
+        // 전업종(all)은 아무 업종 선택에도 통과
+        assertThat(matcher.matchesIndustryFilter(card(industryCard("[\"전업종\"]", "all")), "제조업")).isTrue();
+        // 매핑 없는/다른 업종은 제외
+        assertThat(matcher.matchesIndustryFilter(card(industryCard("[\"제조업\"]", "specific")), "뷰티/미용")).isFalse();
+        // 카드 없음(null) → 제외
+        assertThat(matcher.matchesIndustryFilter(null, "뷰티/미용")).isFalse();
+        // industries 비어있음 → 판단 불가 → 제외
+        assertThat(matcher.matchesIndustryFilter(card(industryCard("[]", "unknown")), "뷰티/미용")).isFalse();
+    }
 }
