@@ -190,7 +190,10 @@ public class PolicyReportService {
         boolean negative = "negative".equals(ai.path("overall_direction").asText("positive"));
         String direction = negative ? "negative" : "positive";
         String overallLabel = ai.path("overall_label").asText("분석 완료");
-        String impactStyle = negative ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700";
+        // Tailwind v4는 프론트 소스에 리터럴로 등장하는 클래스만 CSS를 생성한다. 백엔드가 만들어 보내는 색상 클래스는
+        // 반드시 프론트에 이미 존재하는 것으로 골라야 렌더링됨. (negative의 bg-red-100은 hover: 변형으로만, text-red-700은
+        // 아예 미등장이라 색이 안 칠해졌음 → 프론트에 실재하는 bg-red-50/text-red-600으로 교체)
+        String impactStyle = negative ? "bg-red-50 text-red-600" : "bg-green-100 text-green-700";
 
         List<String> details = new ArrayList<>();
         ai.path("details").forEach(n -> details.add(n.asText()));
@@ -206,8 +209,10 @@ public class PolicyReportService {
                         .level(item.path("level").asInt(50))
                         .direction(itemDirection)
                         .tag(item.path("tag").asText(""))
-                        .barColor(up ? "bg-green-500" : "bg-red-500")
-                        .tagColor(up ? "text-green-600" : "text-red-600")
+                        // 프론트(policies.ts 등)에 다수 등장해 Tailwind 생성이 보장되는 클래스로 지정
+                        // (기존 bg-green-500/bg-red-500/text-red-600은 프론트에 리터럴로 거의 없어 CSS 누락 → 막대·태그 무색)
+                        .barColor(up ? "bg-green-400" : "bg-red-400")
+                        .tagColor(up ? "text-green-600" : "text-red-500")
                         .build());
             });
         }
