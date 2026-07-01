@@ -4,10 +4,12 @@ import com.runab.api.dto.common.ApiResponse;
 import com.runab.api.dto.policy.PolicyDetailResponse;
 import com.runab.api.dto.policy.PolicyPageResponse;
 import com.runab.api.dto.policy.PolicySyncResult;
+import com.runab.api.dto.policy.PolicySummaryResponse;
 import com.runab.api.dto.report.PolicyReportResponse;
 import com.runab.api.service.PolicyService;
 import com.runab.api.service.PolicySyncService;
 import com.runab.api.service.report.PolicyReportService;
+import com.runab.api.service.summary.PolicySummaryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -20,6 +22,7 @@ public class PolicyController {
     private final PolicyService policyService;
     private final PolicySyncService policySyncService;
     private final PolicyReportService policyReportService;
+    private final PolicySummaryService policySummaryService;
 
     // ===== 1) 정책 목록 조회 =====
     @GetMapping
@@ -54,6 +57,14 @@ public class PolicyController {
     public ApiResponse<PolicyReportResponse> generateReport(@PathVariable Long id, Authentication authentication) {
         Long userId = (Long) authentication.getPrincipal();
         return ApiResponse.success(policyReportService.generate(userId, id), "리포트 생성 완료");
+    }
+
+    // ===== 2-2) AI 요약 조회 (OpenAI, 정책별 캐싱) =====
+    // 인증 불필요(정책 상세 조회와 동일 — SecurityConfig의 GET /api/v1/policies/** permitAll에 포함).
+    // 최초 호출 시 OpenAI로 3줄 요약 생성 후 DB 캐싱, 이후 호출은 캐시 반환(재호출 없음).
+    @GetMapping("/{id}/summary")
+    public ApiResponse<PolicySummaryResponse> getSummary(@PathVariable Long id) {
+        return ApiResponse.success(policySummaryService.getOrGenerate(id));
     }
 
     // ===== 3) bizinfo 정책 동기화 (수동 트리거) =====
