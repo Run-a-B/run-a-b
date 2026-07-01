@@ -115,18 +115,24 @@ export function HomePage() {
           </div>
         </div>
       </section>
-      <section className="px-40 py-10">
-        <div>
+      <section className="relative overflow-hidden min-h-screen flex items-center px-40 py-20">
+        <div className="absolute -right-40 -top-40 w-[560px] h-[560px] bg-primary-100 rounded-full blur-3xl opacity-50 -z-10" />
+        <div className="absolute -left-40 -bottom-40 w-[420px] h-[420px] bg-primary-50 rounded-full blur-3xl opacity-60 -z-10" />
+        <div className="w-full">
           <Reveal>
-            <p className="text-xs pb-3 text-primary-500 font-medium">내 업종 맞춤</p>
-            <h1 className="font-bold text-2xl pb-3">최신 정책</h1>
-            <div className="flex items-center justify-between text-sm text-text-secondary font-medium mb-5">
-              <p>최신 사업 정책들이에요</p>
-              <Link to={"policies"} className="text-primary-500">전체 보기 ➔</Link>
+            <div className="inline-flex items-center gap-1.5 border-[1.5px] border-primary-400 text-xs font-semibold mb-5 px-3 py-1 rounded-sm text-primary-600 before:content-[''] before:size-1.5 before:rounded-full before:bg-primary-500 before:shrink-0">
+              내 업종 맞춤
+            </div>
+            <div className="flex items-end justify-between mb-8">
+              <div>
+                <h1 className="font-black text-4xl mb-3">최신 정책</h1>
+                <p className="text-sm text-text-secondary font-medium">최신 사업 정책들이에요</p>
+              </div>
+              <Link to={"policies"} className="inline-flex items-center gap-1 text-sm font-semibold text-primary-600 border border-primary-200 px-4 py-2 rounded-2xl hover:bg-primary-50 transition-colors">전체 보기 ➔</Link>
             </div>
           </Reveal>
 
-          <div className="flex gap-5 mb-10">
+          <div className="flex gap-5 mb-12">
             {policyLoading ? (
               [1, 2, 3].map(i => <PolicyCardSkeleton key={i} />)
             ) : latestPolicies.map((policy, i) => {
