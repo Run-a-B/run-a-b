@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { getSavedReports, deleteReport, type SavedReport } from "@/data/reports";
+import { getSavedReport, deleteReport, type SavedReport } from "@/data/reports";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "기술": "bg-violet-100 text-violet-700",
@@ -35,13 +35,27 @@ export default function ReportDetail() {
   const [report, setReport] = useState<SavedReport | null | "notfound">(null);
 
   useEffect(() => {
-    const found = getSavedReports().find((r) => r.policyId === policyId);
-    setReport(found ?? "notfound");
+    let active = true;
+    setReport(null);
+    getSavedReport(policyId)
+      .then((found) => {
+        if (active) setReport(found ?? "notfound");
+      })
+      .catch(() => {
+        if (active) setReport("notfound");
+      });
+    return () => {
+      active = false;
+    };
   }, [policyId]);
 
-  function handleDelete() {
-    deleteReport(policyId);
-    navigate("/reports", { replace: true });
+  async function handleDelete() {
+    try {
+      await deleteReport(policyId);
+      navigate("/reports", { replace: true });
+    } catch (err: any) {
+      alert(err.response?.data?.message || "리포트 삭제에 실패했어요");
+    }
   }
 
   if (report === null) return null;

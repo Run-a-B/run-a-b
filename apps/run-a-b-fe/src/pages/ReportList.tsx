@@ -40,17 +40,28 @@ type Tab = (typeof TABS)[number];
 export default function ReportList() {
   const navigate = useNavigate();
   const [reports, setReports] = useState<SavedReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<Tab>("최신순");
 
   useEffect(() => {
-    setReports(getSavedReports());
+    setLoading(true);
+    setError(false);
+    getSavedReports()
+      .then(setReports)
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, []);
 
-  function handleDelete(e: React.MouseEvent, policyId: number) {
+  async function handleDelete(e: React.MouseEvent, policyId: number) {
     e.stopPropagation();
-    deleteReport(policyId);
-    setReports(getSavedReports());
+    try {
+      await deleteReport(policyId);
+      setReports((prev) => prev.filter((r) => r.policyId !== policyId));
+    } catch (err: any) {
+      alert(err.response?.data?.message || "리포트 삭제에 실패했어요");
+    }
   }
 
   const filtered = reports
@@ -105,7 +116,22 @@ export default function ReportList() {
         </div>
 
         {/* List */}
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="flex flex-col gap-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="bg-white rounded-2xl border border-gray-200 px-6 py-5 animate-pulse">
+                <div className="w-32 h-4 bg-gray-100 rounded mb-3" />
+                <div className="w-2/3 h-4 bg-gray-200 rounded mb-2" />
+                <div className="w-full h-3 bg-gray-100 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-24 text-gray-400">
+            <p className="text-base font-semibold text-gray-500 mb-1">리포트를 불러오지 못했어요</p>
+            <p className="text-sm text-gray-400">잠시 후 다시 시도해 주세요.</p>
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-gray-400">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300 mb-4">
               <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>

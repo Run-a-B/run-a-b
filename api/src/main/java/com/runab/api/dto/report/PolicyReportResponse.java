@@ -23,6 +23,7 @@ public class PolicyReportResponse {
     private List<String> details;
     private List<Long> relatedIds;
     private List<BusinessImpactItem> businessImpact;
+    private String savedAt;       // 저장/갱신 시각 ISO-8601 (프론트 SavedReport.savedAt) — 생성 응답엔 없을 수 있음
 
     @Getter
     @Builder
