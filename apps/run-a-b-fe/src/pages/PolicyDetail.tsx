@@ -66,6 +66,11 @@ interface ApiDetail {
   agency: string;
 }
 
+interface PolicySummaryData {
+  summaryLines: string[];
+  highlights: { icon: string; label: string; content: string }[];
+}
+
 // AI/미구현 필드 기본값 — AI 연동 후 API 응답으로 교체 예정
 const AI_DEFAULTS = {
   tags: [] as string[],
@@ -94,6 +99,8 @@ export default function PolicyDetail() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [reportState, setReportState] = useState<"idle" | "loading" | "done">("idle");
+  const [summary, setSummary] = useState<PolicySummaryData | null>(null);
+  const [summaryState, setSummaryState] = useState<"loading" | "done" | "error">("loading");
 
   useEffect(() => {
     setLoading(true);
@@ -118,6 +125,25 @@ export default function PolicyDetail() {
         if (active && found) setReportState("done");
       })
       .catch(() => { /* 미로그인/네트워크 오류 시 그냥 idle 유지 */ });
+    return () => {
+      active = false;
+    };
+  }, [policyId]);
+
+  // AI 요약 조회 (최초 1회 백엔드에서 생성 후 캐싱 → 재방문 시 빠름). 실패해도 페이지는 정상.
+  useEffect(() => {
+    let active = true;
+    setSummary(null);
+    setSummaryState("loading");
+    api.get(`/api/v1/policies/${policyId}/summary`)
+      .then((res) => {
+        if (!active) return;
+        setSummary(res.data.data);
+        setSummaryState("done");
+      })
+      .catch(() => {
+        if (active) setSummaryState("error");
+      });
     return () => {
       active = false;
     };
@@ -262,6 +288,28 @@ export default function PolicyDetail() {
                 </div>
               )}
 
+              {/* 지원 규모 */}
+              {apiDetail.supportScale && (
+                <div className="mb-5 flex items-start gap-3 bg-primary-50 border border-primary-100 rounded-xl px-4 py-3">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0 mt-0.5">
+                    <line x1="12" y1="1" x2="12" y2="23"/>
+                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                  </svg>
+                  <div>
+                    <p className="text-xs font-semibold text-primary-600 mb-0.5">지원 규모</p>
+                    <p className="text-sm text-gray-700 leading-6 whitespace-pre-line">{apiDetail.supportScale}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* 사업 목적 */}
+              {apiDetail.purposeText && (
+                <section className="mb-6">
+                  <h2 className="text-lg font-bold text-gray-900 mb-3">사업 목적</h2>
+                  <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.purposeText}</p>
+                </section>
+              )}
+
               {/* 사업 내용 */}
               {apiDetail.description && (
                 <section className="mb-6">
@@ -314,26 +362,66 @@ export default function PolicyDetail() {
                 </div>
                 <span className="text-sm font-bold text-gray-800">AI 요약</span>
               </div>
-              <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
-                <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
-                준비 중
-              </span>
+              {summaryState === "done" ? (
+                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-primary-600 border border-primary-100">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" />
+                  완료
+                </span>
+              ) : summaryState === "loading" ? (
+                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block animate-pulse" />
+                  요약 중
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
+                  준비 중
+                </span>
+              )}
             </div>
 
             <div className="px-5 py-4 flex flex-col gap-4">
-              <p className="text-sm text-gray-500 leading-7">{AI_DEFAULTS.aiSummaryText}</p>
-              {AI_DEFAULTS.aiHighlights.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  {AI_DEFAULTS.aiHighlights.map((h) => (
-                    <div key={h.label} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
-                      <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
-                        <p className="text-sm text-gray-500 leading-6">{h.content}</p>
-                      </div>
-                    </div>
-                  ))}
+              {summaryState === "loading" && (
+                <div className="flex flex-col gap-2 animate-pulse">
+                  <div className="h-3.5 bg-white rounded w-full" />
+                  <div className="h-3.5 bg-white rounded w-5/6" />
+                  <div className="h-3.5 bg-white rounded w-2/3" />
+                  <p className="text-xs text-gray-400 mt-1">AI가 공고문을 요약하고 있어요...</p>
                 </div>
+              )}
+
+              {summaryState === "error" && (
+                <p className="text-sm text-gray-500 leading-7">{AI_DEFAULTS.aiSummaryText}</p>
+              )}
+
+              {summaryState === "done" && summary && (
+                <>
+                  {summary.summaryLines.length > 0 ? (
+                    <ul className="flex flex-col gap-2">
+                      {summary.summaryLines.map((line, i) => (
+                        <li key={i} className="flex gap-2 text-sm text-gray-600 leading-6">
+                          <span className="text-primary-500 font-bold shrink-0">{i + 1}.</span>
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-gray-500 leading-7">{AI_DEFAULTS.aiSummaryText}</p>
+                  )}
+                  {summary.highlights.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      {summary.highlights.map((h, i) => (
+                        <div key={i} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
+                          <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
+                            <p className="text-sm text-gray-500 leading-6">{h.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
