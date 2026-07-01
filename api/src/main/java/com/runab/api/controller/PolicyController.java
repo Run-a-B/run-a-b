@@ -1,6 +1,7 @@
 package com.runab.api.controller;
 
 import com.runab.api.dto.common.ApiResponse;
+import com.runab.api.dto.policy.PolicyChecklistResponse;
 import com.runab.api.dto.policy.PolicyDetailResponse;
 import com.runab.api.dto.policy.PolicyPageResponse;
 import com.runab.api.dto.policy.PolicySyncResult;
@@ -8,6 +9,7 @@ import com.runab.api.dto.policy.PolicySummaryResponse;
 import com.runab.api.dto.report.PolicyReportResponse;
 import com.runab.api.service.PolicyService;
 import com.runab.api.service.PolicySyncService;
+import com.runab.api.service.checklist.PolicyChecklistService;
 import com.runab.api.service.report.PolicyReportService;
 import com.runab.api.service.summary.PolicySummaryService;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ public class PolicyController {
     private final PolicySyncService policySyncService;
     private final PolicyReportService policyReportService;
     private final PolicySummaryService policySummaryService;
+    private final PolicyChecklistService policyChecklistService;
 
     // ===== 1) 정책 목록 조회 =====
     @GetMapping
@@ -65,6 +68,13 @@ public class PolicyController {
     @GetMapping("/{id}/summary")
     public ApiResponse<PolicySummaryResponse> getSummary(@PathVariable Long id) {
         return ApiResponse.success(policySummaryService.getOrGenerate(id));
+    }
+
+    // ===== 2-3) 신청 준비 체크리스트 =====
+    // 인증 불필요(GET /api/v1/policies/** permitAll). AI 자유생성 없이 공통 서류 + policy_card 데이터로 조립.
+    @GetMapping("/{id}/checklist")
+    public ApiResponse<PolicyChecklistResponse> getChecklist(@PathVariable Long id) {
+        return ApiResponse.success(policyChecklistService.getChecklist(id));
     }
 
     // ===== 3) bizinfo 정책 동기화 (수동 트리거) =====
