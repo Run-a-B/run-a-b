@@ -22,6 +22,11 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -55,16 +60,34 @@ public class PolicyService {
                 ? null
                 : businessInfoRepository.findByUserId(userId).orElse(null);
 
+        // 페이지 내 정책 카드를 한 번에 조회해 매칭 시 N+1 쿼리 방지 (페이지당 카드 개수만큼 개별 조회하던 것을 IN 한 방으로)
+        final Map<String, PolicyCard> cardMap = (businessInfo == null)
+                ? Map.of()
+                : loadCards(policyPage.getContent());
+
         Page<PolicyListResponse> result = policyPage.map(policy -> {
             if (businessInfo == null) {
                 return PolicyListResponse.from(policy);
             }
-            PolicyCard card = policyCardRepository.findByPolicyId(PolicyCard.toPolicyId(policy.getExternalId())).orElse(null);
+            PolicyCard card = cardMap.get(PolicyCard.toPolicyId(policy.getExternalId()));
             MatchResult match = eligibilityMatcher.match(businessInfo, card);
             return PolicyListResponse.from(policy, match.getScore(), match.getScore() >= AI_RECOMMEND_THRESHOLD && !match.isHardFail());
         });
 
         return PolicyPageResponse.from(result);
+    }
+
+    // 페이지 내 정책들의 PolicyCard를 IN 쿼리 한 번으로 조회해 policyId → card 맵으로 반환
+    private Map<String, PolicyCard> loadCards(List<Policy> policies) {
+        List<String> keys = policies.stream()
+                .map(p -> PolicyCard.toPolicyId(p.getExternalId()))
+                .distinct()
+                .toList();
+        if (keys.isEmpty()) {
+            return Map.of();
+        }
+        return policyCardRepository.findByPolicyIdIn(keys).stream()
+                .collect(Collectors.toMap(PolicyCard::getPolicyId, Function.identity(), (a, b) -> a));
     }
 
     // ===== 2) 정책 상세 조회 =====

@@ -1,6 +1,8 @@
 package com.runab.api.service.matcher;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 지역 매칭 시 "강남구" ⊂ "서울특별시" 같은 상하위 관계를 판단하기 위한 정적 매핑.
@@ -35,16 +37,19 @@ public final class RegionHierarchy {
             Map.entry("제주", "제주특별자치도")
     );
 
-    // 구/군/시(기초자치단체) → 소속 시/도 정식명 매핑
-    private static final Map<String, String> DISTRICT_TO_PROVINCE = buildDistrictMap();
+    // 구/군/시(기초자치단체) → 소속 시/도 정식명 집합.
+    // 주의: "중구","남구","동구","서구","북구","강서구","고성군" 등 같은 이름의 기초단체가 여러 시/도에 존재한다.
+    // 단일 값 Map으로 두면 마지막에 put된 시/도로 덮여, 예컨대 서울 강서구 정책이 부산으로 매핑돼 서울 사용자와 오매칭(FAIL)된다.
+    // → 값을 Set으로 보관해 "그 구가 속할 수 있는 시/도 중 하나라도 겹치면 매칭"으로 판단(오탐 FAIL 방지).
+    private static final Map<String, Set<String>> DISTRICT_TO_PROVINCES = buildDistrictMap();
 
-    /** regionText가 어느 시/도 소속인지 반환. 이미 시/도 자체거나 매핑 불가면 원문 그대로/null. */
-    public static String provinceOf(String regionText) {
-        if (regionText == null || regionText.isBlank()) return null;
+    /** regionText가 속할 수 있는 시/도 정식명 집합 반환. 이미 시/도면 자기 자신, 매핑 불가면 빈 집합. */
+    public static Set<String> provincesOf(String regionText) {
+        if (regionText == null || regionText.isBlank()) return Collections.emptySet();
         String trimmed = regionText.trim();
 
-        if (PROVINCE_ALIAS.containsValue(trimmed)) return trimmed;          // 이미 정식 시/도명
-        if (PROVINCE_ALIAS.containsKey(trimmed)) return PROVINCE_ALIAS.get(trimmed); // 축약형("서울")
+        if (PROVINCE_ALIAS.containsValue(trimmed)) return Set.of(trimmed);          // 이미 정식 시/도명
+        if (PROVINCE_ALIAS.containsKey(trimmed)) return Set.of(PROVINCE_ALIAS.get(trimmed)); // 축약형("서울")
 
         String district = trimmed;
         // "서울특별시 강남구" 처럼 붙어있는 경우 마지막 토큰(구/군/시)만 추출
@@ -52,20 +57,21 @@ public final class RegionHierarchy {
             String[] parts = trimmed.split("\\s+");
             district = parts[parts.length - 1];
         }
-        return DISTRICT_TO_PROVINCE.get(district);
+        return DISTRICT_TO_PROVINCES.getOrDefault(district, Collections.emptySet());
     }
 
-    /** userRegion(시/도)과 policyRegion(시/도 또는 구/군)이 같은 시/도에 속하는지 판단 */
+    /** userRegion(시/도)과 policyRegion(시/도 또는 구/군)이 같은 시/도에 속할 수 있는지 판단 */
     public static boolean sameProvince(String userRegion, String policyRegion) {
         if (userRegion == null || policyRegion == null) return false;
         if (userRegion.equals(policyRegion)) return true;
-        String userProvince = provinceOf(userRegion);
-        String policyProvince = provinceOf(policyRegion);
-        return userProvince != null && userProvince.equals(policyProvince);
+        Set<String> userProvinces = provincesOf(userRegion);
+        Set<String> policyProvinces = provincesOf(policyRegion);
+        // 교집합이 하나라도 있으면 같은 시/도 소속 가능 → 매칭
+        return userProvinces.stream().anyMatch(policyProvinces::contains);
     }
 
-    private static Map<String, String> buildDistrictMap() {
-        Map<String, String> m = new java.util.HashMap<>();
+    private static Map<String, Set<String>> buildDistrictMap() {
+        Map<String, Set<String>> m = new java.util.HashMap<>();
         put(m, "서울특별시", "강남구", "강동구", "강북구", "강서구", "관악구", "광진구", "구로구", "금천구",
                 "노원구", "도봉구", "동대문구", "동작구", "마포구", "서대문구", "서초구", "성동구", "성북구",
                 "송파구", "양천구", "영등포구", "용산구", "은평구", "종로구", "중구", "중랑구");
@@ -101,9 +107,9 @@ public final class RegionHierarchy {
         return m;
     }
 
-    private static void put(Map<String, String> map, String province, String... districts) {
+    private static void put(Map<String, Set<String>> map, String province, String... districts) {
         for (String d : districts) {
-            map.put(d, province);
+            map.computeIfAbsent(d, k -> new java.util.HashSet<>()).add(province);
         }
     }
 }

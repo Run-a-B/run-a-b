@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
-import { saveReport, getSavedReports } from "@/data/reports";
+import { getSavedReport } from "@/data/reports";
 import { markPolicyVisited } from "@/data/visited";
 
 const HIGHLIGHT_ICONS: Record<string, React.ReactNode> = {
@@ -93,9 +93,7 @@ export default function PolicyDetail() {
   const [apiDetail, setApiDetail] = useState<ApiDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [reportState, setReportState] = useState<"idle" | "loading" | "done">(() =>
-    getSavedReports().some((r) => r.policyId === policyId) ? "done" : "idle"
-  );
+  const [reportState, setReportState] = useState<"idle" | "loading" | "done">("idle");
 
   useEffect(() => {
     setLoading(true);
@@ -112,23 +110,25 @@ export default function PolicyDetail() {
       .finally(() => setLoading(false));
   }, [policyId]);
 
+  // 이미 이 정책 리포트를 만들었는지 백엔드에서 확인 (계정별 스코프)
+  useEffect(() => {
+    let active = true;
+    getSavedReport(policyId)
+      .then((found) => {
+        if (active && found) setReportState("done");
+      })
+      .catch(() => { /* 미로그인/네트워크 오류 시 그냥 idle 유지 */ });
+    return () => {
+      active = false;
+    };
+  }, [policyId]);
+
   function handleGenerateReport() {
     if (!apiDetail) return;
     setReportState("loading");
+    // 생성 요청이 백엔드에서 user_id 스코프로 DB에 저장(upsert)까지 처리한다. 프론트는 결과 페이지로 이동만.
     api.post(`/api/v1/policies/${apiDetail.id}/report`)
-      .then((res) => {
-        const data = res.data.data;
-        saveReport({
-          policyId: apiDetail.id,
-          policyTitle: apiDetail.title,
-          category: apiDetail.category,
-          impactLabel: data.impactLabel,
-          impactStyle: data.impactStyle,
-          summary: data.summary,
-          details: data.details ?? [],
-          relatedIds: data.relatedIds ?? [],
-          businessImpact: data.businessImpact ?? [],
-        });
+      .then(() => {
         navigate(`/reports/${apiDetail.id}`);
       })
       .catch((err) => {
