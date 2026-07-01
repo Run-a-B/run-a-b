@@ -51,14 +51,20 @@ public class PolicySpecification {
     /**
      * category 필터:
      * - null 또는 "전체 카테고리"면 조건 없음
-     * - 아니면 filter_category = :filterCategory
+     * - 아니면 category = :category
+     *
+     * 프론트 Policies.tsx의 CATEGORIES 드롭다운("기술","경영","수출","인력","창업","금융","내수","기타")이
+     * 보내는 값은 카드 뱃지에 표시되는 Policy.category 컬럼과 매칭된다.
+     * 이전에는 filter_category 컬럼으로 비교하고 있어(2026.07.01 버그) 카테고리 선택이 결과에 반영되지 않았다.
+     * (filter_category는 원래 "자금 지원/세금 감면" 같은 별도 분류용으로 설계됐으나 현재 대응 UI가 없고,
+     *  PolicySyncService가 category와 동일 값으로 채우고 있어 사실상 미사용 컬럼 — 제거는 이번 범위 밖.)
      */
-    public static Specification<Policy> categoryMatches(String filterCategory) {
+    public static Specification<Policy> categoryMatches(String category) {
         return (root, query, cb) -> {
-            if (filterCategory == null || filterCategory.equals("전체 카테고리")) {
+            if (category == null || category.equals("전체 카테고리")) {
                 return cb.conjunction();
             }
-            return cb.equal(root.get("filterCategory"), filterCategory);
+            return cb.equal(root.get("category"), category);
         };
     }
 

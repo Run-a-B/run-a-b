@@ -47,10 +47,12 @@ class EligibilityMatcherTest {
         assertThat(result.getUnknown()).contains("region", "industry", "date");
         // 조건 자체가 없는 항목 → NOT_REQUIRED
         assertThat(result.getNotRequired()).contains("business_stage", "revenue", "employees", "age");
-        // 합산: 6+6+4+10+8+8+8+8+4+4 = 66
-        assertThat(result.getEligibilityScore()).isEqualTo(66);
-        // score = round(66*0.7 + 50*0.2 + 50*0.1) = 61
-        assertThat(result.getScore()).isEqualTo(61);
+        // [2026.07.01 정규화 반영] NOT_REQUIRED 항목은 점수 계산에서 제외. 판단 대상은 region/industry/date뿐.
+        //   판단 가능 배점 = 20+20+10 = 50, 획득 = region 20*0.3 + industry 20*0.3 + date 10*0.4 = 6+6+4 = 16
+        //   eligibilityScore = round(16/50*100) = 32  (이전엔 NOT_REQUIRED 만점 포함이라 66이었음)
+        assertThat(result.getEligibilityScore()).isEqualTo(32);
+        // score = round(32*0.7 + 50*0.2 + 50*0.1) = 37  (이전 61 → 베이스라인 인플레 제거로 하락)
+        assertThat(result.getScore()).isEqualTo(37);
     }
 
     @Test
@@ -102,7 +104,10 @@ class EligibilityMatcherTest {
         assertThat(result.getPass()).contains("region"); // 지역은 일치
         // industries=[]+unknown → PASS 금지, UNKNOWN (규칙4)
         assertThat(result.getUnknown()).contains("industry");
-        assertThat(result.getEligibilityScore()).isEqualTo(76);
+        // [2026.07.01 정규화 반영] 판단 대상 = region/industry/date (배점 50).
+        //   획득 = region 20*1.0(PASS) + industry 20*0.3(UNKNOWN) + date 10*0.0(FAIL) = 26
+        //   eligibilityScore = round(26/50*100) = 52  (이전 76 → NOT_REQUIRED 만점 제외로 하락)
+        assertThat(result.getEligibilityScore()).isEqualTo(52);
     }
 
     @Test
