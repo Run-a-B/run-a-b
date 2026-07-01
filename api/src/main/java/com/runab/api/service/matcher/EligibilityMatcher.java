@@ -51,6 +51,21 @@ public class EligibilityMatcher {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 정책 목록 "업종" 드롭다운 필터용 판정.
+     * 사용자가 명시적으로 고른 업종값(selectedIndustry) 기준으로, 이 카드가 해당 업종에 해당하는지만 본다.
+     * (관련도 계산과 별개 — 로그인 사업정보와 무관하게 선택 업종으로만 판정)
+     *
+     * evalIndustry의 전업종(all)/동의어(IndustryHierarchy) 로직을 그대로 재사용한다:
+     * - 전업종/동의어 일치 → PASS → true
+     * - 카드 없음 or industries 비어있음 → UNKNOWN → false (업종을 특정 선택한 맥락에선 판단 불가한 건 제외)
+     * - 매핑 없는 다른 업종 → FAIL → false
+     */
+    public boolean matchesIndustryFilter(PolicyCard card, String selectedIndustry) {
+        JsonNode elig = parse(card).path("eligibility");
+        return evalIndustry(elig, selectedIndustry) == MatchStatus.PASS;
+    }
+
     public MatchResult match(BusinessInfo user, PolicyCard card) {
         JsonNode root = parse(card);
         JsonNode elig = root.path("eligibility");

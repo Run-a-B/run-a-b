@@ -31,10 +31,14 @@ public class PolicySpecification {
     }
 
     /**
-     * industry 필터:
+     * industry 필터 (SQL 레벨, Policy.industry 컬럼 기준):
      * - null 또는 "전체 업종"이면 조건 없음
      * - 아니면 (industry = '전체' OR industry = :industry)
      *   → "전체" 업종 정책은 항상 노출, 특정 업종 정책은 그 업종 선택시만 노출
+     *
+     * ⚠️ 2026.07.01(Task G): 현재 Policy.industry는 동기화 시 전부 "전체"로 하드코딩돼 실질 필터 효과가 없어,
+     *    목록 업종 필터는 PolicyService에서 policy_card.eligibility.industries + IndustryHierarchy로 자바 레벨 판정한다.
+     *    이 메서드는 향후 Policy.industry가 실데이터로 채워질 때를 대비해 남겨둔다(현재 getPolicies에서 미사용).
      */
     public static Specification<Policy> industryMatches(String industry) {
         return (root, query, cb) -> {
@@ -98,19 +102,23 @@ public class PolicySpecification {
                 return cb.conjunction();
             }
 
+            // 동일 날짜 정책이 많아(예: 같은 공고일 수십 건) 정렬이 불안정하지 않도록,
+            // 마지막 정렬키로 id DESC를 둬서 같은 날짜 내에서도 매번 일관된 순서가 나오게 한다.
             if ("마감임박순".equals(sort)) {
                 query.orderBy(
                         cb.asc(cb.<Integer>selectCase()
                                 .when(cb.isNull(root.get("applicationEndDate")), 1)
                                 .otherwise(0)),
-                        cb.asc(root.get("applicationEndDate"))
+                        cb.asc(root.get("applicationEndDate")),
+                        cb.desc(root.get("id"))
                 );
             } else {
                 query.orderBy(
                         cb.asc(cb.<Integer>selectCase()
                                 .when(cb.isNull(root.get("publishedDate")), 1)
                                 .otherwise(0)),
-                        cb.desc(root.get("publishedDate"))
+                        cb.desc(root.get("publishedDate")),
+                        cb.desc(root.get("id"))
                 );
             }
             return cb.conjunction();
