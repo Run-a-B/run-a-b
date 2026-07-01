@@ -115,25 +115,27 @@ export default function PolicyDetail() {
   function handleGenerateReport() {
     if (!apiDetail) return;
     setReportState("loading");
-    // TODO: setTimeout → 실제 AI API 호출로 교체. saveReport 인자 구조는 그대로 유지됨.
-    setTimeout(() => {
-      try {
+    api.post(`/api/v1/policies/${apiDetail.id}/report`)
+      .then((res) => {
+        const data = res.data.data;
         saveReport({
           policyId: apiDetail.id,
           policyTitle: apiDetail.title,
           category: apiDetail.category,
-          impactLabel: AI_DEFAULTS.reportData.impactLabel,
-          impactStyle: AI_DEFAULTS.reportData.impactStyle,
-          summary: AI_DEFAULTS.reportData.summary,
-          details: AI_DEFAULTS.reportData.details,
-          relatedIds: AI_DEFAULTS.reportData.relatedIds,
-          businessImpact: AI_DEFAULTS.businessImpact,
+          impactLabel: data.impactLabel,
+          impactStyle: data.impactStyle,
+          summary: data.summary,
+          details: data.details ?? [],
+          relatedIds: data.relatedIds ?? [],
+          businessImpact: data.businessImpact ?? [],
         });
         navigate(`/reports/${apiDetail.id}`);
-      } catch {
+      })
+      .catch((err) => {
+        console.error(err);
+        alert(err.response?.data?.message || "리포트 생성에 실패했어요");
         setReportState("idle");
-      }
-    }, 1600);
+      });
   }
 
   if (loading) {

@@ -1,0 +1,665 @@
+diff --git a/api/src/main/java/com/runab/api/controller/PolicyController.java b/api/src/main/java/com/runab/api/controller/PolicyController.java
+index 66866f5..c920dc8 100644
+--- a/api/src/main/java/com/runab/api/controller/PolicyController.java
++++ b/api/src/main/java/com/runab/api/controller/PolicyController.java
+@@ -4,9 +4,12 @@ import com.runab.api.dto.common.ApiResponse;
+ import com.runab.api.dto.policy.PolicyDetailResponse;
+ import com.runab.api.dto.policy.PolicyPageResponse;
+ import com.runab.api.dto.policy.PolicySyncResult;
++import com.runab.api.dto.report.PolicyReportResponse;
+ import com.runab.api.service.PolicyService;
+ import com.runab.api.service.PolicySyncService;
++import com.runab.api.service.report.PolicyReportService;
+ import lombok.RequiredArgsConstructor;
++import org.springframework.security.core.Authentication;
+ import org.springframework.web.bind.annotation.*;
+ 
+ @RestController
+@@ -16,6 +19,7 @@ public class PolicyController {
+ 
+     private final PolicyService policyService;
+     private final PolicySyncService policySyncService;
++    private final PolicyReportService policyReportService;
+ 
+     // ===== 1) 정책 목록 조회 =====
+     @GetMapping
+@@ -26,11 +30,15 @@ public class PolicyController {
+             @RequestParam(required = false) String query,
+             @RequestParam(defaultValue = "최신순") String sort,
+             @RequestParam(defaultValue = "1") int page,
+-            @RequestParam(defaultValue = "6") int size) {
++            @RequestParam(defaultValue = "6") int size,
++            Authentication authentication) {
++
++        // permitAll 엔드포인트 → 비로그인이면 principal이 "anonymousUser"(String) → null 처리
++        Long userId = (authentication != null && authentication.getPrincipal() instanceof Long id) ? id : null;
+ 
+         // 프론트는 page가 1부터, Spring Pageable은 0부터 → page - 1 변환
+         PolicyPageResponse response =
+-                policyService.getPolicies(region, industry, category, query, sort, page - 1, size);
++                policyService.getPolicies(region, industry, category, query, sort, page - 1, size, userId);
+         return ApiResponse.success(response);
+     }
+ 
+@@ -40,6 +48,14 @@ public class PolicyController {
+         return ApiResponse.success(policyService.getPolicyDetail(id));
+     }
+ 
++    // ===== 2-1) AI 리포트 생성 (OpenAI) =====
++    // 로그인 + 사업정보 등록 필요. 사용자 사업정보 × 이 정책을 기반으로 영향 분석 리포트를 생성한다.
++    @PostMapping("/{id}/report")
++    public ApiResponse<PolicyReportResponse> generateReport(@PathVariable Long id, Authentication authentication) {
++        Long userId = (Long) authentication.getPrincipal();
++        return ApiResponse.success(policyReportService.generate(userId, id), "리포트 생성 완료");
++    }
++
+     // ===== 3) bizinfo 정책 동기화 (수동 트리거) =====
+     // TODO: 관리자성 작업 → 추후 ADMIN 권한 제한 필요. 현재는 발표 데모 편의상 permitAll(SecurityConfig 참고)
+     @PostMapping("/sync")
+diff --git a/api/src/main/java/com/runab/api/dto/policy/PolicyListResponse.java b/api/src/main/java/com/runab/api/dto/policy/PolicyListResponse.java
+index 0d8a23e..6d6ac18 100644
+--- a/api/src/main/java/com/runab/api/dto/policy/PolicyListResponse.java
++++ b/api/src/main/java/com/runab/api/dto/policy/PolicyListResponse.java
+@@ -29,6 +29,11 @@ public class PolicyListResponse {
+     private boolean isAIRecommended;  // 추천 도메인 전까지 고정값 false
+ 
+     public static PolicyListResponse from(Policy policy) {
++        return from(policy, 0, false);
++    }
++
++    // userId 기반 matcher 점수가 있을 때 (EligibilityMatcher.score 그대로 사용)
++    public static PolicyListResponse from(Policy policy, int relevance, boolean isAIRecommended) {
+         return PolicyListResponse.builder()
+                 .id(policy.getId())
+                 .title(policy.getTitle())
+@@ -41,10 +46,8 @@ public class PolicyListResponse {
+                 .date(policy.getPublishedDate() != null
+                         ? policy.getPublishedDate().format(DATE_FORMATTER)
+                         : "")
+-                // TODO: 관련도(Relevance) 도메인 구현 후 실제 값으로 교체 예정
+-                .relevance(0)
+-                // TODO: 추천(Recommendation) 도메인 구현 후 실제 값으로 교체 예정
+-                .isAIRecommended(false)
++                .relevance(relevance)
++                .isAIRecommended(isAIRecommended)
+                 .build();
+     }
+ }
+diff --git a/api/src/main/java/com/runab/api/dto/report/PolicyReportResponse.java b/api/src/main/java/com/runab/api/dto/report/PolicyReportResponse.java
+new file mode 100644
+index 0000000..fd9db1d
+--- /dev/null
++++ b/api/src/main/java/com/runab/api/dto/report/PolicyReportResponse.java
+@@ -0,0 +1,37 @@
++package com.runab.api.dto.report;
++
++import lombok.Builder;
++import lombok.Getter;
++
++import java.util.List;
++
++/**
++ * AI(OpenAI) 기반 정책 영향 리포트 응답.
++ * 프론트 SavedReport(apps/run-a-b-fe/src/data/reports.ts) 구조와 1:1로 맞춘다.
++ */
++@Getter
++@Builder
++public class PolicyReportResponse {
++
++    private Long policyId;
++    private String policyTitle;
++    private String category;
++
++    private String impactLabel;   // 예: "사업에 긍정적 영향"
++    private String impactStyle;   // tailwind 클래스 (bg-*, text-*)
++    private String summary;
++    private List<String> details;
++    private List<Long> relatedIds;
++    private List<BusinessImpactItem> businessImpact;
++
++    @Getter
++    @Builder
++    public static class BusinessImpactItem {
++        private String label;       // 예: "매출", "인건비"
++        private int level;          // 0~100
++        private String direction;   // "up" | "down"
++        private String tag;         // 예: "+15%"
++        private String barColor;    // tailwind 클래스
++        private String tagColor;    // tailwind 클래스
++    }
++}
+diff --git a/api/src/main/java/com/runab/api/repository/PolicyRepository.java b/api/src/main/java/com/runab/api/repository/PolicyRepository.java
+index 7b0f641..d728020 100644
+--- a/api/src/main/java/com/runab/api/repository/PolicyRepository.java
++++ b/api/src/main/java/com/runab/api/repository/PolicyRepository.java
+@@ -12,4 +12,7 @@ public interface PolicyRepository extends JpaRepository<Policy, Long>, JpaSpecif
+ 
+     // bizinfo 동기화 중복 방지용: 외부 공고 ID(pblancId)로 기존 정책 조회
+     Optional<Policy> findByExternalId(String externalId);
++
++    // AI 리포트의 "함께 신청하면 좋아요" 추천용 - 같은 카테고리의 다른 정책 최신순 3개
++    java.util.List<Policy> findTop3ByCategoryAndIdNotOrderByPublishedDateDesc(String category, Long id);
+ }
+diff --git a/api/src/main/java/com/runab/api/service/PolicyService.java b/api/src/main/java/com/runab/api/service/PolicyService.java
+index d9738f8..db85605 100644
+--- a/api/src/main/java/com/runab/api/service/PolicyService.java
++++ b/api/src/main/java/com/runab/api/service/PolicyService.java
+@@ -3,11 +3,17 @@ package com.runab.api.service;
+ import com.runab.api.dto.policy.PolicyDetailResponse;
+ import com.runab.api.dto.policy.PolicyListResponse;
+ import com.runab.api.dto.policy.PolicyPageResponse;
++import com.runab.api.dto.recommend.MatchResult;
++import com.runab.api.entity.BusinessInfo;
+ import com.runab.api.entity.Policy;
++import com.runab.api.entity.PolicyCard;
+ import com.runab.api.exception.BusinessException;
+ import com.runab.api.exception.ErrorCode;
++import com.runab.api.repository.BusinessInfoRepository;
++import com.runab.api.repository.PolicyCardRepository;
+ import com.runab.api.repository.PolicyRepository;
+ import com.runab.api.repository.PolicySpecification;
++import com.runab.api.service.matcher.EligibilityMatcher;
+ import lombok.RequiredArgsConstructor;
+ import org.springframework.data.domain.Page;
+ import org.springframework.data.domain.PageRequest;
+@@ -21,15 +27,20 @@ import org.springframework.transaction.annotation.Transactional;
+ @Transactional(readOnly = true)
+ public class PolicyService {
+ 
++    // 점수 70 이상이면 "AI 추천" 뱃지 표시 (matcher score 기준)
++    private static final int AI_RECOMMEND_THRESHOLD = 70;
++
+     private final PolicyRepository policyRepository;
++    private final BusinessInfoRepository businessInfoRepository;
++    private final PolicyCardRepository policyCardRepository;
++    private final EligibilityMatcher eligibilityMatcher;
+ 
+     // ===== 1) 정책 목록 조회 (필터 + 검색 + 정렬 + 페이징) =====
++    // userId가 있으면(로그인 + 사업정보 등록) matcher로 관련도를 실제 계산, 없으면 0/false 폴백.
+     public PolicyPageResponse getPolicies(
+             String region, String industry, String category, String query,
+-            String sort, int page, int size) {
++            String sort, int page, int size, Long userId) {
+ 
+-        // 동적 필터 + 정렬 조합 (프론트 Policies.tsx 로직 그대로)
+-        // 정렬은 NULLS LAST 처리를 위해 Sort 대신 Specification(sortBy)에서 처리한다.
+         Specification<Policy> spec = Specification
+                 .where(PolicySpecification.regionMatches(region))
+                 .and(PolicySpecification.industryMatches(industry))
+@@ -38,9 +49,20 @@ public class PolicyService {
+                 .and(PolicySpecification.sortBy(sort));
+ 
+         Pageable pageable = PageRequest.of(page, size);
++        Page<Policy> policyPage = policyRepository.findAll(spec, pageable);
++
++        BusinessInfo businessInfo = (userId == null)
++                ? null
++                : businessInfoRepository.findByUserId(userId).orElse(null);
+ 
+-        Page<PolicyListResponse> result = policyRepository.findAll(spec, pageable)
+-                .map(PolicyListResponse::from);
++        Page<PolicyListResponse> result = policyPage.map(policy -> {
++            if (businessInfo == null) {
++                return PolicyListResponse.from(policy);
++            }
++            PolicyCard card = policyCardRepository.findByExternalId(policy.getExternalId()).orElse(null);
++            MatchResult match = eligibilityMatcher.match(businessInfo, card);
++            return PolicyListResponse.from(policy, match.getScore(), match.getScore() >= AI_RECOMMEND_THRESHOLD && !match.isHardFail());
++        });
+ 
+         return PolicyPageResponse.from(result);
+     }
+diff --git a/api/src/main/java/com/runab/api/service/ai/OpenAiClient.java b/api/src/main/java/com/runab/api/service/ai/OpenAiClient.java
+new file mode 100644
+index 0000000..7cb1d13
+--- /dev/null
++++ b/api/src/main/java/com/runab/api/service/ai/OpenAiClient.java
+@@ -0,0 +1,92 @@
++package com.runab.api.service.ai;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.fasterxml.jackson.databind.node.ObjectNode;
++import com.runab.api.exception.BusinessException;
++import com.runab.api.exception.ErrorCode;
++import lombok.extern.slf4j.Slf4j;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.http.MediaType;
++import org.springframework.http.client.SimpleClientHttpRequestFactory;
++import org.springframework.stereotype.Component;
++import org.springframework.web.client.RestClient;
++
++import java.time.Duration;
++
++/**
++ * OpenAI Chat Completions API 호출 클라이언트.
++ * RunPod AiGatewayClient를 대체 — 항상 JSON 객체 형식으로만 응답받는다(response_format=json_object).
++ */
++@Slf4j
++@Component
++public class OpenAiClient {
++
++    private final RestClient restClient;
++    private final String apiKey;
++    private final String model;
++
++    public OpenAiClient(
++            @Value("${openai.api-key}") String apiKey,
++            @Value("${openai.model:gpt-4o-mini}") String model,
++            @Value("${openai.timeout-seconds:60}") int timeoutSeconds
++    ) {
++        this.apiKey = apiKey;
++        this.model = model;
++
++        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
++        factory.setConnectTimeout(Duration.ofSeconds(10));
++        factory.setReadTimeout(Duration.ofSeconds(timeoutSeconds));
++
++        this.restClient = RestClient.builder()
++                .baseUrl("https://api.openai.com/v1")
++                .requestFactory(factory)
++                .build();
++
++        log.info("[OpenAiClient] 초기화 완료 - model={}", model);
++    }
++
++    /**
++     * systemPrompt + userPrompt를 보내고, JSON 객체 응답 본문(JsonNode)을 그대로 파싱해서 반환.
++     */
++    public JsonNode chatJson(String systemPrompt, String userPrompt) {
++        ObjectMapper mapper = new ObjectMapper();
++        ObjectNode body = mapper.createObjectNode();
++        body.put("model", model);
++        body.put("temperature", 0.4);
++
++        ObjectNode responseFormat = mapper.createObjectNode();
++        responseFormat.put("type", "json_object");
++        body.set("response_format", responseFormat);
++
++        var messages = mapper.createArrayNode();
++        ObjectNode sys = mapper.createObjectNode();
++        sys.put("role", "system");
++        sys.put("content", systemPrompt);
++        messages.add(sys);
++
++        ObjectNode user = mapper.createObjectNode();
++        user.put("role", "user");
++        user.put("content", userPrompt);
++        messages.add(user);
++
++        body.set("messages", messages);
++
++        try {
++            JsonNode response = restClient.post()
++                    .uri("/chat/completions")
++                    .header("Authorization", "Bearer " + apiKey)
++                    .contentType(MediaType.APPLICATION_JSON)
++                    .body(body)
++                    .retrieve()
++                    .body(JsonNode.class);
++
++            String content = response.path("choices").path(0).path("message").path("content").asText();
++            return mapper.readTree(content);
++
++        } catch (Exception e) {
++            log.error("[OpenAiClient] 호출 실패 - error={}", e.getMessage());
++            throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
++        }
++    }
++}
+diff --git a/api/src/main/java/com/runab/api/service/matcher/EligibilityMatcher.java b/api/src/main/java/com/runab/api/service/matcher/EligibilityMatcher.java
+index 62ad284..70d2976 100644
+--- a/api/src/main/java/com/runab/api/service/matcher/EligibilityMatcher.java
++++ b/api/src/main/java/com/runab/api/service/matcher/EligibilityMatcher.java
+@@ -136,6 +136,7 @@ public class EligibilityMatcher {
+     // ===== 항목별 평가 =====
+ 
+     // 규칙3·6: regions=[]+unknown은 PASS 금지(UNKNOWN), ["전국"]/nationwide와 혼동 금지
++    // 계층 매칭: 정책 원문이 구/군 단위("강남구")로 추출돼도 사용자의 시/도 선택("서울특별시")과 매칭되게 함
+     private MatchStatus evalRegion(JsonNode elig, String userRegion, List<String> hardFailReasons) {
+         List<String> regions = list(elig, "regions");
+         String type = text(elig, "region_condition_type", "unknown");
+@@ -149,11 +150,12 @@ public class EligibilityMatcher {
+         if (userRegion == null || userRegion.isBlank()) {
+             return MatchStatus.UNKNOWN;
+         }
+-        if (regions.contains(userRegion)) {
+-            return MatchStatus.PASS;
++        for (String r : regions) {
++            if (RegionHierarchy.sameProvince(userRegion, r)) {
++                return MatchStatus.PASS;
++            }
+         }
+         // 지역 불일치는 hard (규칙: hardFail=true)
+-        // 권역 매핑(수도권 등 PARTIAL)은 추후. MVP는 단순 일치만.
+         hardFailReasons.add("region_mismatch");
+         return MatchStatus.FAIL;
+     }
+diff --git a/api/src/main/java/com/runab/api/service/matcher/RegionHierarchy.java b/api/src/main/java/com/runab/api/service/matcher/RegionHierarchy.java
+new file mode 100644
+index 0000000..b8e36b6
+--- /dev/null
++++ b/api/src/main/java/com/runab/api/service/matcher/RegionHierarchy.java
+@@ -0,0 +1,109 @@
++package com.runab.api.service.matcher;
++
++import java.util.Map;
++
++/**
++ * 지역 매칭 시 "강남구" ⊂ "서울특별시" 같은 상하위 관계를 판단하기 위한 정적 매핑.
++ * 사용자는 시/도 단위(REGIONS 드롭다운, 17개)만 선택하지만,
++ * 정책 카드(policy_card)의 eligibility.regions는 원문 그대로라 구/군 단위로 추출되는 경우가 있음.
++ * → 순수 문자열 비교("서울특별시" === "강남구")로는 매칭 실패하는 문제를 해결.
++ *
++ * 외부 API 호출 없이 고정된 행정구역 데이터(변하지 않는 사실)로 처리 — 계산 비용 없음.
++ */
++public final class RegionHierarchy {
++
++    private RegionHierarchy() {}
++
++    // 시/도 축약형("서울") → 정식명("서울특별시") 매핑. 정책 원문에 축약형이 쓰이는 경우 대응.
++    private static final Map<String, String> PROVINCE_ALIAS = Map.ofEntries(
++            Map.entry("서울", "서울특별시"),
++            Map.entry("부산", "부산광역시"),
++            Map.entry("대구", "대구광역시"),
++            Map.entry("인천", "인천광역시"),
++            Map.entry("광주", "광주광역시"),
++            Map.entry("대전", "대전광역시"),
++            Map.entry("울산", "울산광역시"),
++            Map.entry("세종", "세종특별자치시"),
++            Map.entry("경기", "경기도"),
++            Map.entry("강원", "강원특별자치도"),
++            Map.entry("충북", "충청북도"),
++            Map.entry("충남", "충청남도"),
++            Map.entry("전북", "전북특별자치도"),
++            Map.entry("전남", "전라남도"),
++            Map.entry("경북", "경상북도"),
++            Map.entry("경남", "경상남도"),
++            Map.entry("제주", "제주특별자치도")
++    );
++
++    // 구/군/시(기초자치단체) → 소속 시/도 정식명 매핑
++    private static final Map<String, String> DISTRICT_TO_PROVINCE = buildDistrictMap();
++
++    /** regionText가 어느 시/도 소속인지 반환. 이미 시/도 자체거나 매핑 불가면 원문 그대로/null. */
++    public static String provinceOf(String regionText) {
++        if (regionText == null || regionText.isBlank()) return null;
++        String trimmed = regionText.trim();
++
++        if (PROVINCE_ALIAS.containsValue(trimmed)) return trimmed;          // 이미 정식 시/도명
++        if (PROVINCE_ALIAS.containsKey(trimmed)) return PROVINCE_ALIAS.get(trimmed); // 축약형("서울")
++
++        String district = trimmed;
++        // "서울특별시 강남구" 처럼 붙어있는 경우 마지막 토큰(구/군/시)만 추출
++        if (trimmed.contains(" ")) {
++            String[] parts = trimmed.split("\\s+");
++            district = parts[parts.length - 1];
++        }
++        return DISTRICT_TO_PROVINCE.get(district);
++    }
++
++    /** userRegion(시/도)과 policyRegion(시/도 또는 구/군)이 같은 시/도에 속하는지 판단 */
++    public static boolean sameProvince(String userRegion, String policyRegion) {
++        if (userRegion == null || policyRegion == null) return false;
++        if (userRegion.equals(policyRegion)) return true;
++        String userProvince = provinceOf(userRegion);
++        String policyProvince = provinceOf(policyRegion);
++        return userProvince != null && userProvince.equals(policyProvince);
++    }
++
++    private static Map<String, String> buildDistrictMap() {
++        Map<String, String> m = new java.util.HashMap<>();
++        put(m, "서울특별시", "강남구", "강동구", "강북구", "강서구", "관악구", "광진구", "구로구", "금천구",
++                "노원구", "도봉구", "동대문구", "동작구", "마포구", "서대문구", "서초구", "성동구", "성북구",
++                "송파구", "양천구", "영등포구", "용산구", "은평구", "종로구", "중구", "중랑구");
++        put(m, "부산광역시", "강서구", "금정구", "남구", "동구", "동래구", "부산진구", "북구", "사상구",
++                "사하구", "서구", "수영구", "연제구", "영도구", "해운대구", "기장군");
++        put(m, "대구광역시", "남구", "달서구", "달성군", "동구", "북구", "서구", "수성구", "군위군");
++        put(m, "인천광역시", "계양구", "남동구", "동구", "미추홀구", "부평구", "서구", "연수구", "강화군", "옹진군");
++        put(m, "광주광역시", "광산구", "남구", "동구", "북구", "서구");
++        put(m, "대전광역시", "대덕구", "동구", "서구", "유성구", "중구");
++        put(m, "울산광역시", "남구", "동구", "북구", "울주군");
++        put(m, "경기도", "수원시", "성남시", "의정부시", "안양시", "부천시", "광명시", "평택시", "동두천시",
++                "안산시", "고양시", "과천시", "구리시", "남양주시", "오산시", "시흥시", "군포시", "의왕시",
++                "하남시", "용인시", "파주시", "이천시", "안성시", "김포시", "화성시", "광주시", "양주시",
++                "포천시", "여주시", "연천군", "가평군", "양평군");
++        put(m, "강원특별자치도", "춘천시", "원주시", "강릉시", "동해시", "태백시", "속초시", "삼척시",
++                "홍천군", "횡성군", "영월군", "평창군", "정선군", "철원군", "화천군", "양구군", "인제군",
++                "고성군", "양양군");
++        put(m, "충청북도", "청주시", "충주시", "제천시", "보은군", "옥천군", "영동군", "증평군", "진천군",
++                "괴산군", "음성군", "단양군");
++        put(m, "충청남도", "천안시", "공주시", "보령시", "아산시", "서산시", "논산시", "계룡시", "당진시",
++                "금산군", "부여군", "서천군", "청양군", "홍성군", "예산군", "태안군");
++        put(m, "전북특별자치도", "전주시", "군산시", "익산시", "정읍시", "남원시", "김제시", "완주군",
++                "진안군", "무주군", "장수군", "임실군", "순창군", "고창군", "부안군");
++        put(m, "전라남도", "목포시", "여수시", "순천시", "나주시", "광양시", "담양군", "곡성군", "구례군",
++                "고흥군", "보성군", "화순군", "장흥군", "강진군", "해남군", "영암군", "무안군", "함평군",
++                "영광군", "장성군", "완도군", "진도군", "신안군");
++        put(m, "경상북도", "포항시", "경주시", "김천시", "안동시", "구미시", "영주시", "영천시", "상주시",
++                "문경시", "경산시", "의성군", "청송군", "영양군", "영덕군", "청도군", "고령군", "성주군",
++                "칠곡군", "예천군", "봉화군", "울진군", "울릉군");
++        put(m, "경상남도", "창원시", "진주시", "통영시", "사천시", "김해시", "밀양시", "거제시", "양산시",
++                "의령군", "함안군", "창녕군", "고성군", "남해군", "하동군", "산청군", "함양군", "거창군", "합천군");
++        put(m, "제주특별자치도", "제주시", "서귀포시");
++        return m;
++    }
++
++    private static void put(Map<String, String> map, String province, String... districts) {
++        for (String d : districts) {
++            map.put(d, province);
++        }
++    }
++}
+diff --git a/api/src/main/java/com/runab/api/service/report/PolicyReportService.java b/api/src/main/java/com/runab/api/service/report/PolicyReportService.java
+new file mode 100644
+index 0000000..6b5624b
+--- /dev/null
++++ b/api/src/main/java/com/runab/api/service/report/PolicyReportService.java
+@@ -0,0 +1,139 @@
++package com.runab.api.service.report;
++
++import com.fasterxml.jackson.databind.JsonNode;
++import com.runab.api.dto.report.PolicyReportResponse;
++import com.runab.api.entity.BusinessInfo;
++import com.runab.api.entity.Policy;
++import com.runab.api.entity.PolicyCard;
++import com.runab.api.exception.BusinessException;
++import com.runab.api.exception.ErrorCode;
++import com.runab.api.repository.BusinessInfoRepository;
++import com.runab.api.repository.PolicyCardRepository;
++import com.runab.api.repository.PolicyRepository;
++import com.runab.api.service.ai.OpenAiClient;
++import lombok.RequiredArgsConstructor;
++import lombok.extern.slf4j.Slf4j;
++import org.springframework.stereotype.Service;
++import org.springframework.transaction.annotation.Transactional;
++
++import java.util.ArrayList;
++import java.util.List;
++
++/**
++ * 정책 상세 페이지의 "AI 리포트 생성하기" 기능.
++ * 사용자 사업 정보 + 정책 정보를 OpenAI에 보내 사업 영향 분석 리포트를 생성한다.
++ */
++@Slf4j
++@Service
++@RequiredArgsConstructor
++@Transactional(readOnly = true)
++public class PolicyReportService {
++
++    private final PolicyRepository policyRepository;
++    private final BusinessInfoRepository businessInfoRepository;
++    private final PolicyCardRepository policyCardRepository;
++    private final OpenAiClient openAiClient;
++
++    public PolicyReportResponse generate(Long userId, Long policyId) {
++        Policy policy = policyRepository.findById(policyId)
++                .orElseThrow(() -> new BusinessException(ErrorCode.POLICY_NOT_FOUND));
++
++        BusinessInfo businessInfo = businessInfoRepository.findByUserId(userId)
++                .orElseThrow(() -> new BusinessException(ErrorCode.BUSINESS_INFO_REQUIRED));
++
++        PolicyCard card = policyCardRepository.findByExternalId(policy.getExternalId()).orElse(null);
++
++        JsonNode ai = openAiClient.chatJson(buildSystemPrompt(), buildUserPrompt(businessInfo, policy, card));
++
++        return mapToResponse(policy, ai);
++    }
++
++    private String buildSystemPrompt() {
++        return """
++                너는 소상공인 정책 분석 전문가야. 사용자의 사업 정보와 정책 정보를 보고,
++                이 정책이 사용자 사업에 미치는 영향을 분석해서 반드시 아래 JSON 스키마로만 응답해.
++                절대 다른 텍스트나 설명을 추가하지 마.
++
++                {
++                  "overall_direction": "positive" | "negative" | "neutral",
++                  "overall_label": "8자 내외 한글 요약 라벨 (예: 사업에 긍정적 영향)",
++                  "summary": "2~3문장 한글 요약",
++                  "details": ["상세 분석 문단1", "상세 분석 문단2", "상세 분석 문단3"],
++                  "business_impact": [
++                    {"label": "매출", "level": 0~100 정수, "direction": "up"|"down", "tag": "+15% 같은 짧은 태그"},
++                    {"label": "운영비", "level": 0~100 정수, "direction": "up"|"down", "tag": "짧은 태그"}
++                  ]
++                }
++
++                business_impact는 2~4개 항목으로, 매출/인건비/운영비/세금 등 사업 관련 항목 중 실제로 이 정책과 관련 있는 것만 선택해.
++                """;
++    }
++
++    private String buildUserPrompt(BusinessInfo info, Policy policy, PolicyCard card) {
++        StringBuilder sb = new StringBuilder();
++        sb.append("[사용자 사업 정보]\n");
++        sb.append("- 업종: ").append(info.getJobCategory()).append("\n");
++        sb.append("- 지역: ").append(info.getRegion()).append("\n");
++        sb.append("- 사업 상태: ").append(Boolean.TRUE.equals(info.getBusinessStatus()) ? "운영중" : "준비중").append("\n");
++        if (info.getAnnualRevenue() != null) sb.append("- 연매출: ").append(info.getAnnualRevenue()).append("원\n");
++        if (info.getEmployeeCount() != null) sb.append("- 직원수: ").append(info.getEmployeeCount()).append("명\n");
++
++        sb.append("\n[정책 정보]\n");
++        sb.append("- 제목: ").append(policy.getTitle()).append("\n");
++        sb.append("- 카테고리: ").append(policy.getCategory()).append("\n");
++        if (policy.getDescription() != null) sb.append("- 설명: ").append(policy.getDescription()).append("\n");
++        if (policy.getTargetGroup() != null) sb.append("- 지원대상: ").append(policy.getTargetGroup()).append("\n");
++        if (policy.getSupportScale() != null) sb.append("- 지원규모: ").append(policy.getSupportScale()).append("\n");
++        if (policy.getPurposeText() != null) sb.append("- 사업목적: ").append(policy.getPurposeText()).append("\n");
++        if (card != null && card.getFullJson() != null) {
++            sb.append("\n[자격요건 추출 데이터(JSON)]\n").append(card.getFullJson()).append("\n");
++        }
++        return sb.toString();
++    }
++
++    private PolicyReportResponse mapToResponse(Policy policy, JsonNode ai) {
++        String direction = ai.path("overall_direction").asText("neutral");
++        String overallLabel = ai.path("overall_label").asText("분석 완료");
++        String impactStyle = switch (direction) {
++            case "positive" -> "bg-green-100 text-green-700";
++            case "negative" -> "bg-red-100 text-red-700";
++            default -> "bg-gray-100 text-gray-600";
++        };
++
++        List<String> details = new ArrayList<>();
++        ai.path("details").forEach(n -> details.add(n.asText()));
++
++        List<PolicyReportResponse.BusinessImpactItem> impactItems = new ArrayList<>();
++        ai.path("business_impact").forEach(item -> {
++            String itemDirection = item.path("direction").asText("up");
++            boolean up = "up".equals(itemDirection);
++            impactItems.add(PolicyReportResponse.BusinessImpactItem.builder()
++                    .label(item.path("label").asText(""))
++                    .level(item.path("level").asInt(50))
++                    .direction(itemDirection)
++                    .tag(item.path("tag").asText(""))
++                    .barColor(up ? "bg-green-500" : "bg-red-500")
++                    .tagColor(up ? "text-green-600" : "text-red-600")
++                    .build());
++        });
++
++        List<Long> relatedIds = policyRepository
++                .findTop3ByCategoryAndIdNotOrderByPublishedDateDesc(policy.getCategory(), policy.getId())
++                .stream()
++                .limit(2)
++                .map(Policy::getId)
++                .toList();
++
++        return PolicyReportResponse.builder()
++                .policyId(policy.getId())
++                .policyTitle(policy.getTitle())
++                .category(policy.getCategory())
++                .impactLabel(overallLabel)
++                .impactStyle(impactStyle)
++                .summary(ai.path("summary").asText(""))
++                .details(details)
++                .relatedIds(relatedIds)
++                .businessImpact(impactItems)
++                .build();
++    }
++}
+diff --git a/api/src/main/resources/application.properties b/api/src/main/resources/application.properties
+index 0def947..d4ec11a 100644
+--- a/api/src/main/resources/application.properties
++++ b/api/src/main/resources/application.properties
+@@ -33,11 +33,15 @@ server.port=8080
+ bizinfo.api.url=https://www.bizinfo.go.kr/uss/rss/bizinfoApi.do
+ bizinfo.api.key=P50RYC
+ 
+-# AI Gateway (RunPod) 연동 - 값은 EC2 systemd 환경변수에서 주입
+-ai.gateway.base-url=${AI_GATEWAY_BASE_URL}
+-ai.gateway.api-key=${RUNAB_AI_API_KEY}
+-
++# AI Gateway (RunPod) 연동 - DEPRECATED, OpenAI로 대체됨 (2026.07.01). 코드는 남겨두되 호출 안 함.
++ai.gateway.base-url=${AI_GATEWAY_BASE_URL:https://unused.invalid}
++ai.gateway.api-key=${RUNAB_AI_API_KEY:unused}
+ ai.gateway.timeout-seconds=180
+ 
++# OpenAI 연동 (정책 AI 리포트 생성)
++openai.api-key=${OPENAI_API_KEY}
++openai.model=gpt-4o-mini
++openai.timeout-seconds=60
++
+ spring.jackson.serialization.write-dates-as-timestamps=false
+ 
+diff --git a/apps/run-a-b-fe/src/pages/PolicyDetail.tsx b/apps/run-a-b-fe/src/pages/PolicyDetail.tsx
+index 20ca878..e68050f 100644
+--- a/apps/run-a-b-fe/src/pages/PolicyDetail.tsx
++++ b/apps/run-a-b-fe/src/pages/PolicyDetail.tsx
+@@ -115,25 +115,27 @@ export default function PolicyDetail() {
+   function handleGenerateReport() {
+     if (!apiDetail) return;
+     setReportState("loading");
+-    // TODO: setTimeout → 실제 AI API 호출로 교체. saveReport 인자 구조는 그대로 유지됨.
+-    setTimeout(() => {
+-      try {
++    api.post(`/api/v1/policies/${apiDetail.id}/report`)
++      .then((res) => {
++        const data = res.data.data;
+         saveReport({
+           policyId: apiDetail.id,
+           policyTitle: apiDetail.title,
+           category: apiDetail.category,
+-          impactLabel: AI_DEFAULTS.reportData.impactLabel,
+-          impactStyle: AI_DEFAULTS.reportData.impactStyle,
+-          summary: AI_DEFAULTS.reportData.summary,
+-          details: AI_DEFAULTS.reportData.details,
+-          relatedIds: AI_DEFAULTS.reportData.relatedIds,
+-          businessImpact: AI_DEFAULTS.businessImpact,
++          impactLabel: data.impactLabel,
++          impactStyle: data.impactStyle,
++          summary: data.summary,
++          details: data.details ?? [],
++          relatedIds: data.relatedIds ?? [],
++          businessImpact: data.businessImpact ?? [],
+         });
+         navigate(`/reports/${apiDetail.id}`);
+-      } catch {
++      })
++      .catch((err) => {
++        console.error(err);
++        alert(err.response?.data?.message || "리포트 생성에 실패했어요");
+         setReportState("idle");
+-      }
+-    }, 1600);
++      });
+   }
+ 
+   if (loading) {
