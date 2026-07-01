@@ -143,4 +143,63 @@ class EligibilityMatcherTest {
         assertThat(result.getPass()).contains("region");
         assertThat(result.isHardFail()).isFalse();
     }
+
+    // ===== 업종 동의어 매핑 + 전업종 예외처리 (Task F) =====
+    // extractor 이름표와 앱 드롭다운 이름표가 달라도 같은 업종이면 매칭돼야 함.
+    // region은 nationwide로 고정해 industry 판정만 격리 검증.
+
+    private String industryCard(String industries, String industryConditionType) {
+        return """
+            {
+              "application_period": { "status": "open" },
+              "eligibility": {
+                "regions": ["전국"], "region_condition_type": "nationwide",
+                "industries": %s, "industry_condition_type": "%s"
+              }
+            }
+            """.formatted(industries, industryConditionType);
+    }
+
+    @Test
+    @DisplayName("동의어: industries=[미용업] + 사용자=뷰티/미용 → industry PASS")
+    void industrySynonym_beauty_pass() {
+        BusinessInfo user = user(true, "뷰티/미용", "서울특별시", null, null);
+        MatchResult result = matcher.match(user, card(industryCard("[\"미용업\"]", "specific")));
+        assertThat(result.getPass()).contains("industry");
+        assertThat(result.getFail()).doesNotContain("industry");
+    }
+
+    @Test
+    @DisplayName("동의어: industries=[정보통신업] + 사용자=IT/소프트웨어 → industry PASS")
+    void industrySynonym_it_pass() {
+        BusinessInfo user = user(true, "IT/소프트웨어", "서울특별시", null, null);
+        MatchResult result = matcher.match(user, card(industryCard("[\"정보통신업\"]", "specific")));
+        assertThat(result.getPass()).contains("industry");
+    }
+
+    @Test
+    @DisplayName("동의어: industries=[음식점업] + 사용자=카페/음료 → industry PASS (extractor가 카페를 음식점업에 뭉뚱그림)")
+    void industrySynonym_cafe_pass() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        MatchResult result = matcher.match(user, card(industryCard("[\"음식점업\"]", "specific")));
+        assertThat(result.getPass()).contains("industry");
+    }
+
+    @Test
+    @DisplayName("전업종(all): 사용자 업종이 뭐든 industry PASS")
+    void industryAll_alwaysPass() {
+        BusinessInfo user = user(true, "아무거나", "서울특별시", null, null);
+        MatchResult result = matcher.match(user, card(industryCard("[\"전업종\"]", "all")));
+        assertThat(result.getPass()).contains("industry");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    @DisplayName("매핑 없는 업종: industries=[운수업] + 사용자=뷰티/미용 → industry FAIL (억지 매칭 금지)")
+    void industryUnmapped_fail() {
+        BusinessInfo user = user(true, "뷰티/미용", "서울특별시", null, null);
+        MatchResult result = matcher.match(user, card(industryCard("[\"운수업\"]", "specific")));
+        assertThat(result.getFail()).contains("industry");
+        assertThat(result.getPass()).doesNotContain("industry");
+    }
 }

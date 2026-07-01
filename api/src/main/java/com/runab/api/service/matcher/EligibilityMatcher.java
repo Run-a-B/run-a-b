@@ -163,14 +163,26 @@ public class EligibilityMatcher {
     // 규칙4: industries=[]+unknown은 PASS 금지(UNKNOWN). 불일치는 soft(hardFail 아님)
     private MatchStatus evalIndustry(JsonNode elig, String userIndustry) {
         List<String> industries = list(elig, "industries");
+        String type = text(elig, "industry_condition_type", "unknown");
+
+        // 업종 무관("전업종") → 사용자 업종과 무관하게 PASS. (evalRegion의 "전국"/nationwide 처리와 동일 패턴)
+        if ("all".equals(type) || industries.contains("전업종")) {
+            return MatchStatus.PASS;
+        }
         if (industries.isEmpty()) {
             return MatchStatus.UNKNOWN;
         }
         if (userIndustry == null || userIndustry.isBlank()) {
             return MatchStatus.UNKNOWN;
         }
-        // 동의어/표준산업분류 비교는 추후. MVP는 문자열 일치만.
-        return industries.contains(userIndustry) ? MatchStatus.PASS : MatchStatus.FAIL;
+        // 동의어 매핑(IndustryHierarchy)을 거쳐 비교 — extractor 이름표(미용업/정보통신업/음식점업 등)와
+        // 앱 드롭다운 이름표(뷰티/미용, IT/소프트웨어, 카페/음료 등)를 연결. (region이 sameProvince 쓰는 것과 동일)
+        for (String cardIndustry : industries) {
+            if (IndustryHierarchy.sameIndustry(userIndustry, cardIndustry)) {
+                return MatchStatus.PASS;
+            }
+        }
+        return MatchStatus.FAIL;
     }
 
     // 규칙1·2: closed면 date=FAIL + hardFail. open이면 PASS. 없으면 UNKNOWN
