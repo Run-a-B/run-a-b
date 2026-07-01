@@ -4,6 +4,16 @@ import { MOCK_POLICIES, POLICY_DETAILS } from "@/data/policies";
 import api from "@/lib/api";
 
 const CATEGORY_COLORS: Record<string, string> = {
+  // 실 데이터 카테고리 (Task A에서 정리된 목록)
+  기술: "bg-violet-100 text-violet-700",
+  금융: "bg-indigo-100 text-indigo-700",
+  인력: "bg-blue-100 text-blue-700",
+  경영: "bg-emerald-100 text-emerald-700",
+  창업: "bg-orange-100 text-orange-700",
+  수출: "bg-sky-100 text-sky-700",
+  내수: "bg-teal-100 text-teal-700",
+  기타: "bg-gray-100 text-gray-600",
+  // 구형 mock 카테고리 호환
   최저임금: "bg-gray-100 text-gray-600",
   "노동·복지": "bg-blue-100 text-blue-700",
   "대출·자금": "bg-indigo-100 text-indigo-700",
@@ -15,6 +25,19 @@ const CATEGORY_COLORS: Record<string, string> = {
   교육: "bg-sky-100 text-sky-700",
 };
 
+interface ChecklistItem {
+  id: string;
+  label: string;
+  required: boolean;
+  description?: string;
+}
+interface ChecklistDetail {
+  applicationPeriod: string;
+  department: string;
+  applicationUrl: string;
+  applicationChecklist: ChecklistItem[];
+}
+
 export default function PolicyChecklist() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -23,26 +46,43 @@ export default function PolicyChecklist() {
   const mockPolicy = MOCK_POLICIES.find((p) => p.id === policyId);
   const mockDetail = POLICY_DETAILS[policyId];
 
-  // 실 API 정책 제목 (mock에 없을 때 fallback)
-  const [apiTitle, setApiTitle] = useState<string | null>(null);
+  // 실 API 데이터 (mock에 없을 때 API로 채움) — 기존 UI가 쓰는 policy/detail 모양 그대로 맞춘다
+  const [apiPolicy, setApiPolicy] = useState<{ title: string; category: string } | null>(null);
+  const [apiDetail, setApiDetail] = useState<ChecklistDetail | null>(null);
+  const [apiFailed, setApiFailed] = useState(false);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!mockPolicy) {
-      api.get(`/api/v1/policies/${policyId}`)
-        .then((res) => {
-          setApiTitle(res.data.data.title);
-          setApiUrl(res.data.data.detailUrl || res.data.data.applicationUrl || null);
-        })
-        .catch(() => {});
-    }
-  }, [policyId, mockPolicy]);
+    if (mockPolicy && mockDetail) return; // mock으로 처리 가능하면 API 호출 불필요 (회귀 없음)
+    let active = true;
+    setApiFailed(false);
+    Promise.all([
+      api.get(`/api/v1/policies/${policyId}`),
+      api.get(`/api/v1/policies/${policyId}/checklist`),
+    ])
+      .then(([pRes, cRes]) => {
+        if (!active) return;
+        setApiPolicy({ title: pRes.data.data.title, category: pRes.data.data.category });
+        setApiDetail(cRes.data.data);
+        setApiUrl(pRes.data.data.detailUrl || pRes.data.data.applicationUrl || null);
+      })
+      .catch(() => {
+        if (active) setApiFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [policyId, mockPolicy, mockDetail]);
 
   const [checked, setChecked] = useState<Record<string, boolean>>({});
 
-  // 실 API 정책 — mock 체크리스트 없음, 준비 중 UI 표시
-  if (!mockPolicy || !mockDetail) {
-    const title = apiTitle ?? "정책 로딩 중...";
+  // 최종 데이터: mock 우선(회귀 없음), 없으면 API
+  const policy = mockPolicy && mockDetail ? mockPolicy : apiPolicy;
+  const detail = mockPolicy && mockDetail ? mockDetail : apiDetail;
+
+  // mock도 없고 API도 아직/실패면 준비 중 UI (API 성공 전 로딩 포함)
+  if (!policy || !detail) {
+    const title = apiPolicy?.title ?? (apiFailed ? "정책" : "정책 로딩 중...");
     return (
       <div className="bg-gray-50 min-h-screen">
         <div className="px-40 py-4">
@@ -94,9 +134,6 @@ export default function PolicyChecklist() {
       </div>
     );
   }
-
-  const policy = mockPolicy;
-  const detail = mockDetail;
 
   const required = detail.applicationChecklist.filter((i) => i.required);
   const optional = detail.applicationChecklist.filter((i) => !i.required);
@@ -180,6 +217,7 @@ export default function PolicyChecklist() {
                 <li>• 서류는 최근 3개월 이내 발급본을 준비해 주세요.</li>
                 <li>• 원본 서류가 필요한 경우 방문 접수 시 지참하세요.</li>
                 <li>• 신청 기간 및 예산 현황에 따라 마감될 수 있으니 서두르세요.</li>
+                <li>• 정확한 제출 서류는 반드시 원문 공고를 확인하세요.</li>
               </ul>
             </div>
           </div>
