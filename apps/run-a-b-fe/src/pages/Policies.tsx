@@ -306,10 +306,18 @@ export default function Policies() {
       </div>
 
       <div className="px-40 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <p className="text-sm text-gray-500">
-            총 <span className="font-semibold text-gray-900">{totalElements.toLocaleString()}개</span>의 정책이 있어요
-          </p>
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <p className="text-sm text-gray-500">
+              총 <span className="font-semibold text-gray-900">{totalElements.toLocaleString()}개</span>의 정책이 있어요
+            </p>
+            {/* 현재 대부분의 정책이 업종 무관(전체)으로 등록돼 있어 업종 필터만으로는 결과가 거의 좁혀지지 않음을 안내 */}
+            {industry !== "전체 업종" && (
+              <p className="text-xs text-gray-400 mt-1">
+                ⓘ 등록된 정책 대부분이 업종 무관으로 분류돼 있어, 업종 필터로는 결과가 거의 좁혀지지 않을 수 있어요.
+              </p>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <Dropdown value={sort} onChange={handleFilter(setSort)} options={SORT_OPTIONS} />
             <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden">
