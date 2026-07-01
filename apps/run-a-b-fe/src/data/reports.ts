@@ -9,6 +9,11 @@ export interface BusinessImpactItem {
   tagColor: string;
 }
 
+export interface RelatedPolicy {
+  id: number;
+  title: string;
+}
+
 export interface SavedReport {
   id: string;
   policyId: number;
@@ -17,9 +22,10 @@ export interface SavedReport {
   savedAt: string;
   impactLabel: string;
   impactStyle: string;
+  direction?: "positive" | "negative";
   summary: string;
   details: string[];
-  relatedIds: number[];
+  relatedIds: RelatedPolicy[];
   businessImpact?: BusinessImpactItem[];
 }
 

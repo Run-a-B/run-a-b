@@ -67,8 +67,9 @@ export default function ReportList() {
   const filtered = reports
     .filter((r) => {
       if (query && !r.policyTitle.includes(query) && !r.summary.includes(query)) return false;
-      if (tab === "부정 영향" && !r.impactLabel.includes("부정")) return false;
-      if (tab === "긍정 영향" && !r.impactLabel.includes("긍정")) return false;
+      // impactLabel 텍스트 매칭 대신 direction 필드로 필터 (impactLabel엔 "긍정/부정" 글자가 없는 경우가 많음)
+      if (tab === "부정 영향" && r.direction !== "negative") return false;
+      if (tab === "긍정 영향" && r.direction !== "positive") return false;
       return true;
     })
     .sort((a, b) => {

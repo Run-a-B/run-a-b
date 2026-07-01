@@ -19,9 +19,10 @@ public class PolicyReportResponse {
 
     private String impactLabel;   // 예: "사업에 긍정적 영향"
     private String impactStyle;   // tailwind 클래스 (bg-*, text-*)
+    private String direction;     // "positive" | "negative" (프론트 긍정/부정 필터·영향도 표시 조건)
     private String summary;
     private List<String> details;
-    private List<Long> relatedIds;
+    private List<RelatedPolicy> relatedIds;   // "함께 신청하면 좋아요" — id+제목
     private List<BusinessImpactItem> businessImpact;
     private String savedAt;       // 저장/갱신 시각 ISO-8601 (프론트 SavedReport.savedAt) — 생성 응답엔 없을 수 있음
 
@@ -34,5 +35,12 @@ public class PolicyReportResponse {
         private String tag;         // 예: "+15%"
         private String barColor;    // tailwind 클래스
         private String tagColor;    // tailwind 클래스
+    }
+
+    @Getter
+    @Builder
+    public static class RelatedPolicy {
+        private Long id;
+        private String title;
     }
 }

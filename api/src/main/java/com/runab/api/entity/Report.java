@@ -49,6 +49,10 @@ public class Report {
     @Column(name = "impact_style", length = 100)
     private String impactStyle;
 
+    // "positive" | "negative" (C-1: 프론트 긍정/부정 필터가 impactLabel 텍스트 매칭 대신 이 필드로 판단)
+    @Column(name = "direction", length = 20)
+    private String direction;
+
     @Column(columnDefinition = "TEXT")
     private String summary;
 
@@ -74,7 +78,7 @@ public class Report {
 
     @Builder
     public Report(Long userId, Long policyId, String policyTitle, String category,
-                  String impactLabel, String impactStyle, String summary,
+                  String impactLabel, String impactStyle, String direction, String summary,
                   String detailsJson, String relatedIdsJson, String businessImpactJson) {
         this.userId = userId;
         this.policyId = policyId;
@@ -82,6 +86,7 @@ public class Report {
         this.category = category;
         this.impactLabel = impactLabel;
         this.impactStyle = impactStyle;
+        this.direction = direction;
         this.summary = summary;
         this.detailsJson = detailsJson;
         this.relatedIdsJson = relatedIdsJson;
@@ -90,11 +95,13 @@ public class Report {
 
     // 재생성(upsert) 시 내용 갱신용 비즈니스 메서드 (setter 금지 원칙). updatedAt은 @PreUpdate가 처리.
     public void update(String policyTitle, String category, String impactLabel, String impactStyle,
-                       String summary, String detailsJson, String relatedIdsJson, String businessImpactJson) {
+                       String direction, String summary, String detailsJson, String relatedIdsJson,
+                       String businessImpactJson) {
         this.policyTitle = policyTitle;
         this.category = category;
         this.impactLabel = impactLabel;
         this.impactStyle = impactStyle;
+        this.direction = direction;
         this.summary = summary;
         this.detailsJson = detailsJson;
         this.relatedIdsJson = relatedIdsJson;
