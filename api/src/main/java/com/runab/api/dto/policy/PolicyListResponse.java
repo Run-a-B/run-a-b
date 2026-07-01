@@ -29,6 +29,11 @@ public class PolicyListResponse {
     private boolean isAIRecommended;  // 추천 도메인 전까지 고정값 false
 
     public static PolicyListResponse from(Policy policy) {
+        return from(policy, 0, false);
+    }
+
+    // userId 기반 matcher 점수가 있을 때 (EligibilityMatcher.score 그대로 사용)
+    public static PolicyListResponse from(Policy policy, int relevance, boolean isAIRecommended) {
         return PolicyListResponse.builder()
                 .id(policy.getId())
                 .title(policy.getTitle())
@@ -41,10 +46,8 @@ public class PolicyListResponse {
                 .date(policy.getPublishedDate() != null
                         ? policy.getPublishedDate().format(DATE_FORMATTER)
                         : "")
-                // TODO: 관련도(Relevance) 도메인 구현 후 실제 값으로 교체 예정
-                .relevance(0)
-                // TODO: 추천(Recommendation) 도메인 구현 후 실제 값으로 교체 예정
-                .isAIRecommended(false)
+                .relevance(relevance)
+                .isAIRecommended(isAIRecommended)
                 .build();
     }
 }

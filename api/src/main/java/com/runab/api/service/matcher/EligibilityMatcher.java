@@ -136,6 +136,7 @@ public class EligibilityMatcher {
     // ===== 항목별 평가 =====
 
     // 규칙3·6: regions=[]+unknown은 PASS 금지(UNKNOWN), ["전국"]/nationwide와 혼동 금지
+    // 계층 매칭: 정책 원문이 구/군 단위("강남구")로 추출돼도 사용자의 시/도 선택("서울특별시")과 매칭되게 함
     private MatchStatus evalRegion(JsonNode elig, String userRegion, List<String> hardFailReasons) {
         List<String> regions = list(elig, "regions");
         String type = text(elig, "region_condition_type", "unknown");
@@ -149,11 +150,12 @@ public class EligibilityMatcher {
         if (userRegion == null || userRegion.isBlank()) {
             return MatchStatus.UNKNOWN;
         }
-        if (regions.contains(userRegion)) {
-            return MatchStatus.PASS;
+        for (String r : regions) {
+            if (RegionHierarchy.sameProvince(userRegion, r)) {
+                return MatchStatus.PASS;
+            }
         }
         // 지역 불일치는 hard (규칙: hardFail=true)
-        // 권역 매핑(수도권 등 PARTIAL)은 추후. MVP는 단순 일치만.
         hardFailReasons.add("region_mismatch");
         return MatchStatus.FAIL;
     }
