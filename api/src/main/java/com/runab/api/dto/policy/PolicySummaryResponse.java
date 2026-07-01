@@ -16,6 +16,10 @@ public class PolicySummaryResponse {
     private List<String> summaryLines;      // AI 3줄 요약
     private List<Highlight> highlights;     // 아이콘 하이라이트
 
+    // 원본 정보만으로 자연스럽게 재구성한 본문 (H-2). 비어 있으면 프론트가 원본 필드로 폴백.
+    private String expandedDescription;         // "사업 내용"(description+purposeText) 재구성
+    private String expandedApplicationMethod;   // "신청 방법"(applicationMethod) 재구성
+
     @Getter
     @Builder
     public static class Highlight {

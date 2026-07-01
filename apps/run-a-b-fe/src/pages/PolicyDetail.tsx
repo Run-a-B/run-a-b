@@ -69,6 +69,8 @@ interface ApiDetail {
 interface PolicySummaryData {
   summaryLines: string[];
   highlights: { icon: string; label: string; content: string }[];
+  expandedDescription?: string | null;
+  expandedApplicationMethod?: string | null;
 }
 
 // AI/미구현 필드 기본값 — AI 연동 후 API 응답으로 교체 예정
@@ -270,8 +272,10 @@ export default function PolicyDetail() {
                   { label: "업종", value: apiDetail.industry },
                   { label: "공고일", value: apiDetail.date ?? "-" },
                   { label: "신청 기간", value: apiDetail.applicationPeriod || "-" },
+                  { label: "공고번호", value: apiDetail.announcementNo ?? "-" },
+                  { label: "담당부서", value: apiDetail.department ?? "-" },
                 ].map(({ label, value }, idx) => (
-                  <div key={label} className={`flex px-4 py-3 ${idx < 4 ? "border-b border-gray-100" : ""} ${idx % 2 === 0 ? "border-r border-gray-100" : ""}`}>
+                  <div key={label} className={`flex px-4 py-3 ${idx < 6 ? "border-b border-gray-100" : ""} ${idx % 2 === 0 ? "border-r border-gray-100" : ""}`}>
                     <span className="text-gray-400 w-20 shrink-0">{label}</span>
                     <span className="text-gray-800 font-medium">{value}</span>
                   </div>
@@ -302,27 +306,32 @@ export default function PolicyDetail() {
                 </div>
               )}
 
-              {/* 사업 목적 */}
-              {apiDetail.purposeText && (
-                <section className="mb-6">
-                  <h2 className="text-lg font-bold text-gray-900 mb-3">사업 목적</h2>
-                  <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.purposeText}</p>
-                </section>
-              )}
-
-              {/* 사업 내용 */}
-              {apiDetail.description && (
+              {/* 사업 내용: AI가 원본(사업 목적+사업 내용)만으로 재구성한 문장 우선, 없으면 원본 필드 폴백 */}
+              {(summary?.expandedDescription || apiDetail.purposeText || apiDetail.description) && (
                 <section className="mb-6">
                   <h2 className="text-lg font-bold text-gray-900 mb-3">사업 내용</h2>
-                  <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.description}</p>
+                  {summary?.expandedDescription ? (
+                    <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{summary.expandedDescription}</p>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      {apiDetail.purposeText && (
+                        <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.purposeText}</p>
+                      )}
+                      {apiDetail.description && (
+                        <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.description}</p>
+                      )}
+                    </div>
+                  )}
                 </section>
               )}
 
-              {/* 신청 방법 */}
-              {apiDetail.applicationMethod && (
+              {/* 신청 방법: AI 재구성 우선, 없으면 원본 폴백 */}
+              {(summary?.expandedApplicationMethod || apiDetail.applicationMethod) && (
                 <section className="mb-6">
                   <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
-                  <p className="text-base text-gray-700 leading-8">{apiDetail.applicationMethod}</p>
+                  <p className="text-base text-gray-700 leading-8 whitespace-pre-line">
+                    {summary?.expandedApplicationMethod || apiDetail.applicationMethod}
+                  </p>
                 </section>
               )}
 
