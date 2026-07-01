@@ -108,7 +108,7 @@ public class EligibilityMatcher {
             requiredFlagCheck.put(flag, MatchStatus.UNKNOWN.name());
         }
 
-        int eligibilityScore = (int) Math.round(scorer.weightedSum());
+        int eligibilityScore = (int) Math.round(scorer.normalizedScore());
         int goalScore = computeGoalScore(root);
         int documentScore = computeDocumentScore(root);
 
@@ -289,7 +289,8 @@ public class EligibilityMatcher {
     // status → 가중점수 환산 + 버킷 분류
     private static class Scorer {
         private final List<String> pass, partial, unknown, fail, notRequired;
-        private double sum = 0;
+        private double sum = 0;          // 판단 가능한 항목의 가중 획득점수 합
+        private double totalWeight = 0;  // 판단 가능한 항목의 배점 합 (정규화 분모)
 
         Scorer(List<String> pass, List<String> partial, List<String> unknown,
                List<String> fail, List<String> notRequired) {
@@ -302,13 +303,7 @@ public class EligibilityMatcher {
 
         // important(region/industry)는 UNKNOWN 감점이 더 큼(30%), 나머지는 40%
         void add(String name, MatchStatus status, double maxPoints, boolean important) {
-            double fraction = switch (status) {
-                case PASS, NOT_REQUIRED -> 1.0;
-                case PARTIAL -> 0.5;                 // 배윤성 40~70% → MVP 일괄 50% 고정
-                case UNKNOWN -> important ? 0.3 : 0.4; // region/industry는 중요필수라 낮게
-                case FAIL -> 0.0;
-            };
-            sum += maxPoints * fraction;
+            // 버킷 분류는 상태 그대로 유지 (리포트/디버깅용 — 점수 계산과 무관)
             switch (status) {
                 case PASS -> pass.add(name);
                 case PARTIAL -> partial.add(name);
@@ -316,10 +311,32 @@ public class EligibilityMatcher {
                 case FAIL -> fail.add(name);
                 case NOT_REQUIRED -> notRequired.add(name);
             }
+
+            // [2026.07.01 관련도 점수 분포 개선 목적으로 추가됨 — 배윤성 참고용 주석]
+            // "조건 없음(NOT_REQUIRED)"은 판단할 조건 자체가 없는 항목이다. 기존엔 이를 만점(fraction=1.0)으로
+            // 채점해, 카드 데이터가 부실한 현 상황에선 대다수 항목이 만점 베이스라인을 깔아 점수가 좁은 구간에 몰렸다.
+            // → NOT_REQUIRED 항목은 총점 계산에서 아예 제외(분모·분자 모두 제외)하고, 실제로 조건이 존재하는
+            //   항목들끼리만 가중 평균(sum/totalWeight)을 낸다. 가중치 비율(0.70/0.20/0.10)은 손대지 않음.
+            //   UNKNOWN("조건은 있으나 판단 불가")은 "조건 없음"과 의미가 달라 페널티(0.3~0.4)로 분모에 계속 포함.
+            if (status == MatchStatus.NOT_REQUIRED) {
+                return;
+            }
+
+            double fraction = switch (status) {
+                case PASS -> 1.0;
+                case PARTIAL -> 0.5;                 // 배윤성 40~70% → MVP 일괄 50% 고정
+                case UNKNOWN -> important ? 0.3 : 0.4; // region/industry는 중요필수라 낮게
+                case FAIL -> 0.0;
+                case NOT_REQUIRED -> 0.0;            // 위에서 return → 도달 안 함 (switch 완전성용)
+            };
+            sum += maxPoints * fraction;
+            totalWeight += maxPoints;
         }
 
-        double weightedSum() {
-            return sum;
+        // 판단 가능한 항목만으로 0~100 정규화. region/industry/date는 항상 판단 대상이라
+        // 정상 흐름에서 totalWeight는 0이 될 수 없지만, 방어적으로 0이면 0 반환.
+        double normalizedScore() {
+            return totalWeight == 0 ? 0.0 : (sum / totalWeight) * 100.0;
         }
     }
 }
