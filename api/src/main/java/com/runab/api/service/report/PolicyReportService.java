@@ -41,7 +41,7 @@ public class PolicyReportService {
         BusinessInfo businessInfo = businessInfoRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.BUSINESS_INFO_REQUIRED));
 
-        PolicyCard card = policyCardRepository.findByExternalId(policy.getExternalId()).orElse(null);
+        PolicyCard card = policyCardRepository.findByPolicyId(PolicyCard.toPolicyId(policy.getExternalId())).orElse(null);
 
         JsonNode ai = openAiClient.chatJson(buildSystemPrompt(), buildUserPrompt(businessInfo, policy, card));
 

@@ -1,0 +1,44 @@
+diff --git a/api/src/main/java/com/runab/api/entity/PolicyCard.java b/api/src/main/java/com/runab/api/entity/PolicyCard.java
+index 90fb13f..4567f16 100644
+--- a/api/src/main/java/com/runab/api/entity/PolicyCard.java
++++ b/api/src/main/java/com/runab/api/entity/PolicyCard.java
+@@ -68,6 +68,13 @@ public class PolicyCard {
+         this.extractionStatus = extractionStatus;
+     }
+ 
++    // Policy.externalId(PBLN_...) → PolicyCard.policyId 형식으로 변환
++    // ⚠️ PolicyCard.externalId 컬럼은 값이 policyId와 동일하게(접두사 포함) 잘못 들어가 있어 매칭에 못 씀(2026.07.01 확인).
++    //    policyId 컬럼은 항상 이 형식이 보장되므로 이걸로 조회해야 함.
++    public static String toPolicyId(String bizinfoExternalId) {
++        return "bizinfo_support_program:" + bizinfoExternalId;
++    }
++
+     @PrePersist
+     protected void onCreate() {
+         this.createdAt = LocalDateTime.now();
+diff --git a/api/src/main/java/com/runab/api/service/PolicyService.java b/api/src/main/java/com/runab/api/service/PolicyService.java
+index db85605..2dad99a 100644
+--- a/api/src/main/java/com/runab/api/service/PolicyService.java
++++ b/api/src/main/java/com/runab/api/service/PolicyService.java
+@@ -59,7 +59,7 @@ public class PolicyService {
+             if (businessInfo == null) {
+                 return PolicyListResponse.from(policy);
+             }
+-            PolicyCard card = policyCardRepository.findByExternalId(policy.getExternalId()).orElse(null);
++            PolicyCard card = policyCardRepository.findByPolicyId(PolicyCard.toPolicyId(policy.getExternalId())).orElse(null);
+             MatchResult match = eligibilityMatcher.match(businessInfo, card);
+             return PolicyListResponse.from(policy, match.getScore(), match.getScore() >= AI_RECOMMEND_THRESHOLD && !match.isHardFail());
+         });
+diff --git a/api/src/main/java/com/runab/api/service/report/PolicyReportService.java b/api/src/main/java/com/runab/api/service/report/PolicyReportService.java
+index 6b5624b..82c2141 100644
+--- a/api/src/main/java/com/runab/api/service/report/PolicyReportService.java
++++ b/api/src/main/java/com/runab/api/service/report/PolicyReportService.java
+@@ -41,7 +41,7 @@ public class PolicyReportService {
+         BusinessInfo businessInfo = businessInfoRepository.findByUserId(userId)
+                 .orElseThrow(() -> new BusinessException(ErrorCode.BUSINESS_INFO_REQUIRED));
+ 
+-        PolicyCard card = policyCardRepository.findByExternalId(policy.getExternalId()).orElse(null);
++        PolicyCard card = policyCardRepository.findByPolicyId(PolicyCard.toPolicyId(policy.getExternalId())).orElse(null);
+ 
+         JsonNode ai = openAiClient.chatJson(buildSystemPrompt(), buildUserPrompt(businessInfo, policy, card));
+ 
