@@ -133,10 +133,13 @@ export default function ReportDetail() {
           <p className="text-base text-gray-700 leading-8">{report.summary}</p>
         </div>
 
-        {/* Business impact bars */}
-        {businessImpact.length > 0 && (
+        {/* Business impact bars — 긍정 영향(positive) 리포트에서만 표시 (부정 리포트엔 억지 수치 안 붙임) */}
+        {report.direction === "positive" && businessImpact.length > 0 && (
           <div className="bg-primary-50 rounded-2xl border border-primary-100 p-6">
-            <p className="text-sm font-bold text-primary-600 mb-5">내 사업 영향도</p>
+            <div className="flex items-center justify-between mb-5 gap-2 flex-wrap">
+              <p className="text-sm font-bold text-primary-600">내 사업 영향도</p>
+              <span className="text-xs text-gray-400">※ AI가 추정한 예상 영향이에요 (확정 수치 아님)</span>
+            </div>
             <div className="flex flex-col gap-4">
               {businessImpact.map((item) => (
                 <div key={item.label} className="flex items-center gap-3">
@@ -175,10 +178,10 @@ export default function ReportDetail() {
         {report.relatedIds.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 flex flex-col gap-3">
             <p className="text-sm font-bold text-gray-800">함께 신청하면 좋아요</p>
-            {report.relatedIds.map((relId) => (
+            {report.relatedIds.map((rel) => (
               <button
-                key={relId}
-                onClick={() => navigate(`/policies/${relId}`)}
+                key={rel.id}
+                onClick={() => navigate(`/policies/${rel.id}`)}
                 className="flex items-center gap-3 text-left bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-xl p-3 transition-colors"
               >
                 <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
@@ -187,7 +190,7 @@ export default function ReportDetail() {
                     <polyline points="14 2 14 8 20 8"/>
                   </svg>
                 </div>
-                <span className="flex-1 text-sm font-medium text-primary-700">관련 정책 보기</span>
+                <span className="flex-1 text-sm font-medium text-primary-700 line-clamp-1">{rel.title}</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
                   <polyline points="9 18 15 12 9 6"/>
                 </svg>
