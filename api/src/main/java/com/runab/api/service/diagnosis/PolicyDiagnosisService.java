@@ -92,13 +92,18 @@ public class PolicyDiagnosisService {
             if ("nationwide".equals(type)) {
                 return evidence("region", "지역", business.region(), "전국", MatchStatus.PASS, cardSource());
             }
-            if (!"unknown".equals(type) && regionNode != null) {
+            if ("unknown".equals(type)) {
+                return cardData.fullyExtracted()
+                        ? unknown("region", "지역", business.region())
+                        : nonFailingMetadataRegionEvidence(policy, business);
+            }
+            if (regionNode != null) {
                 List<String> regions = textList(regionNode);
                 if (regions.isEmpty()) {
+                    if (!cardData.fullyExtracted()) {
+                        return nonFailingMetadataRegionEvidence(policy, business);
+                    }
                     if (regionNode.isArray() && !regionNode.isEmpty()) {
-                        if (!cardData.fullyExtracted()) {
-                            return nonFailingMetadataRegionEvidence(policy, business);
-                        }
                         return unknown("region", "지역", business.region());
                     }
                     if (cardData.fullyExtracted()) {

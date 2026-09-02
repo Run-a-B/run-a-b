@@ -249,6 +249,34 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
+    void partialCardExplicitUnknownRegionTypeCannotTurnMetadataMismatchIntoAHardFail() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy("부산광역시", null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("partially_extracted", """
+                {"eligibility":{"regions":["수도권"],"region_condition_type":"unknown"}}
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(result.isHardFail()).isFalse();
+        assertThat(result.getHardFailReasons()).isEmpty();
+    }
+
+    @Test
+    void partialCardNonArrayRegionCannotTurnMetadataMismatchIntoAHardFail() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy("부산광역시", null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("partially_extracted", """
+                {"eligibility":{"regions":{"label":"수도권"},"region_condition_type":"specific"}}
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(result.isHardFail()).isFalse();
+        assertThat(result.getHardFailReasons()).isEmpty();
+    }
+
+    @Test
     void partialCardFallsBackToMetadataIndustry() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
                 null, "제조업", null, null)));
