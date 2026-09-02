@@ -36,7 +36,7 @@ test("checklist loading and failure states are announced with the appropriate ur
 
   assert.match(loading, /role="status"/);
   assert.match(loading, /aria-live="polite"/);
-  assert.match(loading, /aria-busy="true"/);
+  assert.doesNotMatch(loading, /aria-busy="true"/);
   assert.match(failure, /role="alert"/);
   assert.doesNotMatch(failure, /aria-busy="true"/);
   assert.match(failure, /text-gray-600/);

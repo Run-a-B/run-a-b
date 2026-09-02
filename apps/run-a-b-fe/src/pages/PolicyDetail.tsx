@@ -235,7 +235,7 @@ export default function PolicyDetail() {
   const policyId = Number(id);
 
   const [loadedDetail, setLoadedDetail] = useState<LoadedPolicyDetail | null>(null);
-  const [detailLoadState, setDetailLoadState] = useState<PolicyDetailLoadState>("loading");
+  const [detailLoadState, setDetailLoadState] = useState<PolicyDetailLoadState>({ tag: "loading", policyId });
   const [reportState, setReportState] = useState<"idle" | "loading" | "done">("idle");
   const [summary, setSummary] = useState<PolicySummaryData | null>(null);
   const [summaryState, setSummaryState] = useState<"loading" | "done" | "error">("loading");
@@ -246,19 +246,19 @@ export default function PolicyDetail() {
   useEffect(() => {
     let active = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 즉시 새 정책의 로딩 상태로 전환한다.
-    setDetailLoadState("loading");
+    setDetailLoadState({ tag: "loading", policyId });
     setLoadedDetail(null);
     api.get(`/api/v1/policies/${policyId}`)
       .then(res => {
         if (!active) return;
         const data: PolicyDetailData = res.data.data;
         setLoadedDetail({ policyId, detail: data });
-        setDetailLoadState("ready");
+        setDetailLoadState({ tag: "ready", policyId });
         markPolicyVisited(policyId);
       })
       .catch(err => {
         if (!active) return;
-        setDetailLoadState(err.response?.status === 404 ? "missing" : "error");
+        setDetailLoadState({ tag: err.response?.status === 404 ? "missing" : "error", policyId });
       });
     return () => {
       active = false;

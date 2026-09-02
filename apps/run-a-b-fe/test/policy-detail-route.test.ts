@@ -18,8 +18,13 @@ test("a late detail response never belongs to a different policy route", () => {
 });
 
 test("a mismatched detail stays loading until the replacement request settles", () => {
-  assert.equal(policyDetailViewState("ready", loaded, 2), "loading");
-  assert.equal(policyDetailViewState("missing", null, 2), "missing");
-  assert.equal(policyDetailViewState("error", null, 2), "error");
-  assert.equal(policyDetailViewState("ready", { ...loaded, policyId: 2 }, 2), "ready");
+  assert.equal(policyDetailViewState({ tag: "ready", policyId: 1 }, loaded, 2), "loading");
+  assert.equal(policyDetailViewState({ tag: "missing", policyId: 2 }, null, 2), "missing");
+  assert.equal(policyDetailViewState({ tag: "error", policyId: 2 }, null, 2), "error");
+  assert.equal(policyDetailViewState({ tag: "ready", policyId: 2 }, { ...loaded, policyId: 2 }, 2), "ready");
+});
+
+test("terminal detail states never leak into a different policy route", () => {
+  assert.equal(policyDetailViewState({ tag: "missing", policyId: 1 }, null, 2), "loading");
+  assert.equal(policyDetailViewState({ tag: "error", policyId: 1 }, null, 2), "loading");
 });

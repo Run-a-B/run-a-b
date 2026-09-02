@@ -5,7 +5,12 @@ export interface LoadedPolicyDetail {
   detail: PolicyDetailData;
 }
 
-export type PolicyDetailLoadState = "loading" | "ready" | "missing" | "error";
+export type PolicyDetailLoadTag = "loading" | "ready" | "missing" | "error";
+
+export interface PolicyDetailLoadState {
+  tag: PolicyDetailLoadTag;
+  policyId: number;
+}
 
 export function isPolicyDetailForRoute(
   loadedDetail: LoadedPolicyDetail | null,
@@ -18,10 +23,13 @@ export function policyDetailViewState(
   loadState: PolicyDetailLoadState,
   loadedDetail: LoadedPolicyDetail | null,
   policyId: number,
-): PolicyDetailLoadState {
+): PolicyDetailLoadTag {
   const belongsToRoute = isPolicyDetailForRoute(loadedDetail, policyId);
-  if (loadState === "loading" || (loadedDetail !== null && !belongsToRoute)) {
+  if (loadState.policyId !== policyId
+      || loadState.tag === "loading"
+      || (loadedDetail !== null && !belongsToRoute)) {
     return "loading";
   }
-  return loadState === "ready" && belongsToRoute ? "ready" : loadState;
+  if (loadState.tag === "ready") return belongsToRoute ? "ready" : "loading";
+  return loadState.tag;
 }

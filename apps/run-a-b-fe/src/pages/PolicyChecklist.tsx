@@ -45,7 +45,7 @@ export function ChecklistLoadNotice({
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-24">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50"><ChecklistIcon className="text-primary-400" /></div>
-      <div role={failed ? "alert" : "status"} aria-live={failed ? undefined : "polite"} aria-busy={failed ? undefined : true} className="text-center">
+      <div role={failed ? "alert" : "status"} aria-live={failed ? undefined : "polite"} className="text-center">
         <p className="mb-1 text-base font-bold text-gray-700">{failed ? "체크리스트를 불러오지 못했어요" : "체크리스트 정보를 불러오고 있어요"}</p>
         <p className="text-sm leading-6 text-gray-600">{failed ? "네트워크 상태를 확인한 뒤 다시 시도해 주세요." : "정책 원문과 신청 준비 정보를 확인하고 있어요."}</p>
       </div>
