@@ -181,7 +181,7 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
-    void fullyExtractedMissingConditionIsExplicitlyNotRequired() {
+    void fullyExtractedMissingConditionRemainsUnknown() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
                 {"eligibility":{"regions":["전국"],"region_condition_type":"nationwide"}}
@@ -189,8 +189,112 @@ class PolicyDiagnosisServiceTest {
 
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
+        assertThat(evidence(result, "revenue").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(evidence(result, "revenue").getPolicyValue()).isEqualTo("확인되지 않음");
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+    }
+
+    @Test
+    void structuredUnknownSentinelsRemainUnknownAndHoldTheVerdict() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {
+                  "application_period":{"status":"unknown","start":"2099-01-01"},
+                  "eligibility": {
+                    "regions":[], "region_condition_type":"unknown",
+                    "industries":[], "industry_condition_type":"unknown"
+                  }
+                }
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(evidence(result, "industry").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(result.getVerdict()).isEqualTo("ON_HOLD");
+        assertThat(result.getConfidence()).isEqualTo("LOW");
+    }
+
+    @Test
+    void missingStructuredFieldsRemainUnknownButExplicitEmptyOrNullCanBeNotRequired() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {
+                  "application_period":{"status":"open"},
+                  "eligibility": {
+                    "regions":["전국"], "region_condition_type":"nationwide",
+                    "industries":["전업종"], "industry_condition_type":"all",
+                    "business_stages":[], "max_revenue":null
+                  }
+                }
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "business_stage").getStatus()).isEqualTo(MatchStatus.NOT_REQUIRED);
         assertThat(evidence(result, "revenue").getStatus()).isEqualTo(MatchStatus.NOT_REQUIRED);
-        assertThat(evidence(result, "revenue").getPolicyValue()).isEqualTo("별도 조건 없음");
+        assertThat(evidence(result, "employees").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+    }
+
+    @Test
+    void specificConditionTypeWithAnEmptyCollectionRemainsUnknown() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"eligibility":{"regions":[],"region_condition_type":"specific"}}
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+    }
+
+    @Test
+    void unrecognizedAndRecognizedFutureApplicationStatusesHaveDifferentEvidence() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"queued"},"eligibility":{}}
+                """)));
+
+        PolicyDiagnosisResponse unknownStatus = service.diagnose(42L, operatingCafeInSeoul());
+        assertThat(evidence(unknownStatus, "date").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"upcoming"},"eligibility":{}}
+                """)));
+        PolicyDiagnosisResponse upcoming = service.diagnose(42L, operatingCafeInSeoul());
+        assertThat(evidence(upcoming, "date").getStatus()).isEqualTo(MatchStatus.PARTIAL);
+    }
+
+    @Test
+    void reliableFutureStructuredStartMakesDatePartialWithoutAnApplicationStatus() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"start":"%s"},"eligibility":{}}
+                """.formatted(LocalDate.now().plusDays(1)))));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.PARTIAL);
+    }
+
+    @Test
+    void employeeMaximumUsesTheLiteralHeadcountValue() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {
+                  "application_period":{"status":"open"},
+                  "eligibility": {
+                    "regions":["전국"], "region_condition_type":"nationwide",
+                    "industries":["전업종"], "industry_condition_type":"all",
+                    "business_stages":["운영중"], "max_revenue":100000000, "max_employees":4
+                  }
+                }
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "employees").getPolicyValue()).isEqualTo("4명");
     }
 
     @Test

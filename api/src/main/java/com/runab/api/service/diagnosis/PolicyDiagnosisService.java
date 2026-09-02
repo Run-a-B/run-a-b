@@ -86,12 +86,22 @@ public class PolicyDiagnosisService {
                                                              DiagnosisInputNormalizer.NormalizedBusiness business,
                                                              List<String> hardFailReasons) {
         if (cardData.usable()) {
-            List<String> regions = textList(cardData.eligibility(), "regions");
+            JsonNode eligibility = cardData.eligibility();
+            JsonNode regionNode = field(eligibility, "regions");
             String type = text(cardData.eligibility(), "region_condition_type");
-            if ("nationwide".equals(type) || regions.contains("전국")) {
+            if ("unknown".equals(type)) return unknown("region", "지역", business.region());
+            if ("nationwide".equals(type)) {
                 return evidence("region", "지역", business.region(), "전국", MatchStatus.PASS, cardSource());
             }
-            if (regions.isEmpty()) return absentCardCondition("region", "지역", business.region(), cardData);
+            if (regionNode == null) return unknown("region", "지역", business.region());
+            List<String> regions = textList(regionNode);
+            if (regions.isEmpty()) {
+                if ("specific".equals(type)) return unknown("region", "지역", business.region());
+                return explicitNoCondition("region", "지역", business.region(), cardData, regionNode);
+            }
+            if (regions.contains("전국")) {
+                return evidence("region", "지역", business.region(), "전국", MatchStatus.PASS, cardSource());
+            }
             boolean match = regions.stream().anyMatch(region -> RegionHierarchy.sameProvince(business.region(), region));
             if (!match) hardFailReasons.add("지역 조건이 맞지 않아요.");
             return evidence("region", "지역", business.region(), String.join(", ", regions),
@@ -111,12 +121,22 @@ public class PolicyDiagnosisService {
     private PolicyDiagnosisResponse.Evidence industryEvidence(Policy policy, CardData cardData,
                                                                DiagnosisInputNormalizer.NormalizedBusiness business) {
         if (cardData.usable()) {
-            List<String> industries = textList(cardData.eligibility(), "industries");
+            JsonNode eligibility = cardData.eligibility();
+            JsonNode industryNode = field(eligibility, "industries");
             String type = text(cardData.eligibility(), "industry_condition_type");
-            if ("all".equals(type) || industries.contains("전업종")) {
+            if ("unknown".equals(type)) return unknown("industry", "업종", business.industry());
+            if ("all".equals(type)) {
                 return evidence("industry", "업종", business.industry(), "전업종", MatchStatus.PASS, cardSource());
             }
-            if (industries.isEmpty()) return absentCardCondition("industry", "업종", business.industry(), cardData);
+            if (industryNode == null) return unknown("industry", "업종", business.industry());
+            List<String> industries = textList(industryNode);
+            if (industries.isEmpty()) {
+                if ("specific".equals(type)) return unknown("industry", "업종", business.industry());
+                return explicitNoCondition("industry", "업종", business.industry(), cardData, industryNode);
+            }
+            if (industries.contains("전업종")) {
+                return evidence("industry", "업종", business.industry(), "전업종", MatchStatus.PASS, cardSource());
+            }
             boolean match = industries.stream().anyMatch(industry -> IndustryHierarchy.sameIndustry(business.industry(), industry));
             return evidence("industry", "업종", business.industry(), String.join(", ", industries),
                     match ? MatchStatus.PASS : MatchStatus.FAIL, cardSource());
@@ -135,7 +155,12 @@ public class PolicyDiagnosisService {
 
     private PolicyDiagnosisResponse.Evidence dateEvidence(Policy policy, CardData cardData, List<String> hardFailReasons) {
         if (cardData.usable()) {
-            String status = text(cardData.root().path("application_period"), "status");
+            JsonNode applicationPeriod = field(cardData.root(), "application_period");
+            if (applicationPeriod == null) return unknown("date", "신청 기간", "오늘");
+            if (applicationPeriod.isNull()) {
+                return explicitNoCondition("date", "신청 기간", "오늘", cardData, applicationPeriod);
+            }
+            String status = text(applicationPeriod, "status");
             if ("closed".equals(status)) {
                 hardFailReasons.add("신청 기간이 종료되었어요.");
                 return evidence("date", "신청 기간", "오늘", "마감", MatchStatus.FAIL, cardSource());
@@ -143,7 +168,14 @@ public class PolicyDiagnosisService {
             if ("open".equals(status)) {
                 return evidence("date", "신청 기간", "오늘", "접수 중", MatchStatus.PASS, cardSource());
             }
-            return absentCardCondition("date", "신청 기간", "오늘", cardData);
+            if ("upcoming".equals(status) || "scheduled".equals(status)) {
+                return evidence("date", "신청 기간", "오늘", "접수 예정", MatchStatus.PARTIAL, cardSource());
+            }
+            if ("unknown".equals(status)) return unknown("date", "신청 기간", "오늘");
+            if (hasFutureStructuredStart(applicationPeriod)) {
+                return evidence("date", "신청 기간", "오늘", "접수 예정", MatchStatus.PARTIAL, cardSource());
+            }
+            return unknown("date", "신청 기간", "오늘");
         }
         LocalDate today = LocalDate.now();
         LocalDate start = policy.getApplicationStartDate();
@@ -166,8 +198,10 @@ public class PolicyDiagnosisService {
                                                             DiagnosisInputNormalizer.NormalizedBusiness business) {
         String userValue = business.operating() ? "사업 중" : "사업 준비 중";
         if (!cardData.usable()) return unknown("business_stage", "사업 상태", userValue);
-        List<String> stages = textList(cardData.eligibility(), "business_stages");
-        if (stages.isEmpty()) return absentCardCondition("business_stage", "사업 상태", userValue, cardData);
+        JsonNode stageNode = field(cardData.eligibility(), "business_stages");
+        if (stageNode == null) return unknown("business_stage", "사업 상태", userValue);
+        List<String> stages = textList(stageNode);
+        if (stages.isEmpty()) return explicitNoCondition("business_stage", "사업 상태", userValue, cardData, stageNode);
         Set<String> allowed = business.operating() ? OPERATING_STAGES : PREPARING_STAGES;
         boolean match = stages.stream().anyMatch(allowed::contains);
         return evidence("business_stage", "사업 상태", userValue, String.join(", ", stages),
@@ -178,8 +212,11 @@ public class PolicyDiagnosisService {
                                                               DiagnosisInputNormalizer.NormalizedBusiness business) {
         String userValue = business.annualRevenue() == null ? "입력하지 않음" : business.annualRevenue().label();
         if (!cardData.usable()) return unknown("revenue", "연 매출", userValue);
-        Long maximum = longValue(cardData.eligibility(), "max_revenue");
-        if (maximum == null) return absentCardCondition("revenue", "연 매출", userValue, cardData);
+        JsonNode revenueNode = field(cardData.eligibility(), "max_revenue");
+        if (revenueNode == null) return unknown("revenue", "연 매출", userValue);
+        if (revenueNode.isNull()) return explicitNoCondition("revenue", "연 매출", userValue, cardData, revenueNode);
+        Long maximum = longValue(revenueNode);
+        if (maximum == null) return unknown("revenue", "연 매출", userValue);
         MatchStatus status = business.annualRevenue() == null ? MatchStatus.UNKNOWN
                 : business.annualRevenue().compareToMaximum(maximum);
         return evidence("revenue", "연 매출", userValue, formatMaximum(maximum), status, cardSource());
@@ -189,15 +226,20 @@ public class PolicyDiagnosisService {
                                                                DiagnosisInputNormalizer.NormalizedBusiness business) {
         String userValue = business.employeeCount() == null ? "입력하지 않음" : business.employeeCount().label();
         if (!cardData.usable()) return unknown("employees", "직원 수", userValue);
-        Long maximum = longValue(cardData.eligibility(), "max_employees");
-        if (maximum == null) return absentCardCondition("employees", "직원 수", userValue, cardData);
+        JsonNode employeeNode = field(cardData.eligibility(), "max_employees");
+        if (employeeNode == null) return unknown("employees", "직원 수", userValue);
+        if (employeeNode.isNull()) return explicitNoCondition("employees", "직원 수", userValue, cardData, employeeNode);
+        Long maximum = longValue(employeeNode);
+        if (maximum == null) return unknown("employees", "직원 수", userValue);
         MatchStatus status = business.employeeCount() == null ? MatchStatus.UNKNOWN
                 : business.employeeCount().compareToMaximum(maximum);
-        return evidence("employees", "직원 수", userValue, formatMaximum(maximum, "명"), status, cardSource());
+        return evidence("employees", "직원 수", userValue, formatEmployeeMaximum(maximum), status, cardSource());
     }
 
-    private PolicyDiagnosisResponse.Evidence absentCardCondition(String key, String label, String userValue, CardData cardData) {
-        if (cardData.fullyExtracted()) {
+    private PolicyDiagnosisResponse.Evidence explicitNoCondition(String key, String label, String userValue,
+                                                                  CardData cardData, JsonNode conditionNode) {
+        if (cardData.fullyExtracted() && (conditionNode.isNull()
+                || (conditionNode.isArray() && conditionNode.isEmpty()))) {
             return evidence(key, label, userValue, "별도 조건 없음", MatchStatus.NOT_REQUIRED, cardSource());
         }
         return unknown(key, label, userValue);
@@ -320,17 +362,28 @@ public class PolicyDiagnosisService {
         return startValue + " ~ " + endValue;
     }
 
-    private static String formatMaximum(long value) { return formatMaximum(value, "만원 이하"); }
+    private static String formatMaximum(long value) { return String.format("%,d만원 이하", value / 10_000); }
 
-    private static String formatMaximum(long value, String suffix) {
-        return String.format("%,d%s", value / 10_000, suffix);
+    private static String formatEmployeeMaximum(long value) { return String.format("%,d명", value); }
+
+    private static boolean hasFutureStructuredStart(JsonNode applicationPeriod) {
+        String start = text(applicationPeriod, "start");
+        if (blank(start)) return false;
+        try {
+            return LocalDate.parse(start).isAfter(LocalDate.now());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
-    private static List<String> textList(JsonNode node, String field) {
+    private static List<String> textList(JsonNode node) {
         List<String> values = new ArrayList<>();
-        JsonNode list = node.path(field);
-        if (list.isArray()) list.forEach(value -> values.add(value.asText()));
+        if (node.isArray()) node.forEach(value -> values.add(value.asText()));
         return values;
+    }
+
+    private static JsonNode field(JsonNode node, String field) {
+        return node != null && node.isObject() ? node.get(field) : null;
     }
 
     private static String text(JsonNode node, String field) {
@@ -338,8 +391,7 @@ public class PolicyDiagnosisService {
         return value.isTextual() ? value.asText() : null;
     }
 
-    private static Long longValue(JsonNode node, String field) {
-        JsonNode value = node.path(field);
+    private static Long longValue(JsonNode value) {
         return value.canConvertToLong() ? value.asLong() : null;
     }
 
