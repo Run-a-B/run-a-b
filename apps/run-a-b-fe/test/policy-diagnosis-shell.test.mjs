@@ -133,3 +133,14 @@ test("only treats policy detail as ready when it belongs to the current route", 
   assert.equal(isLoadedPolicyForRoute(loadedPolicy, 2), false);
   assert.equal(isLoadedPolicyForRoute(null, 2), false);
 });
+
+test("cleared route detail allows a failed replacement fetch to leave loading", async (t) => {
+  const vite = await createServer({ root: process.cwd(), appType: "custom", logLevel: "silent" });
+  t.after(() => vite.close());
+  const { diagnosisPolicyViewState } = await vite.ssrLoadModule("/src/features/diagnosis/policyRoute.ts");
+
+  const oldPolicy = { policyId: 1, detail: { id: 1, title: "첫 번째 정책" } };
+  assert.equal(diagnosisPolicyViewState("ready", oldPolicy, 2), "loading");
+  assert.equal(diagnosisPolicyViewState("error", null, 2), "unavailable");
+  assert.equal(diagnosisPolicyViewState("missing", null, 2), "unavailable");
+});

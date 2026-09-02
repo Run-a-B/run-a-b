@@ -15,7 +15,7 @@ import {
   type SavedBusiness,
 } from "@/features/diagnosis/model";
 import { statusPresentation, type PolicyDetailData } from "@/features/policy/presentation";
-import { isLoadedPolicyForRoute, type LoadedPolicy } from "@/features/diagnosis/policyRoute";
+import { diagnosisPolicyViewState, isLoadedPolicyForRoute, type LoadedPolicy, type PolicyLoadState } from "@/features/diagnosis/policyRoute";
 
 type FlowState =
   | { tag: "idle" }
@@ -185,7 +185,7 @@ export default function PolicyDiagnosis() {
   const navigate = useNavigate();
   const policyId = Number(id);
   const [loadedPolicy, setLoadedPolicy] = useState<LoadedPolicy | null>(null);
-  const [policyState, setPolicyState] = useState<"loading" | "missing" | "error" | "ready">("loading");
+  const [policyState, setPolicyState] = useState<PolicyLoadState>("loading");
   const [form, setForm] = useState<DiagnosisForm>(EMPTY_FORM);
   const [errors, setErrors] = useState<Partial<Record<keyof DiagnosisForm, string>>>({});
   const [flow, setFlow] = useState<FlowState>({ tag: "idle" });
@@ -195,6 +195,7 @@ export default function PolicyDiagnosis() {
   const minimumTimerRef = useRef<{ timer: number; resolve: () => void } | null>(null);
   const policyBelongsToRoute = isLoadedPolicyForRoute(loadedPolicy, policyId);
   const policy = policyBelongsToRoute ? loadedPolicy?.detail ?? null : null;
+  const policyViewState = diagnosisPolicyViewState(policyState, loadedPolicy, policyId);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -218,6 +219,7 @@ export default function PolicyDiagnosis() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 시 이전 정책의 폼을 보이지 않게 한다.
     setPolicyState("loading");
+    setLoadedPolicy(null);
     setFlow({ tag: "idle" });
     api.get(`/api/v1/policies/${policyId}`)
       .then((response) => {
@@ -291,7 +293,7 @@ export default function PolicyDiagnosis() {
       : { tag: "error", policyId: requestPolicyId, message: settled.message });
   }
 
-  if (policyState === "loading" || (loadedPolicy !== null && !policyBelongsToRoute)) {
+  if (policyViewState === "loading") {
     return (
       <div className="bg-gray-50 min-h-screen pt-15 px-40">
         <div className="py-20 max-w-3xl mx-auto">
@@ -305,7 +307,7 @@ export default function PolicyDiagnosis() {
     );
   }
 
-  if (policyState === "missing" || policyState === "error" || !policy) {
+  if (policyViewState === "unavailable" || !policy) {
     return (
       <div className="bg-gray-50 min-h-screen pt-15 px-40">
         <div className="py-20 max-w-3xl mx-auto text-center bg-white rounded-2xl border border-gray-200">
