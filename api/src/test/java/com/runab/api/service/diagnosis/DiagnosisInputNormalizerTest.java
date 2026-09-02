@@ -1,9 +1,13 @@
 package com.runab.api.service.diagnosis;
 
+import com.runab.api.dto.policy.PolicyDiagnosisRequest;
+import com.runab.api.exception.BusinessException;
+import com.runab.api.exception.ErrorCode;
 import com.runab.api.service.matcher.MatchStatus;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DiagnosisInputNormalizerTest {
 
@@ -25,5 +29,52 @@ class DiagnosisInputNormalizerTest {
                 .isEqualTo(MatchStatus.PARTIAL);
         assertThat(normalizer.employeeBand("30명 이상").compareToMaximum(20L))
                 .isEqualTo(MatchStatus.FAIL);
+        assertThat(normalizer.employeeBand("30명 이상").compareToMaximum(null)).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(normalizer.revenueBand("1,000만원 미만").compareToMaximum(9_999_999L)).isEqualTo(MatchStatus.PASS);
+        assertThat(normalizer.revenueBand("5억원 이상").compareToMaximum(500_000_000L)).isEqualTo(MatchStatus.PARTIAL);
+    }
+
+    @Test
+    void normalizeMapsAliasesAndReturnsBands() {
+        var result = new DiagnosisInputNormalizer().normalize(PolicyDiagnosisRequest.builder()
+                .businessStatus(true).industry("카페/베이커리").region("서울특별시")
+                .annualRevenueBand("5억 이상").employeeCountBand("30명 이상").build());
+        assertThat(result.industry()).isEqualTo("카페/음료");
+        assertThat(result.annualRevenue().minInclusive()).isEqualTo(500_000_000L);
+        assertThat(result.employeeCount().maxInclusive()).isNull();
+    }
+
+    @Test
+    void normalizeAcceptsEveryIndustryAliasAndCanonicalChoice() {
+        var normalizer = new DiagnosisInputNormalizer();
+        var expected = new String[][]{{"음식점업 (한식·양식·중식 등)", "음식점업"}, {"음식점", "음식점업"},
+                {"카페/베이커리", "카페/음료"}, {"교육", "교육/학원"}, {"제조", "제조업"}, {"도소매", "도소매업"},
+                {"기타", "기타"}, {"IT/소프트웨어", "IT/소프트웨어"}};
+        for (var pair : expected) {
+            var result = normalizer.normalize(PolicyDiagnosisRequest.builder().businessStatus(false)
+                    .industry(pair[0]).region("서울특별시").build());
+            assertThat(result.industry()).isEqualTo(pair[1]);
+        }
+    }
+
+    @Test
+    void normalizeRejectsMissingOrDisallowedBusinessFields() {
+        var normalizer = new DiagnosisInputNormalizer();
+        var base = PolicyDiagnosisRequest.builder().businessStatus(true).industry("기타").region("서울특별시").build();
+        assertThatThrownBy(() -> normalizer.normalize(base)).extracting("errorCode").isEqualTo(ErrorCode.BUSINESS_FIELD_REQUIRED);
+        var preparing = base.toBuilder().businessStatus(false).annualRevenueBand("1,000만원 미만").build();
+        assertThatThrownBy(() -> normalizer.normalize(preparing)).extracting("errorCode").isEqualTo(ErrorCode.BUSINESS_FIELD_NOT_ALLOWED);
+    }
+
+    @Test
+    void normalizeRejectsInvalidIndustryRegionAndRanges() {
+        var normalizer = new DiagnosisInputNormalizer();
+        var base = PolicyDiagnosisRequest.builder().businessStatus(true).industry("없는 업종").region("서울특별시")
+                .annualRevenueBand("1,000만원 미만").employeeCountBand("없음 (나 혼자)").build();
+        assertThatThrownBy(() -> normalizer.normalize(base)).extracting("errorCode").isEqualTo(ErrorCode.INVALID_JOB_CATEGORY);
+        assertThatThrownBy(() -> normalizer.normalize(base.toBuilder().industry("기타").region("없는 지역").build()))
+                .extracting("errorCode").isEqualTo(ErrorCode.INVALID_REGION);
+        assertThatThrownBy(() -> normalizer.revenueBand("5억원~3억원")).extracting("errorCode").isEqualTo(ErrorCode.VALIDATION_ERROR);
+        assertThatThrownBy(() -> normalizer.employeeBand("3~1명")).extracting("errorCode").isEqualTo(ErrorCode.VALIDATION_ERROR);
     }
 }

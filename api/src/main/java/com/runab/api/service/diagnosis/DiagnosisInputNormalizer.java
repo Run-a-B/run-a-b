@@ -1,5 +1,6 @@
 package com.runab.api.service.diagnosis;
 
+import com.runab.api.dto.policy.PolicyDiagnosisRequest;
 import com.runab.api.exception.BusinessException;
 import com.runab.api.exception.ErrorCode;
 import com.runab.api.service.matcher.MatchStatus;
@@ -15,7 +16,8 @@ public class DiagnosisInputNormalizer {
             Map.entry("5,000만원~1억원", new NumericBand(50_000_000L, 99_999_999L, "5,000만원~1억원")),
             Map.entry("1억원~3억원", new NumericBand(100_000_000L, 299_999_999L, "1억원~3억원")),
             Map.entry("3억원~5억원", new NumericBand(300_000_000L, 499_999_999L, "3억원~5억원")),
-            Map.entry("5억원 이상", new NumericBand(500_000_000L, null, "5억원 이상"))
+            Map.entry("5억원 이상", new NumericBand(500_000_000L, null, "5억원 이상")),
+            Map.entry("5억 이상", new NumericBand(500_000_000L, null, "5억원 이상"))
     );
     private static final Map<String, NumericBand> EMPLOYEE_BANDS = Map.of(
             "없음 (나 혼자)", new NumericBand(0, 0L, "없음 (나 혼자)"),
@@ -29,8 +31,13 @@ public class DiagnosisInputNormalizer {
             "세종특별자치시", "경기도", "강원도", "충청북도", "충청남도", "전라북도", "전라남도",
             "경상북도", "경상남도", "제주특별자치도"
     );
-    private static final Set<String> INDUSTRIES = Set.of(
-            "음식점업", "카페/음료", "의류/패션", "뷰티/미용", "교육/학원", "IT/소프트웨어", "제조업", "도소매업"
+    private static final Map<String, String> INDUSTRIES = Map.ofEntries(
+            Map.entry("음식점업", "음식점업"), Map.entry("음식점업 (한식·양식·중식 등)", "음식점업"),
+            Map.entry("음식점", "음식점업"), Map.entry("카페/음료", "카페/음료"), Map.entry("카페/베이커리", "카페/음료"),
+            Map.entry("의류/패션", "의류/패션"), Map.entry("뷰티/미용", "뷰티/미용"), Map.entry("교육/학원", "교육/학원"),
+            Map.entry("교육", "교육/학원"), Map.entry("IT/소프트웨어", "IT/소프트웨어"), Map.entry("제조업", "제조업"),
+            Map.entry("제조", "제조업"), Map.entry("도소매업", "도소매업"), Map.entry("도소매", "도소매업"),
+            Map.entry("기타", "기타")
     );
 
     public NumericBand revenueBand(String label) {
@@ -41,23 +48,20 @@ public class DiagnosisInputNormalizer {
         return band(EMPLOYEE_BANDS, label);
     }
 
-    /**
-     * Accepts the diagnosis request DTO without coupling this boundary to its package
-     * during the independently delivered task. The DTO exposes standard bean getters.
-     */
-    public NormalizedBusiness normalize(Object request) {
+    /** Normalize a validated diagnosis request into canonical business values. */
+    public NormalizedBusiness normalize(PolicyDiagnosisRequest request) {
         if (request == null) throw new BusinessException(ErrorCode.VALIDATION_ERROR);
-        Boolean operating = property(request, "getBusinessStatus", Boolean.class);
-        String industry = property(request, "getIndustry", String.class);
-        String region = property(request, "getRegion", String.class);
-        String revenue = property(request, "getAnnualRevenueBand", String.class);
-        String employees = property(request, "getEmployeeCountBand", String.class);
+        Boolean operating = request.getBusinessStatus();
+        String industry = request.getIndustry();
+        String region = request.getRegion();
+        String revenue = request.getAnnualRevenueBand();
+        String employees = request.getEmployeeCountBand();
         if (operating == null || blank(industry) || blank(region)) throw new BusinessException(ErrorCode.VALIDATION_ERROR);
         if (!REGIONS.contains(region)) throw new BusinessException(ErrorCode.INVALID_REGION);
-        if (!INDUSTRIES.contains(industry)) throw new BusinessException(ErrorCode.INVALID_JOB_CATEGORY);
+        if (!INDUSTRIES.containsKey(industry)) throw new BusinessException(ErrorCode.INVALID_JOB_CATEGORY);
         if (!operating && (!blank(revenue) || !blank(employees))) throw new BusinessException(ErrorCode.BUSINESS_FIELD_NOT_ALLOWED);
         if (operating && (blank(revenue) || blank(employees))) throw new BusinessException(ErrorCode.BUSINESS_FIELD_REQUIRED);
-        return new NormalizedBusiness(operating, industry, region,
+        return new NormalizedBusiness(operating, INDUSTRIES.get(industry), region,
                 operating ? revenueBand(revenue) : null,
                 operating ? employeeBand(employees) : null);
     }
@@ -68,11 +72,6 @@ public class DiagnosisInputNormalizer {
     }
 
     private static boolean blank(String value) { return value == null || value.isBlank(); }
-
-    private static <T> T property(Object bean, String getter, Class<T> type) {
-        try { return type.cast(bean.getClass().getMethod(getter).invoke(bean)); }
-        catch (ReflectiveOperationException e) { throw new BusinessException(ErrorCode.VALIDATION_ERROR); }
-    }
 
     public record NumericBand(long minInclusive, Long maxInclusive, String label) {
         public MatchStatus compareToMaximum(Long policyMaximum) {
