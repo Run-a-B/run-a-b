@@ -77,6 +77,16 @@ function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: b
           <p className="text-xs text-gray-400">{policy.date}</p>
         </div>
       </div>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          navigate(`/policies/${policy.id}/diagnosis`);
+        }}
+        className="w-full rounded-xl border border-primary-200 bg-primary-50 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-100 transition-colors"
+      >
+        60초 진단
+      </button>
     </div>
   );
 }
@@ -119,6 +129,16 @@ function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visite
       </div>
 
       <div className="flex items-center gap-4 shrink-0">
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            navigate(`/policies/${policy.id}/diagnosis`);
+          }}
+          className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-100 transition-colors"
+        >
+          60초 진단
+        </button>
         <div className="flex items-center gap-2">
           <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div className="h-full bg-primary-500 rounded-full" style={{ width: `${relevance}%` }} />
