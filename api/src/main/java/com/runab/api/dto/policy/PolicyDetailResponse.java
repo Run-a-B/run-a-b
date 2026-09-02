@@ -34,6 +34,7 @@ public class PolicyDetailResponse {
     private String region;
     private String industry;
     private String agency;
+    private String sourceSystem;
 
     public static PolicyDetailResponse from(Policy policy) {
         return PolicyDetailResponse.builder()
@@ -57,6 +58,7 @@ public class PolicyDetailResponse {
                 .region(policy.getRegion())
                 .industry(policy.getIndustry())
                 .agency(policy.getAgency())
+                .sourceSystem(policy.getSourceSystem())
                 .build();
     }
 

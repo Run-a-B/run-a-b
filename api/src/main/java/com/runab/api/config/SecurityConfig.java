@@ -63,6 +63,8 @@ public class SecurityConfig {
                         // TODO: 추후 ADMIN 권한으로 제한 필요
                         .requestMatchers(HttpMethod.POST, "/api/v1/policies/sync").permitAll()
 
+                        .requestMatchers(HttpMethod.POST, "/api/v1/policies/*/diagnosis").permitAll()
+
                         // 회원가입 2단계: TEMP 토큰 가진 사람만함
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/signup/business").hasRole("TEMP")
 

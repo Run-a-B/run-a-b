@@ -4,11 +4,12 @@ import com.runab.api.dto.policy.PolicyDiagnosisRequest;
 import com.runab.api.exception.BusinessException;
 import com.runab.api.exception.ErrorCode;
 import com.runab.api.service.matcher.MatchStatus;
+import org.springframework.stereotype.Component;
 
 import java.util.Map;
-import java.util.Set;
 
 /** Validates diagnosis form labels and turns ranges into comparable intervals. */
+@Component
 public class DiagnosisInputNormalizer {
     private static final Map<String, NumericBand> REVENUE_BANDS = Map.ofEntries(
             Map.entry("1,000만원 미만", new NumericBand(0, 9_999_999L, "1,000만원 미만")),
@@ -26,10 +27,26 @@ public class DiagnosisInputNormalizer {
             "10~29명", new NumericBand(10, 29L, "10~29명"),
             "30명 이상", new NumericBand(30, null, "30명 이상")
     );
-    private static final Set<String> REGIONS = Set.of(
-            "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시",
-            "세종특별자치시", "경기도", "강원도", "충청북도", "충청남도", "전라북도", "전라남도",
-            "경상북도", "경상남도", "제주특별자치도"
+    private static final Map<String, String> REGIONS = Map.ofEntries(
+            Map.entry("서울", "서울특별시"), Map.entry("서울특별시", "서울특별시"),
+            Map.entry("부산", "부산광역시"), Map.entry("부산광역시", "부산광역시"),
+            Map.entry("대구", "대구광역시"), Map.entry("대구광역시", "대구광역시"),
+            Map.entry("인천", "인천광역시"), Map.entry("인천광역시", "인천광역시"),
+            Map.entry("광주", "광주광역시"), Map.entry("광주광역시", "광주광역시"),
+            Map.entry("대전", "대전광역시"), Map.entry("대전광역시", "대전광역시"),
+            Map.entry("울산", "울산광역시"), Map.entry("울산광역시", "울산광역시"),
+            Map.entry("세종", "세종특별자치시"), Map.entry("세종특별자치시", "세종특별자치시"),
+            Map.entry("경기", "경기도"), Map.entry("경기도", "경기도"),
+            Map.entry("강원", "강원특별자치도"), Map.entry("강원도", "강원특별자치도"),
+            Map.entry("강원특별자치도", "강원특별자치도"),
+            Map.entry("충북", "충청북도"), Map.entry("충청북도", "충청북도"),
+            Map.entry("충남", "충청남도"), Map.entry("충청남도", "충청남도"),
+            Map.entry("전북", "전북특별자치도"), Map.entry("전라북도", "전북특별자치도"),
+            Map.entry("전북특별자치도", "전북특별자치도"),
+            Map.entry("전남", "전라남도"), Map.entry("전라남도", "전라남도"),
+            Map.entry("경북", "경상북도"), Map.entry("경상북도", "경상북도"),
+            Map.entry("경남", "경상남도"), Map.entry("경상남도", "경상남도"),
+            Map.entry("제주", "제주특별자치도"), Map.entry("제주특별자치도", "제주특별자치도")
     );
     private static final Map<String, String> INDUSTRIES = Map.ofEntries(
             Map.entry("음식점업", "음식점업"), Map.entry("음식점업 (한식·양식·중식 등)", "음식점업"),
@@ -57,7 +74,8 @@ public class DiagnosisInputNormalizer {
         String revenue = request.getAnnualRevenueBand();
         String employees = request.getEmployeeCountBand();
         if (operating == null || blank(industry) || blank(region)) throw new BusinessException(ErrorCode.VALIDATION_ERROR);
-        if (!REGIONS.contains(region)) throw new BusinessException(ErrorCode.INVALID_REGION);
+        region = REGIONS.get(region);
+        if (region == null) throw new BusinessException(ErrorCode.INVALID_REGION);
         if (!INDUSTRIES.containsKey(industry)) throw new BusinessException(ErrorCode.INVALID_JOB_CATEGORY);
         if (!operating && (!blank(revenue) || !blank(employees))) throw new BusinessException(ErrorCode.BUSINESS_FIELD_NOT_ALLOWED);
         if (operating && (blank(revenue) || blank(employees))) throw new BusinessException(ErrorCode.BUSINESS_FIELD_REQUIRED);

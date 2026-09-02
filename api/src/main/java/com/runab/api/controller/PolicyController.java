@@ -3,6 +3,8 @@ package com.runab.api.controller;
 import com.runab.api.dto.common.ApiResponse;
 import com.runab.api.dto.policy.PolicyChecklistResponse;
 import com.runab.api.dto.policy.PolicyDetailResponse;
+import com.runab.api.dto.policy.PolicyDiagnosisRequest;
+import com.runab.api.dto.policy.PolicyDiagnosisResponse;
 import com.runab.api.dto.policy.PolicyPageResponse;
 import com.runab.api.dto.policy.PolicySyncResult;
 import com.runab.api.dto.policy.PolicySummaryResponse;
@@ -10,9 +12,11 @@ import com.runab.api.dto.report.PolicyReportResponse;
 import com.runab.api.service.PolicyService;
 import com.runab.api.service.PolicySyncService;
 import com.runab.api.service.checklist.PolicyChecklistService;
+import com.runab.api.service.diagnosis.PolicyDiagnosisService;
 import com.runab.api.service.report.PolicyReportService;
 import com.runab.api.service.summary.PolicySummaryService;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,6 +30,7 @@ public class PolicyController {
     private final PolicyReportService policyReportService;
     private final PolicySummaryService policySummaryService;
     private final PolicyChecklistService policyChecklistService;
+    private final PolicyDiagnosisService policyDiagnosisService;
 
     // ===== 1) 정책 목록 조회 =====
     @GetMapping
@@ -75,6 +80,13 @@ public class PolicyController {
     @GetMapping("/{id}/checklist")
     public ApiResponse<PolicyChecklistResponse> getChecklist(@PathVariable Long id) {
         return ApiResponse.success(policyChecklistService.getChecklist(id));
+    }
+
+    @PostMapping("/{id}/diagnosis")
+    public ApiResponse<PolicyDiagnosisResponse> diagnose(
+            @PathVariable Long id,
+            @Valid @RequestBody PolicyDiagnosisRequest request) {
+        return ApiResponse.success(policyDiagnosisService.diagnose(id, request), "진단 완료");
     }
 
     // ===== 3) bizinfo 정책 동기화 (수동 트리거) =====
