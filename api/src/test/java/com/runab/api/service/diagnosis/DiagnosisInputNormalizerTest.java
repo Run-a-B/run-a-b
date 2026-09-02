@@ -95,6 +95,22 @@ class DiagnosisInputNormalizerTest {
     }
 
     @Test
+    void everyRevenueAndEmployeeLabelHasRepresentativeComparisonStatus() {
+        var normalizer = new DiagnosisInputNormalizer();
+        assertStatus(normalizer.revenueBand("1,000만원 미만"), 9_999_999L, MatchStatus.PASS);
+        assertStatus(normalizer.revenueBand("1,000만원~5,000만원"), 49_999_999L, MatchStatus.PASS);
+        assertStatus(normalizer.revenueBand("5,000만원~1억원"), 75_000_000L, MatchStatus.PARTIAL);
+        assertStatus(normalizer.revenueBand("1억원~3억원"), 90_000_000L, MatchStatus.FAIL);
+        assertStatus(normalizer.revenueBand("3억원~5억원"), 400_000_000L, MatchStatus.PARTIAL);
+        assertStatus(normalizer.revenueBand("5억원 이상"), 500_000_000L, MatchStatus.PARTIAL);
+        assertStatus(normalizer.employeeBand("없음 (나 혼자)"), 0L, MatchStatus.PASS);
+        assertStatus(normalizer.employeeBand("1~4명"), 2L, MatchStatus.PARTIAL);
+        assertStatus(normalizer.employeeBand("5~9명"), 4L, MatchStatus.FAIL);
+        assertStatus(normalizer.employeeBand("10~29명"), 20L, MatchStatus.PARTIAL);
+        assertStatus(normalizer.employeeBand("30명 이상"), 30L, MatchStatus.PARTIAL);
+    }
+
+    @Test
     void everyCurrentFormIndustryLabelNormalizesToCanonicalValue() {
         var normalizer = new DiagnosisInputNormalizer();
         var labels = new String[][]{
@@ -114,5 +130,9 @@ class DiagnosisInputNormalizerTest {
     private static void assertBand(DiagnosisInputNormalizer.NumericBand band, long min, Long max) {
         assertThat(band.minInclusive()).isEqualTo(min);
         assertThat(band.maxInclusive()).isEqualTo(max);
+    }
+
+    private static void assertStatus(DiagnosisInputNormalizer.NumericBand band, long maximum, MatchStatus expected) {
+        assertThat(band.compareToMaximum(maximum)).isEqualTo(expected);
     }
 }
