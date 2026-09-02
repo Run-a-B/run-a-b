@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import api from "@/lib/api";
 import { useEffect } from "react";
+import axios from "axios";
 
 const INDUSTRY_OPTIONS = [
   "음식점업 (한식·양식·중식 등)", "카페/음료", "의류/패션", "뷰티/미용",
@@ -139,8 +140,11 @@ export default function MyBusinessPage() {
       const b = res.data.data;
       login({ ...user, industry: b.jobCategory, region: b.region });
       alert("사업 정보가 저장되었어요");
-    } catch (err: any) {
-      alert(err.response?.data?.message || "저장에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "저장에 실패했어요");
     }
   }
 

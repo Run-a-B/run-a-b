@@ -55,6 +55,7 @@ export default function PolicyChecklist() {
   useEffect(() => {
     if (mockPolicy && mockDetail) return; // mock으로 처리 가능하면 API 호출 불필요 (회귀 없음)
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 새 정책 요청 전 이전 실패 상태를 초기화한다.
     setApiFailed(false);
     Promise.all([
       api.get(`/api/v1/policies/${policyId}`),

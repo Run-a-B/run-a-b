@@ -1,4 +1,5 @@
 import api from "@/lib/api";
+import axios from "axios";
 
 export interface BusinessImpactItem {
   label: string;
@@ -53,8 +54,8 @@ export async function getSavedReport(policyId: number): Promise<SavedReport | nu
   try {
     const res = await api.get(`/api/v1/reports/${policyId}`);
     return normalize(res.data.data);
-  } catch (err: any) {
-    if (err.response?.status === 404) return null;
+  } catch (err: unknown) {
+    if (axios.isAxiosError(err) && err.response?.status === 404) return null;
     throw err;
   }
 }

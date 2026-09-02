@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getSavedReports, deleteReport, type SavedReport } from "@/data/reports";
+import axios from "axios";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "기술": "bg-violet-100 text-violet-700",
@@ -46,8 +47,6 @@ export default function ReportList() {
   const [tab, setTab] = useState<Tab>("최신순");
 
   useEffect(() => {
-    setLoading(true);
-    setError(false);
     getSavedReports()
       .then(setReports)
       .catch(() => setError(true))
@@ -59,8 +58,11 @@ export default function ReportList() {
     try {
       await deleteReport(policyId);
       setReports((prev) => prev.filter((r) => r.policyId !== policyId));
-    } catch (err: any) {
-      alert(err.response?.data?.message || "리포트 삭제에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "리포트 삭제에 실패했어요");
     }
   }
 

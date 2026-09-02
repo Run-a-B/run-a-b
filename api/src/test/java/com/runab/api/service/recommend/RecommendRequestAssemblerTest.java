@@ -93,9 +93,9 @@ class RecommendRequestAssemblerTest {
         // user_business_info 변환/unknown 채움
         assertThat(json).contains("\"business_stage\" : \"운영중\"", "\"main_business_goal\" : \"unknown\"");
         // candidate에 match(camelCase) 포함 + 점수
-        // business_types가 비어있지 않으나 user에 business_type 필드가 없어 UNKNOWN(8*0.4) → 100이 아닌 95
+        // NOT_REQUIRED는 분모에서 제외. 판단 배점 84 중 79.2점 → 94.285...를 반올림해 94
         assertThat(json).contains("\"match\"", "\"matcherVersion\" : \"eligibility_matcher_v1\"",
-                "\"eligibilityScore\" : 95");
+                "\"eligibilityScore\" : 94");
         // request_id 포맷
         assertThat(request.getRequestId()).startsWith("req_");
         assertThat(request.getCandidatePolicies()).hasSize(1);

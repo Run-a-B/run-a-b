@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import api from "@/lib/api";
+import axios from "axios";
 
 const EyeIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -174,8 +175,11 @@ export default function Signup() {
       startCooldown();
       setStep(2);
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
-      alert(err.response?.data?.message || "인증 코드 발송에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "인증 코드 발송에 실패했어요");
     }
   }
 
@@ -186,8 +190,11 @@ export default function Signup() {
       resetDigits();
       setCodeError("");
       startCooldown();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "재발송에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "재발송에 실패했어요");
     }
   }
 
@@ -225,8 +232,11 @@ export default function Signup() {
       setCodeError("");
       setStep(3);
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
-      setCodeError(err.response?.data?.message || "인증 코드가 올바르지 않아요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      setCodeError(message || "인증 코드가 올바르지 않아요");
     }
   }
 
@@ -273,8 +283,11 @@ export default function Signup() {
       login(user);
 
       navigate("/mypage");
-    } catch (err: any) {
-      alert(err.response?.data?.message || "회원가입에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "회원가입에 실패했어요");
     }
   }
 

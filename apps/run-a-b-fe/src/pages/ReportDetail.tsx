@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { getSavedReport, deleteReport, type SavedReport } from "@/data/reports";
+import axios from "axios";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "기술": "bg-violet-100 text-violet-700",
@@ -36,6 +37,7 @@ export default function ReportDetail() {
 
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 중 이전 리포트를 숨긴다.
     setReport(null);
     getSavedReport(policyId)
       .then((found) => {
@@ -53,8 +55,11 @@ export default function ReportDetail() {
     try {
       await deleteReport(policyId);
       navigate("/reports", { replace: true });
-    } catch (err: any) {
-      alert(err.response?.data?.message || "리포트 삭제에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "리포트 삭제에 실패했어요");
     }
   }
 

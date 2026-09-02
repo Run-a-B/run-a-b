@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Dropdown from "@/components/common/Dropdown";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
@@ -211,14 +211,7 @@ export default function Policies() {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  useEffect(() => {
-    clearTimeout(debounceRef.current);
-    const delay = query ? 400 : 0;
-    debounceRef.current = setTimeout(fetchPolicies, delay);
-    return () => clearTimeout(debounceRef.current);
-  }, [region, industry, category, query, sort, page]);
-
-  async function fetchPolicies() {
+  const fetchPolicies = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -240,7 +233,14 @@ export default function Policies() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [region, industry, category, query, sort, page]);
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    const delay = query ? 400 : 0;
+    debounceRef.current = setTimeout(fetchPolicies, delay);
+    return () => clearTimeout(debounceRef.current);
+  }, [fetchPolicies, query]);
 
   function handleFilter(setter: (v: string) => void) {
     return (v: string) => { setter(v); setPage(1); };
@@ -311,12 +311,6 @@ export default function Policies() {
             <p className="text-sm text-gray-500">
               총 <span className="font-semibold text-gray-900">{totalElements.toLocaleString()}개</span>의 정책이 있어요
             </p>
-            {/* 현재 대부분의 정책이 업종 무관(전체)으로 등록돼 있어 업종 필터만으로는 결과가 거의 좁혀지지 않음을 안내 */}
-            {industry !== "전체 업종" && (
-              <p className="text-xs text-gray-400 mt-1">
-                ⓘ 등록된 정책 대부분이 업종 무관으로 분류돼 있어, 업종 필터로는 결과가 거의 좁혀지지 않을 수 있어요.
-              </p>
-            )}
           </div>
           <div className="flex items-center gap-3">
             <Dropdown value={sort} onChange={handleFilter(setSort)} options={SORT_OPTIONS} />

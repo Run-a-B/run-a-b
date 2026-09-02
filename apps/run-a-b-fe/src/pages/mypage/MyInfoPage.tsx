@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import axios from "axios";
 
 const EyeIcon = () => (
     <svg
@@ -37,6 +38,13 @@ const EyeOffIcon = () => (
 );
 
 const PASSWORD_REGEX = /^[A-Za-z0-9!@$*]{6,}$/;
+
+interface UserUpdatePayload {
+    name: string;
+    age: number | null;
+    currentPassword?: string;
+    newPassword?: string;
+}
 
 function MyInfoSkeleton() {
     return (
@@ -98,6 +106,8 @@ export default function MyInfoPage() {
             })
             .catch(() => {})
             .finally(() => setLoading(false));
+        // Fetch once on mount. Depending on user would loop because login updates that context value.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -123,7 +133,7 @@ export default function MyInfoPage() {
     async function handleSave() {
         if (!user) return;
         try {
-            const body: any = {
+            const body: UserUpdatePayload = {
                 name,
                 age: age ? Number(age) : null,
             };
@@ -138,8 +148,11 @@ export default function MyInfoPage() {
             setPw({ current: "", next: "", confirm: "" });
             setIsPasswordOpen(false);
             setSaved(true);
-        } catch (err: any) {
-            alert(err.response?.data?.message || "저장에 실패했어요");
+        } catch (err: unknown) {
+            const message = axios.isAxiosError<{ message?: string }>(err)
+                ? err.response?.data?.message
+                : undefined;
+            alert(message || "저장에 실패했어요");
         }
     }
 
@@ -164,8 +177,11 @@ export default function MyInfoPage() {
             localStorage.removeItem("access_token");
             alert("계정이 삭제되었어요. 그동안 이용해 주셔서 감사합니다. ^^ ");
             navigate("/login");
-        } catch (err: any) {
-            alert(err.response?.data?.message || "계정 삭제에 실패했어요");
+        } catch (err: unknown) {
+            const message = axios.isAxiosError<{ message?: string }>(err)
+                ? err.response?.data?.message
+                : undefined;
+            alert(message || "계정 삭제에 실패했어요");
         }
     }
 

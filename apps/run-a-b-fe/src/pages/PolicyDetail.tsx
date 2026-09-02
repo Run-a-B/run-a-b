@@ -105,6 +105,7 @@ export default function PolicyDetail() {
   const [summaryState, setSummaryState] = useState<"loading" | "done" | "error">("loading");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 즉시 새 정책의 로딩 상태로 전환한다.
     setLoading(true);
     setNotFound(false);
     api.get(`/api/v1/policies/${policyId}`)
@@ -135,6 +136,7 @@ export default function PolicyDetail() {
   // AI 요약 조회 (최초 1회 백엔드에서 생성 후 캐싱 → 재방문 시 빠름). 실패해도 페이지는 정상.
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 시 이전 정책 요약을 표시하지 않는다.
     setSummary(null);
     setSummaryState("loading");
     api.get(`/api/v1/policies/${policyId}/summary`)

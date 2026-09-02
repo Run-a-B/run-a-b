@@ -14,6 +14,8 @@ import com.runab.api.repository.PolicyCardRepository;
 import com.runab.api.repository.PolicyRepository;
 import com.runab.api.repository.PolicySpecification;
 import com.runab.api.service.matcher.EligibilityMatcher;
+import com.runab.api.service.matcher.MatchStatus;
+import com.runab.api.service.matcher.PolicyIndustryFallbackMatcher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -59,7 +61,7 @@ public class PolicyService {
             String region, String industry, String category, String query,
             String sort, int page, int size, Long userId) {
 
-        // 업종 필터는 Policy.industry(전부 "전체") 대신 policy_card.eligibility.industries 기준(자바 레벨)으로 판정한다.
+        // 업종 필터는 policy_card를 우선하고, 카드 판정이 UNKNOWN일 때만 정책 본문의 명확한 업종 표현으로 보완한다.
         boolean industryFilter = industry != null && !industry.isBlank() && !industry.equals("전체 업종");
 
         BusinessInfo businessInfo = (userId == null)
@@ -93,11 +95,11 @@ public class PolicyService {
         // 후보군 카드 IN 조회 (업종 필터 판정 + 관련도 계산 공용) — N+1 방지 패턴 재사용
         final Map<String, PolicyCard> cardMap = loadCards(candidates);
 
-        // 업종 필터: 선택 업종 기준(사업정보 무관). 카드 없음/industries 비어있음 → 제외.
+        // 업종 필터: 선택 업종 기준(사업정보 무관). 카드의 명시 판정이 최우선이며 UNKNOWN만 텍스트 fallback.
         if (industryFilter) {
             candidates = candidates.stream()
-                    .filter(p -> eligibilityMatcher.matchesIndustryFilter(
-                            cardMap.get(PolicyCard.toPolicyId(p.getExternalId())), industry))
+                    .filter(p -> matchesIndustry(
+                            p, cardMap.get(PolicyCard.toPolicyId(p.getExternalId())), industry))
                     .toList();
         }
 
@@ -128,6 +130,15 @@ public class PolicyService {
                 .toList();
 
         return PolicyPageResponse.from(new PageImpl<>(content, PageRequest.of(page, size), total));
+    }
+
+    private boolean matchesIndustry(Policy policy, PolicyCard card, String selectedIndustry) {
+        MatchStatus cardStatus = eligibilityMatcher.evaluateIndustryFilter(card, selectedIndustry);
+        return switch (cardStatus) {
+            case PASS -> true;
+            case UNKNOWN -> PolicyIndustryFallbackMatcher.matches(policy, selectedIndustry);
+            case PARTIAL, FAIL, NOT_REQUIRED -> false;
+        };
     }
 
     // Policy → 목록 응답 (사업정보 있으면 관련도 계산해서 채움)

@@ -62,8 +62,17 @@ public class EligibilityMatcher {
      * - 매핑 없는 다른 업종 → FAIL → false
      */
     public boolean matchesIndustryFilter(PolicyCard card, String selectedIndustry) {
+        return evaluateIndustryFilter(card, selectedIndustry) == MatchStatus.PASS;
+    }
+
+    /**
+     * 카드 업종 판정 상태를 그대로 반환한다.
+     * 목록 필터는 UNKNOWN일 때만 정책 본문 기반 fallback을 사용할 수 있어야 하므로
+     * PASS/FAIL을 boolean으로 뭉개지 않는다.
+     */
+    public MatchStatus evaluateIndustryFilter(PolicyCard card, String selectedIndustry) {
         JsonNode elig = parse(card).path("eligibility");
-        return evalIndustry(elig, selectedIndustry) == MatchStatus.PASS;
+        return evalIndustry(elig, selectedIndustry);
     }
 
     public MatchResult match(BusinessInfo user, PolicyCard card) {
