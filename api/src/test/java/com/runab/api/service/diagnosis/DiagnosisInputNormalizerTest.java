@@ -77,4 +77,42 @@ class DiagnosisInputNormalizerTest {
         assertThatThrownBy(() -> normalizer.revenueBand("5억원~3억원")).extracting("errorCode").isEqualTo(ErrorCode.VALIDATION_ERROR);
         assertThatThrownBy(() -> normalizer.employeeBand("3~1명")).extracting("errorCode").isEqualTo(ErrorCode.VALIDATION_ERROR);
     }
+
+    @Test
+    void everyRevenueAndEmployeeLabelHasItsExactInterval() {
+        var normalizer = new DiagnosisInputNormalizer();
+        assertBand(normalizer.revenueBand("1,000만원 미만"), 0, 9_999_999L);
+        assertBand(normalizer.revenueBand("1,000만원~5,000만원"), 10_000_000L, 49_999_999L);
+        assertBand(normalizer.revenueBand("5,000만원~1억원"), 50_000_000L, 99_999_999L);
+        assertBand(normalizer.revenueBand("1억원~3억원"), 100_000_000L, 299_999_999L);
+        assertBand(normalizer.revenueBand("3억원~5억원"), 300_000_000L, 499_999_999L);
+        assertBand(normalizer.revenueBand("5억원 이상"), 500_000_000L, null);
+        assertBand(normalizer.employeeBand("없음 (나 혼자)"), 0, 0L);
+        assertBand(normalizer.employeeBand("1~4명"), 1, 4L);
+        assertBand(normalizer.employeeBand("5~9명"), 5, 9L);
+        assertBand(normalizer.employeeBand("10~29명"), 10, 29L);
+        assertBand(normalizer.employeeBand("30명 이상"), 30, null);
+    }
+
+    @Test
+    void everyCurrentFormIndustryLabelNormalizesToCanonicalValue() {
+        var normalizer = new DiagnosisInputNormalizer();
+        var labels = new String[][]{
+                {"음식점", "음식점업"}, {"카페/베이커리", "카페/음료"}, {"의류/패션", "의류/패션"},
+                {"뷰티/미용", "뷰티/미용"}, {"교육", "교육/학원"}, {"IT/소프트웨어", "IT/소프트웨어"},
+                {"제조", "제조업"}, {"도소매", "도소매업"}, {"기타", "기타"},
+                {"음식점업 (한식·양식·중식 등)", "음식점업"}, {"카페/음료", "카페/음료"},
+                {"교육/학원", "교육/학원"}, {"제조업", "제조업"}, {"도소매업", "도소매업"}, {"음식점업", "음식점업"}
+        };
+        for (var label : labels) {
+            var result = normalizer.normalize(PolicyDiagnosisRequest.builder().businessStatus(false)
+                    .industry(label[0]).region("서울특별시").build());
+            assertThat(result.industry()).isEqualTo(label[1]);
+        }
+    }
+
+    private static void assertBand(DiagnosisInputNormalizer.NumericBand band, long min, Long max) {
+        assertThat(band.minInclusive()).isEqualTo(min);
+        assertThat(band.maxInclusive()).isEqualTo(max);
+    }
 }
