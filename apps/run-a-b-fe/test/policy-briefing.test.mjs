@@ -247,3 +247,14 @@ test("application method section prefers expanded method over stored method", as
   assert.match(html, /정리된 신청 방법/);
   assert.doesNotMatch(html, /저장된 신청 방법/);
 });
+
+test("application method section uses the stored method when no expanded method exists", async (t) => {
+  const { PolicyApplicationMethodSection } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicyApplicationMethodSection, {
+    detail: policyDetail({ applicationMethod: "저장된 신청 방법" }),
+    summary: { summaryLines: [], highlights: [] },
+  }));
+
+  assert.match(html, /저장된 신청 방법/);
+  assert.doesNotMatch(html, /신청 방법 정보가 아직 수집되지 않았어요\./);
+});
