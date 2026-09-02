@@ -109,7 +109,7 @@ export function DiagnosisErrorNotice({
 }) {
   return (
     <>
-      <p ref={alertRef} role="alert" tabIndex={-1} className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{message}</p>
+      <p ref={alertRef} role="alert" tabIndex={-1} className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 focus:outline-none">{message}</p>
       <div className="mt-3"><OriginalNoticeLink detailUrl={detailUrl} /></div>
     </>
   );
@@ -175,7 +175,7 @@ export function DiagnosisAnalysisPanel({ step, headingRef }: { step: number; hea
   return (
     <section className="mt-6 bg-white rounded-2xl border border-gray-200 px-6 py-10">
       <div className="mx-auto w-10 h-10 rounded-full border-[3px] border-primary-200 border-t-primary-600 animate-spin" />
-      <h2 ref={headingRef} tabIndex={-1} className="mt-5 text-center text-base font-bold text-gray-800">공고문 조건을 비교하고 있어요</h2>
+      <h2 ref={headingRef} tabIndex={-1} className="mt-5 text-center text-base font-bold text-gray-800 focus:outline-none">공고문 조건을 비교하고 있어요</h2>
       <DiagnosisSteps step={step} />
     </section>
   );
@@ -214,7 +214,7 @@ export function DiagnosisResult({ policyId, result, onRetry, headingRef }: { pol
         <section className="mt-5 bg-white rounded-2xl border border-gray-200 p-6" aria-live="polite">
           <p className="text-sm text-gray-500">{result.policy.title}</p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold text-gray-900">{result.verdictLabel || verdict.label}</h1>
+            <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold text-gray-900 focus:outline-none">{result.verdictLabel || verdict.label}</h1>
             <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${verdict.className}`}>{verdict.label}</span>
             <span className="text-sm text-gray-500">판정 신뢰도: {result.confidence === "HIGH" ? "높음" : result.confidence === "MEDIUM" ? "보통" : "낮음"}</span>
           </div>
@@ -457,7 +457,7 @@ export default function PolicyDiagnosis() {
         <main className="max-w-3xl mx-auto py-10">
           <DiagnosisBreadcrumb policyId={policyId} title={policy.title} />
           <section className="mt-5 bg-white rounded-2xl border border-gray-200 p-6">
-            <h1 ref={formHeadingRef} tabIndex={-1} className="text-2xl font-bold text-gray-900">60초 정책 진단</h1>
+            <h1 ref={formHeadingRef} tabIndex={-1} className="text-2xl font-bold text-gray-900 focus:outline-none">60초 정책 진단</h1>
             <p className="mt-2 text-sm text-gray-500">내 사업 정보와 공고 조건을 1차 비교해 드려요. 최종 자격은 원문 공고와 담당 기관에서 확인해 주세요.</p>
             <p className="mt-4 rounded-xl border border-primary-100 bg-primary-50 px-4 py-3 text-sm text-primary-700">{policy.title}</p>
             <p className="mt-3 text-xs text-gray-600"><span aria-hidden="true" className="text-red-600">*</span> 표시는 필수 입력 항목입니다.</p>

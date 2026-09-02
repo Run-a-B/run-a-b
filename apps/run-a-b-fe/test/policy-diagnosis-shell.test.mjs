@@ -177,11 +177,14 @@ test("diagnosis transition targets and breadcrumb expose focus and location sema
   ));
 
   assert.match(analyzing, /<h2[^>]*tabindex="-1"/);
+  assert.match(analyzing, /<h2[^>]*focus:outline-none/);
   assert.match(failure, /role="alert"[^>]*tabindex="-1"/);
+  assert.match(failure, /role="alert"[^>]*focus:outline-none/);
   assert.match(result, /<nav[^>]*aria-label="현재 위치"/);
   assert.equal((result.match(/aria-hidden="true"/g) ?? []).length, 2);
   assert.match(result, /aria-current="page"/);
   assert.match(result, /<h1[^>]*tabindex="-1"/);
+  assert.match(result, /<h1[^>]*focus:outline-none/);
 });
 
 test("diagnosis result localizes source and extraction tokens", async (t) => {
