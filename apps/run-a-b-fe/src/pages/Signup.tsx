@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { REVENUE_OPTIONS } from "@/features/business/options";
+import { isSignupBusinessValid, toSignupBusinessRequest } from "@/features/business/signup";
 import api from "@/lib/api";
 import axios from "axios";
 
@@ -37,13 +39,13 @@ const RESEND_COOLDOWN = 60;
 
 const INDUSTRY_OPTIONS = ["음식점", "카페/베이커리", "의류/패션", "뷰티/미용", "교육", "IT/소프트웨어", "제조", "도소매", "기타"];
 const REGION_OPTIONS = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"];
-const REVENUE_OPTIONS = ["1억 미만", "1억~3억", "3억~5억", "5억~10억", "10억 이상"];
+export const SIGNUP_REVENUE_OPTIONS = REVENUE_OPTIONS;
 const EMPLOYEE_OPTIONS = ["없음 (나 혼자)", "1~4명", "5~9명", "10~29명", "30명 이상"];
 
 const STEPS = ["내 정보", "이메일 인증", "사업 정보"];
 
 function SelectField({ value, onChange, placeholder, options, disabled }: {
-  value: string; onChange: (v: string) => void; placeholder: string; options: string[]; disabled?: boolean;
+  value: string; onChange: (v: string) => void; placeholder: string; options: readonly string[]; disabled?: boolean;
 }) {
   return (
     <div className="relative mt-2">
@@ -244,7 +246,7 @@ export default function Signup() {
 
   // ── Step 3 ─────────────────────────────────────────────────────────
   const isRunning = biz.status === "사업 중";
-  const step3Valid = biz.industry !== "" && biz.region !== "";
+  const step3Valid = isSignupBusinessValid(biz);
 
   function handleBizChange(field: keyof typeof biz, value: string) {
     setBiz(prev => ({ ...prev, [field]: value }));
@@ -267,13 +269,7 @@ export default function Signup() {
       // 2단계: 사업 정보 등록 (TEMP 토큰 헤더로, ACCESS 토큰 받음)
       const bizRes = await api.post(
         "/api/v1/auth/signup/business",
-        {
-          businessStatus: biz.status === "사업 중",
-          jobCategory: biz.industry,
-          region: biz.region,
-          annualRevenue: biz.revenue || null,
-          employeeCount: biz.employees || null,
-        },
+        toSignupBusinessRequest(biz),
         { headers: { Authorization: `Bearer ${tempToken}` } }
       );
 
@@ -533,17 +529,19 @@ export default function Signup() {
 
             <label className="text-sm font-semibold mt-5 flex items-center gap-2">
               연 매출
+              {isRunning && <span className="text-red-500">*</span>}
               {isRunning && <span className="text-xs bg-primary-100 text-primary-600 font-semibold px-2 py-0.5 rounded-full">사업 중 전용</span>}
             </label>
-            <SelectField value={biz.revenue} onChange={v => handleBizChange("revenue", v)} placeholder="연 매출 범위를 선택해 주세요" options={REVENUE_OPTIONS} disabled={!isRunning} />
-            <p className="text-xs text-gray-400 mt-1.5">AI 분석 정확도 향상을 위해 입력해 주세요 (선택)</p>
+            <SelectField value={biz.revenue} onChange={v => handleBizChange("revenue", v)} placeholder="연 매출 범위를 선택해 주세요" options={SIGNUP_REVENUE_OPTIONS} disabled={!isRunning} />
+            <p className="text-xs text-gray-400 mt-1.5">AI 분석 정확도 향상을 위해 입력해 주세요 (사업 중 필수)</p>
 
             <label className="text-sm font-semibold mt-5 flex items-center gap-2">
               직원 수 (본인 제외)
+              {isRunning && <span className="text-red-500">*</span>}
               {isRunning && <span className="text-xs bg-primary-100 text-primary-600 font-semibold px-2 py-0.5 rounded-full">사업 중 전용</span>}
             </label>
             <SelectField value={biz.employees} onChange={v => handleBizChange("employees", v)} placeholder="직원 수를 선택해 주세요" options={EMPLOYEE_OPTIONS} disabled={!isRunning} />
-            <p className="text-xs text-gray-400 mt-1.5">최저임금 영향도 등 인건비 관련 분석에 사용돼요 (선택)</p>
+            <p className="text-xs text-gray-400 mt-1.5">최저임금 영향도 등 인건비 관련 분석에 사용돼요 (사업 중 필수)</p>
 
             <div className="flex gap-3 mt-8">
               <button type="button" onClick={() => setStep(2)}

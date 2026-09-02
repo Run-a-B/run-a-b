@@ -1,3 +1,7 @@
+import { REVENUE_OPTIONS } from "../business/options.ts";
+
+export { REVENUE_OPTIONS } from "../business/options.ts";
+
 export const REGION_OPTIONS = [
   "서울특별시",
   "부산광역시",
@@ -27,14 +31,6 @@ export const INDUSTRY_OPTIONS = [
   "제조업",
   "도소매업",
   "기타",
-] as const;
-export const REVENUE_OPTIONS = [
-  "1,000만원 미만",
-  "1,000만원~5,000만원",
-  "5,000만원~1억원",
-  "1억원~3억원",
-  "3억원~5억원",
-  "5억원 이상",
 ] as const;
 export const EMPLOYEE_OPTIONS = [
   "없음 (나 혼자)",

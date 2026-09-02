@@ -71,15 +71,18 @@ public class AuthService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
         // 2-2) 비즈니스 규칙 검증 (사업 중인데 매출/직원수 없으면 에러)
-        if (Boolean.TRUE.equals(request.getBusinessStatus())) {
-            if (request.getAnnualRevenue() == null || request.getEmployeeCount() == null) {
+        boolean operating = Boolean.TRUE.equals(request.getBusinessStatus());
+        if (operating) {
+            if (isBlank(request.getAnnualRevenue()) || isBlank(request.getEmployeeCount())) {
                 throw new BusinessException(ErrorCode.BUSINESS_FIELD_REQUIRED);
             }
+        } else if (!isBlank(request.getAnnualRevenue()) || !isBlank(request.getEmployeeCount())) {
+            throw new BusinessException(ErrorCode.BUSINESS_FIELD_NOT_ALLOWED);
         }
 
         // 2-3) 텍스트 → 숫자 변환
-        Long annualRevenue = converter.parseRevenue(request.getAnnualRevenue());
-        Integer employeeCount = converter.parseEmployeeCount(request.getEmployeeCount());
+        Long annualRevenue = operating ? converter.parseRevenue(request.getAnnualRevenue()) : null;
+        Integer employeeCount = operating ? converter.parseEmployeeCount(request.getEmployeeCount()) : null;
 
         // 2-4) BusinessInfo 저장
         BusinessInfo businessInfo = BusinessInfo.builder()
@@ -129,5 +132,9 @@ public class AuthService {
     // 진짜 무효화를 원하면 블랙리스트(Redis)가 필요하지만, capstone scope에선 생략.
     public void logout() {
         // 의도적으로 비워둠. 프론트가 localStorage에서 토큰 제거.
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

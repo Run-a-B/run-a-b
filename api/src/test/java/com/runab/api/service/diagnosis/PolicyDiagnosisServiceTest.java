@@ -109,17 +109,18 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
-    void specificRegionMismatchIsNotEligible() {
+    void hashtagDerivedPolicyRegionMismatchWithoutStructuredConditionIsUnknown() {
+        // PolicySyncService persists 서울특별시 from the first recognizable tag in "기술,서울,소상공인".
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
                 "서울특별시", "전체", LocalDate.now().minusDays(1), LocalDate.now().plusDays(10))));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.empty());
 
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInBusan());
 
-        assertThat(result.getVerdict()).isEqualTo("NOT_ELIGIBLE");
-        assertThat(result.isHardFail()).isTrue();
-        assertThat(result.getHardFailReasons()).containsExactly("지역 조건이 맞지 않아요.");
-        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(result.getVerdict()).isEqualTo("NEEDS_CONFIRMATION");
+        assertThat(result.isHardFail()).isFalse();
+        assertThat(result.getHardFailReasons()).isEmpty();
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
     }
 
     @Test
@@ -191,7 +192,39 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
-    void partialCardFallsBackToMismatchingMetadataRegionPerCriterion() {
+    void fullyExtractedMissingApplicationPeriodFallsBackToExpiredPolicyDates() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
+                null, null, LocalDate.now().minusDays(20), LocalDate.now().minusDays(1))));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"eligibility":{}}
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(evidence(result, "date").getSource()).isEqualTo("정책 목록의 신청 기간 정보");
+        assertThat(result.isHardFail()).isTrue();
+        assertThat(result.getHardFailReasons()).containsExactly("신청 기간이 종료되었어요.");
+    }
+
+    @Test
+    void fullyExtractedUnknownApplicationPeriodFallsBackToExpiredPolicyDates() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
+                null, null, LocalDate.now().minusDays(20), LocalDate.now().minusDays(1))));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"unknown"},"eligibility":{}}
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(evidence(result, "date").getSource()).isEqualTo("정책 목록의 신청 기간 정보");
+        assertThat(result.isHardFail()).isTrue();
+        assertThat(result.getHardFailReasons()).containsExactly("신청 기간이 종료되었어요.");
+    }
+
+    @Test
+    void partialCardTreatsMismatchingMetadataRegionAsUnknownPerCriterion() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
                 "부산광역시", null, null, null)));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("partially_extracted", """
@@ -200,10 +233,10 @@ class PolicyDiagnosisServiceTest {
 
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
-        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.FAIL);
-        assertThat(evidence(result, "region").getSource()).isEqualTo("정책 목록의 지역 정보");
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
         assertThat(evidence(result, "date").getSource()).isEqualTo("구조화된 공고 조건");
-        assertThat(result.getHardFailReasons()).containsExactly("지역 조건이 맞지 않아요.");
+        assertThat(result.isHardFail()).isFalse();
+        assertThat(result.getHardFailReasons()).isEmpty();
     }
 
     @Test
@@ -313,14 +346,14 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
-    void oneComparableFactAndFiveExplicitlyNotRequiredFactsAreCompleteEvidence() {
+    void threeComparableFactsAndThreeExplicitlyNotRequiredFactsAreCompleteEvidence() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
                 {
-                  "application_period":null,
+                  "application_period":{"status":"open"},
                   "eligibility": {
                     "regions":["전국"], "region_condition_type":"nationwide",
-                    "industries":[], "business_stages":[],
+                    "industries":["전업종"], "industry_condition_type":"all", "business_stages":[],
                     "max_revenue":null, "max_employees":null
                   }
                 }
@@ -329,7 +362,7 @@ class PolicyDiagnosisServiceTest {
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
         assertThat(result.getEvidence()).extracting(PolicyDiagnosisResponse.Evidence::getStatus)
-                .containsExactly(MatchStatus.PASS, MatchStatus.NOT_REQUIRED, MatchStatus.NOT_REQUIRED,
+                .containsExactly(MatchStatus.PASS, MatchStatus.PASS, MatchStatus.PASS,
                         MatchStatus.NOT_REQUIRED, MatchStatus.NOT_REQUIRED, MatchStatus.NOT_REQUIRED);
         assertThat(result.getVerdict()).isEqualTo("LIKELY_ELIGIBLE");
         assertThat(result.getConfidence()).isEqualTo("HIGH");
@@ -337,24 +370,19 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
-    void allExplicitlyNotRequiredFactsAreCompleteEvidenceWithNoScoreDenominator() {
-        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+    void fullyExtractedNullApplicationPeriodFallsBackToExpiredPolicyDates() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
+                null, null, LocalDate.now().minusDays(20), LocalDate.now().minusDays(1))));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
-                {
-                  "application_period":null,
-                  "eligibility": {
-                    "regions":[], "industries":[], "business_stages":[],
-                    "max_revenue":null, "max_employees":null
-                  }
-                }
+                {"application_period":null,"eligibility":{}}
                 """)));
 
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
-        assertThat(result.getEvidence()).allMatch(item -> item.getStatus() == MatchStatus.NOT_REQUIRED);
-        assertThat(result.getVerdict()).isEqualTo("LIKELY_ELIGIBLE");
-        assertThat(result.getConfidence()).isEqualTo("HIGH");
-        assertThat(result.getScore()).isNull();
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(evidence(result, "date").getSource()).isEqualTo("정책 목록의 신청 기간 정보");
+        assertThat(result.isHardFail()).isTrue();
+        assertThat(result.getHardFailReasons()).containsExactly("신청 기간이 종료되었어요.");
     }
 
     @Test
@@ -424,6 +452,30 @@ class PolicyDiagnosisServiceTest {
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
         assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+    }
+
+    @Test
+    void fullyExtractedEmptyRegionWithoutConditionTypeRemainsUnknown() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"eligibility":{"regions":[]}}
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+    }
+
+    @Test
+    void fullyExtractedEmptyIndustryWithoutConditionTypeRemainsUnknown() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"eligibility":{"industries":[]}}
+                """)));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "industry").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
     }
 
     @Test

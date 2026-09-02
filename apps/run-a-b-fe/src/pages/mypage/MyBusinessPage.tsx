@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { REVENUE_OPTIONS } from "@/features/business/options";
 import api from "@/lib/api";
 import { useEffect } from "react";
 import axios from "axios";
@@ -13,10 +14,7 @@ const REGION_OPTIONS = [
   "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원도",
   "충청북도", "충청남도", "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도",
 ];
-const REVENUE_OPTIONS = [
-  "1,000만원 미만", "1,000만원~5,000만원", "5,000만원~1억원",
-  "1억원~3억원", "3억원~5억원", "5억원 이상",
-];
+export const MY_BUSINESS_REVENUE_OPTIONS = REVENUE_OPTIONS;
 const EMPLOYEE_OPTIONS = ["없음 (나 혼자)", "1~4명", "5~9명", "10~29명", "30명 이상"];
 
 const ChevronIcon = () => (
@@ -27,7 +25,7 @@ const ChevronIcon = () => (
 
 function SelectField({ value, onChange, placeholder, options, disabled }: {
   value: string; onChange: (v: string) => void;
-  placeholder: string; options: string[]; disabled?: boolean;
+  placeholder: string; options: readonly string[]; disabled?: boolean;
 }) {
   return (
     <div className="relative mt-2">
@@ -270,7 +268,7 @@ export default function MyBusinessPage() {
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
               연 매출 <span className="text-xs text-gray-400 font-normal">(선택)</span>
             </label>
-            <SelectField value={revenue} onChange={setRevenue} placeholder="연 매출 범위를 선택해 주세요" options={REVENUE_OPTIONS} disabled={!isRunning} />
+            <SelectField value={revenue} onChange={setRevenue} placeholder="연 매출 범위를 선택해 주세요" options={MY_BUSINESS_REVENUE_OPTIONS} disabled={!isRunning} />
           </div>
           <div>
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
