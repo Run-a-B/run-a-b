@@ -3,6 +3,9 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { getSavedReport } from "@/data/reports";
 import { markPolicyVisited } from "@/data/visited";
+import type { PolicyDetailData } from "@/features/policy/presentation";
+import { PolicyBriefing } from "@/components/policy/PolicyBriefing";
+import { DiagnosisEntryCard } from "@/components/policy/DiagnosisEntryCard";
 
 const HIGHLIGHT_ICONS: Record<string, React.ReactNode> = {
   money: (
@@ -46,26 +49,6 @@ const TAG_COLORS = [
   "bg-orange-50 text-orange-700",
 ];
 
-interface ApiDetail {
-  id: number;
-  title: string;
-  description: string | null;
-  date: string | null;
-  announcementNo: string | null;
-  department: string | null;
-  applicationPeriod: string | null;
-  supportScale: string | null;
-  targetGroup: string | null;
-  purposeText: string | null;
-  applicationMethod: string | null;
-  applicationUrl: string | null;
-  detailUrl: string | null;
-  category: string;
-  region: string;
-  industry: string;
-  agency: string;
-}
-
 interface PolicySummaryData {
   summaryLines: string[];
   highlights: { icon: string; label: string; content: string }[];
@@ -79,7 +62,6 @@ const AI_DEFAULTS = {
   targetConditions: [] as string[],
   exclusions: [] as string[],
   supportItems: [] as { category: string; amount: string; method: string }[],
-  aiSummaryText: "AI 요약 기능이 준비 중이에요. 곧 이 정책에 대한 맞춤 요약을 제공할 예정입니다.",
   aiHighlights: [] as { icon: string; label: string; content: string }[],
   businessImpact: [] as { label: string; level: number; direction: "up" | "down"; tag: string; barColor: string; tagColor: string }[],
   reportData: {
@@ -97,7 +79,7 @@ export default function PolicyDetail() {
   const navigate = useNavigate();
   const policyId = Number(id);
 
-  const [apiDetail, setApiDetail] = useState<ApiDetail | null>(null);
+  const [apiDetail, setApiDetail] = useState<PolicyDetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [reportState, setReportState] = useState<"idle" | "loading" | "done">("idle");
@@ -110,7 +92,7 @@ export default function PolicyDetail() {
     setNotFound(false);
     api.get(`/api/v1/policies/${policyId}`)
       .then(res => {
-        const data: ApiDetail = res.data.data;
+        const data: PolicyDetailData = res.data.data;
         setApiDetail(data);
         markPolicyVisited(policyId);
       })
@@ -194,6 +176,13 @@ export default function PolicyDetail() {
     );
   }
 
+  const originalNoticeUrl = apiDetail.detailUrl || apiDetail.applicationUrl;
+  const summaryLines = summary?.summaryLines?.filter((line) => line.trim()) ?? [];
+  const summaryHighlights = summary?.highlights ?? [];
+  const hasSummaryContent = summaryLines.length > 0 || summaryHighlights.length > 0;
+  const applicationMethod = summary?.expandedApplicationMethod?.trim()
+    || apiDetail.applicationMethod?.trim();
+
   return (
     <div className="bg-gray-50 min-h-screen pt-15">
       <div className="px-40 py-4">
@@ -226,9 +215,9 @@ export default function PolicyDetail() {
                   </svg>
                   복사
                 </button>
-                {(apiDetail.detailUrl || apiDetail.applicationUrl) ? (
+                {originalNoticeUrl ? (
                   <a
-                    href={(apiDetail.detailUrl || apiDetail.applicationUrl)!}
+                    href={originalNoticeUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-xs text-primary-600 border border-primary-200 bg-primary-50 rounded-lg px-3 py-1.5 hover:bg-primary-100 transition-colors font-medium"
@@ -258,20 +247,20 @@ export default function PolicyDetail() {
 
               {/* Category + Title */}
               <div className="flex items-center gap-2 mb-3">
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[apiDetail.category] ?? "bg-gray-100 text-gray-600"}`}>
-                  {apiDetail.category}
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[apiDetail.category ?? ""] ?? "bg-gray-100 text-gray-600"}`}>
+                  {apiDetail.category ?? "분류 정보 없음"}
                 </span>
-                <span className="text-xs text-gray-400">{apiDetail.region}</span>
+                <span className="text-xs text-gray-400">{apiDetail.region ?? "지역 정보 없음"}</span>
               </div>
               <h1 className="text-2xl font-bold text-gray-900 leading-snug mb-6">{apiDetail.title}</h1>
 
               {/* Metadata grid */}
               <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden text-sm mb-8">
                 {[
-                  { label: "주관 기관", value: apiDetail.agency },
-                  { label: "지역", value: apiDetail.region },
-                  { label: "지원 분야", value: apiDetail.category },
-                  { label: "업종", value: apiDetail.industry },
+                  { label: "주관 기관", value: apiDetail.agency ?? "-" },
+                  { label: "지역", value: apiDetail.region ?? "-" },
+                  { label: "지원 분야", value: apiDetail.category ?? "-" },
+                  { label: "업종", value: apiDetail.industry ?? "-" },
                   { label: "공고일", value: apiDetail.date ?? "-" },
                   { label: "신청 기간", value: apiDetail.applicationPeriod || "-" },
                   { label: "공고번호", value: apiDetail.announcementNo ?? "-" },
@@ -284,29 +273,7 @@ export default function PolicyDetail() {
                 ))}
               </div>
 
-              {/* 지원 대상 배지 */}
-              {apiDetail.targetGroup && (
-                <div className="flex items-center gap-2 mb-5">
-                  <span className="text-xs font-semibold text-gray-400 shrink-0">지원 대상</span>
-                  <span className="text-xs font-medium px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                    {apiDetail.targetGroup}
-                  </span>
-                </div>
-              )}
-
-              {/* 지원 규모 */}
-              {apiDetail.supportScale && (
-                <div className="mb-5 flex items-start gap-3 bg-primary-50 border border-primary-100 rounded-xl px-4 py-3">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0 mt-0.5">
-                    <line x1="12" y1="1" x2="12" y2="23"/>
-                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-                  </svg>
-                  <div>
-                    <p className="text-xs font-semibold text-primary-600 mb-0.5">지원 규모</p>
-                    <p className="text-sm text-gray-700 leading-6 whitespace-pre-line">{apiDetail.supportScale}</p>
-                  </div>
-                </div>
-              )}
+              <PolicyBriefing detail={apiDetail} />
 
               {/* 사업 내용: AI가 원본(사업 목적+사업 내용)만으로 재구성한 문장 우선, 없으면 원본 필드 폴백 */}
               {(summary?.expandedDescription || apiDetail.purposeText || apiDetail.description) && (
@@ -328,17 +295,31 @@ export default function PolicyDetail() {
               )}
 
               {/* 신청 방법: AI 재구성 우선, 없으면 원본 폴백 */}
-              {(summary?.expandedApplicationMethod || apiDetail.applicationMethod) && (
-                <section className="mb-6">
-                  <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
+              <section className="mb-6">
+                <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
+                {applicationMethod ? (
                   <p className="text-base text-gray-700 leading-8 whitespace-pre-line">
-                    {summary?.expandedApplicationMethod || apiDetail.applicationMethod}
+                    {applicationMethod}
                   </p>
-                </section>
-              )}
+                ) : (
+                  <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                    <p className="text-sm text-gray-600 flex-1">신청 방법 정보가 아직 수집되지 않았어요.</p>
+                    {originalNoticeUrl && (
+                      <a
+                        href={originalNoticeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 text-sm font-semibold text-primary-600 hover:underline"
+                      >
+                        원문 공고 보기
+                      </a>
+                    )}
+                  </div>
+                )}
+              </section>
 
               {/* 더 자세한 내용 안내 */}
-              {(apiDetail.detailUrl || apiDetail.applicationUrl) && (
+              {originalNoticeUrl && (
                 <div className="mt-2 flex items-center gap-3 bg-primary-50 border border-primary-100 rounded-xl px-5 py-4">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0">
                     <circle cx="12" cy="12" r="10"/>
@@ -347,7 +328,7 @@ export default function PolicyDetail() {
                   </svg>
                   <p className="text-sm text-gray-600 flex-1">더 자세한 내용은 원문 공고에서 확인할 수 있어요.</p>
                   <a
-                    href={(apiDetail.detailUrl || apiDetail.applicationUrl)!}
+                    href={originalNoticeUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="shrink-0 text-sm font-semibold text-primary-600 hover:underline"
@@ -371,9 +352,9 @@ export default function PolicyDetail() {
                     <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
                   </svg>
                 </div>
-                <span className="text-sm font-bold text-gray-800">AI 요약</span>
+                <span className="text-sm font-bold text-gray-800">핵심 요약</span>
               </div>
-              {summaryState === "done" ? (
+              {summaryState === "done" && hasSummaryContent ? (
                 <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-primary-600 border border-primary-100">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" />
                   완료
@@ -401,27 +382,37 @@ export default function PolicyDetail() {
                 </div>
               )}
 
-              {summaryState === "error" && (
-                <p className="text-sm text-gray-500 leading-7">{AI_DEFAULTS.aiSummaryText}</p>
+              {(summaryState === "error" || (summaryState === "done" && !hasSummaryContent)) && (
+                <div className="flex flex-col gap-3">
+                  <p className="text-sm text-gray-500 leading-7">자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요.</p>
+                  {(apiDetail.purposeText || apiDetail.description) && (
+                    <div className="flex flex-col gap-2">
+                      {apiDetail.purposeText && (
+                        <p className="text-sm text-gray-600 leading-6 whitespace-pre-line">{apiDetail.purposeText}</p>
+                      )}
+                      {apiDetail.description && (
+                        <p className="text-sm text-gray-600 leading-6 whitespace-pre-line">{apiDetail.description}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
 
-              {summaryState === "done" && summary && (
+              {summaryState === "done" && summary && hasSummaryContent && (
                 <>
-                  {summary.summaryLines.length > 0 ? (
+                  {summaryLines.length > 0 && (
                     <ul className="flex flex-col gap-2">
-                      {summary.summaryLines.map((line, i) => (
+                      {summaryLines.map((line, i) => (
                         <li key={i} className="flex gap-2 text-sm text-gray-600 leading-6">
                           <span className="text-primary-500 font-bold shrink-0">{i + 1}.</span>
                           <span>{line}</span>
                         </li>
                       ))}
                     </ul>
-                  ) : (
-                    <p className="text-sm text-gray-500 leading-7">{AI_DEFAULTS.aiSummaryText}</p>
                   )}
-                  {summary.highlights.length > 0 && (
+                  {summaryHighlights.length > 0 && (
                     <div className="flex flex-col gap-2">
-                      {summary.highlights.map((h, i) => (
+                      {summaryHighlights.map((h, i) => (
                         <div key={i} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
                           <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
                           <div>
@@ -436,6 +427,8 @@ export default function PolicyDetail() {
               )}
             </div>
           </div>
+
+          <DiagnosisEntryCard policyId={policyId} />
 
           {/* AI Report */}
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
