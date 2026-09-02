@@ -3,7 +3,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "@/lib/api";
 import {
   buildChecklistProgress,
+  checkedForPolicy,
   loadPolicyChecklist,
+  retryChecklistLoad,
+  type CheckedByPolicy,
   type ChecklistItem,
   type PolicyChecklistDetail,
 } from "@/features/policy/checklist";
@@ -19,7 +22,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   기타: "bg-gray-100 text-gray-600",
 };
 
-type ChecklistLoadState =
+export type ChecklistLoadState =
   | { tag: "loading"; policyId: number }
   | {
       tag: "loaded";
@@ -41,7 +44,7 @@ export default function PolicyChecklist() {
   const policyId = Number(id);
   const [retry, setRetry] = useState(0);
   const [loadState, setLoadState] = useState<ChecklistLoadState>({ tag: "loading", policyId });
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [checkedByPolicy, setCheckedByPolicy] = useState<CheckedByPolicy>({});
 
   useEffect(() => {
     let active = true;
@@ -78,7 +81,7 @@ export default function PolicyChecklist() {
           </div>
           <div className="mt-2 flex gap-3">
             <button onClick={() => navigate(`/policies/${policyId}`)} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50">정책 상세 보기</button>
-            {failed && <button onClick={() => setRetry((value) => value + 1)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700">다시 시도</button>}
+            {failed && <button onClick={retryChecklist} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700">다시 시도</button>}
           </div>
         </div>
       </div>
@@ -87,6 +90,7 @@ export default function PolicyChecklist() {
 
   const { policy, detail, sourceUrl } = currentLoad;
   const checklist = detail.applicationChecklist ?? [];
+  const checked = checkedForPolicy(checkedByPolicy, policyId);
   const required = checklist.filter((item) => item.required);
   const optional = checklist.filter((item) => !item.required);
   const progress = buildChecklistProgress(checklist, checked);
@@ -95,7 +99,18 @@ export default function PolicyChecklist() {
   const groupItems = progress.kind === "recommendations" ? checklist : required;
 
   function toggle(itemId: string) {
-    setChecked((previous) => ({ ...previous, [itemId]: !previous[itemId] }));
+    setCheckedByPolicy((previous) => {
+      const current = checkedForPolicy(previous, policyId);
+      return {
+        ...previous,
+        [policyId]: { ...current, [itemId]: !current[itemId] },
+      };
+    });
+  }
+
+  function retryChecklist() {
+    setLoadState(retryChecklistLoad(policyId));
+    setRetry((value) => value + 1);
   }
 
   return (
@@ -152,8 +167,8 @@ function ChecklistGroup({ title, completed, total, required, notice, items, chec
   return <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white"><div className="flex items-center gap-2 border-b border-gray-100 px-6 py-4"><div className={`h-2 w-2 rounded-full ${required ? "bg-red-400" : "bg-gray-300"}`} /><span className="text-sm font-bold text-gray-800">{title}</span><span className="ml-auto text-xs font-semibold text-primary-600">{completed}/{total} 확인</span></div>{notice && <p className="px-6 pt-3 text-xs text-gray-500">{notice}</p>}<div className="divide-y divide-gray-100">{items.map((item) => <ChecklistRow key={item.id} item={item} checked={Boolean(checked[item.id])} onToggle={() => onToggle(item.id)} />)}</div></div>;
 }
 
-function ChecklistRow({ item, checked, onToggle }: { item: ChecklistItem; checked: boolean; onToggle: () => void }) {
-  return <button type="button" onClick={onToggle} className={`flex w-full items-start gap-4 px-6 py-4 text-left transition-colors hover:bg-gray-50 ${checked ? "bg-gray-50" : ""}`}><span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 ${checked ? "border-primary-600 bg-primary-600" : "border-gray-300"}`}>{checked && <span className="text-[10px] font-bold text-white">✓</span>}</span><span className="min-w-0 flex-1"><span className={`block text-sm font-medium ${checked ? "text-gray-400 line-through" : "text-gray-800"}`}>{item.label}</span>{item.required && <span className="mt-1 block text-xs font-medium text-red-400">필수</span>}{item.description && <span className="mt-0.5 block text-xs leading-5 text-gray-400">{item.description}</span>}</span></button>;
+export function ChecklistRow({ item, checked, onToggle }: { item: ChecklistItem; checked: boolean; onToggle: () => void }) {
+  return <button type="button" aria-pressed={checked} onClick={onToggle} className={`flex w-full items-start gap-4 px-6 py-4 text-left transition-colors hover:bg-gray-50 ${checked ? "bg-gray-50" : ""}`}><span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 ${checked ? "border-primary-600 bg-primary-600" : "border-gray-300"}`}>{checked && <span className="text-[10px] font-bold text-white">✓</span>}</span><span className="min-w-0 flex-1"><span className={`block text-sm font-medium ${checked ? "text-gray-400 line-through" : "text-gray-800"}`}>{item.label}</span>{item.required && <span className="mt-1 block text-xs font-medium text-red-400">필수</span>}{item.description && <span className="mt-0.5 block text-xs leading-5 text-gray-400">{item.description}</span>}</span></button>;
 }
 
 function ProgressRing({ checked, total }: { checked: number; total: number }) {

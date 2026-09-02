@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildChecklistProgress,
+  checkedForPolicy,
   loadPolicyChecklist,
   safeExternalUrl,
 } from "../src/features/policy/checklist.ts";
@@ -65,4 +66,11 @@ test("zero required documents are recommendations rather than completed requirem
     completed: 0,
     total: 1,
   });
+});
+
+test("checks are isolated by policy even when generic document IDs match", () => {
+  const checkedByPolicy = { 1: { biz_reg: true } };
+
+  assert.deepEqual(checkedForPolicy(checkedByPolicy, 1), { biz_reg: true });
+  assert.deepEqual(checkedForPolicy(checkedByPolicy, 2), {});
 });

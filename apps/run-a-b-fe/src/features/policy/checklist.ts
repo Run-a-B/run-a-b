@@ -56,6 +56,19 @@ export type ChecklistProgress = {
   total: number;
 };
 
+export type CheckedByPolicy = Record<number, Record<string, boolean>>;
+
+export function checkedForPolicy(
+  checkedByPolicy: CheckedByPolicy,
+  policyId: number,
+): Record<string, boolean> {
+  return checkedByPolicy[policyId] ?? {};
+}
+
+export function retryChecklistLoad(policyId: number) {
+  return { tag: "loading" as const, policyId };
+}
+
 export function buildChecklistProgress(
   checklist: ChecklistItem[],
   checked: Record<string, boolean> = {},

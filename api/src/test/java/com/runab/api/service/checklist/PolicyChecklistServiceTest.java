@@ -79,6 +79,30 @@ class PolicyChecklistServiceTest {
                 .containsExactly("공고문에 언급된 서류예요. 필수 여부는 원문을 확인해 주세요.");
     }
 
+    @Test
+    void nonTextDocumentRowsAreSkippedConservatively() {
+        PolicyCard card = PolicyCard.builder()
+                .policyId(PolicyCard.toPolicyId("PBLN_TEST"))
+                .externalId("PBLN_TEST")
+                .extractionStatus("extracted")
+                .fullJson("""
+                        {"eligibility": {
+                          "documents": ["매출 증빙", {"label": "객체 서류"}, 42]
+                        }}
+                        """)
+                .build();
+        given(policyRepository.findById(1L)).willReturn(Optional.of(policyWithoutDates()));
+        given(policyCardRepository.findByPolicyId(PolicyCard.toPolicyId("PBLN_TEST")))
+                .willReturn(Optional.of(card));
+
+        var result = service.getChecklist(1L);
+
+        assertThat(result.getApplicationChecklist())
+                .extracting(PolicyChecklistResponse.ChecklistItem::getLabel)
+                .contains("매출 증빙")
+                .doesNotContain("객체 서류", "42");
+    }
+
     private Policy policyWithoutDates() {
         Policy policy = Policy.builder()
                 .externalId("PBLN_TEST")
