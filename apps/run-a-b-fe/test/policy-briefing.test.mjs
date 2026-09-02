@@ -90,3 +90,160 @@ test("renders diagnosis entry copy and policy-specific route", async (t) => {
   assert.match(html, /내 조건으로 진단하기/);
   assert.match(html, /href="\/policies\/42\/diagnosis"/);
 });
+
+function policyDetail(overrides = {}) {
+  return {
+    id: 42,
+    title: "테스트 정책",
+    description: "저장된 정책 설명",
+    date: null,
+    announcementNo: null,
+    department: null,
+    applicationPeriod: null,
+    supportScale: null,
+    targetGroup: null,
+    purposeText: "저장된 사업 목적",
+    applicationMethod: "저장된 신청 방법",
+    applicationUrl: "https://example.com/apply",
+    detailUrl: "https://example.com/original",
+    category: null,
+    region: null,
+    industry: null,
+    agency: null,
+    sourceSystem: "bizinfo",
+    ...overrides,
+  };
+}
+
+async function loadPolicyDetailPanels(t) {
+  const vite = await createServer({
+    root: process.cwd(),
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+    optimizeDeps: { noDiscovery: true },
+    ssr: { optimizeDeps: { noDiscovery: true } },
+  });
+  t.after(() => vite.close());
+  return vite.ssrLoadModule("/src/pages/PolicyDetail.tsx");
+}
+
+test("summary panel uses stored facts when summary requests fail", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(),
+    summary: null,
+    summaryState: "error",
+  }));
+
+  assert.match(html, /자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요\./);
+  assert.match(html, /저장된 사업 목적/);
+  assert.match(html, /저장된 정책 설명/);
+  assert.doesNotMatch(html, />완료</);
+});
+
+test("summary panel treats a done empty response as unavailable", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(),
+    summary: { summaryLines: [], highlights: [] },
+    summaryState: "done",
+  }));
+
+  assert.match(html, /자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요\./);
+  assert.doesNotMatch(html, />완료</);
+});
+
+test("summary panel ignores blank highlight shells", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(),
+    summary: {
+      summaryLines: ["  "],
+      highlights: [{ icon: "check", label: " ", content: "\t" }],
+    },
+    summaryState: "done",
+  }));
+
+  assert.match(html, /자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요\./);
+  assert.doesNotMatch(html, />완료</);
+});
+
+test("summary panel marks visible lines as complete", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(),
+    summary: { summaryLines: ["지원 대상 확인"], highlights: [] },
+    summaryState: "done",
+  }));
+
+  assert.match(html, /지원 대상 확인/);
+  assert.match(html, />완료</);
+  assert.doesNotMatch(html, /자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요\./);
+});
+
+test("summary panel marks a visible highlight as complete", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(),
+    summary: {
+      summaryLines: ["   "],
+      highlights: [{ icon: "check", label: "지원 조건", content: "대상을 확인하세요." }],
+    },
+    summaryState: "done",
+  }));
+
+  assert.match(html, /지원 조건/);
+  assert.match(html, />완료</);
+  assert.doesNotMatch(html, /자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요\./);
+});
+
+test("summary panel completes for expanded description without false unavailable copy", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(),
+    summary: { summaryLines: ["  "], highlights: [], expandedDescription: "정리된 사업 내용" },
+    summaryState: "done",
+  }));
+
+  assert.match(html, />완료</);
+  assert.match(html, /자동 정리된 상세 정보를 본문에 반영했어요\./);
+  assert.doesNotMatch(html, /자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요\./);
+});
+
+test("summary panel completes for expanded application method without false unavailable copy", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(),
+    summary: { summaryLines: [], highlights: [], expandedApplicationMethod: "정리된 신청 방법" },
+    summaryState: "done",
+  }));
+
+  assert.match(html, />완료</);
+  assert.match(html, /자동 정리된 상세 정보를 본문에 반영했어요\./);
+  assert.doesNotMatch(html, /자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요\./);
+});
+
+test("application method section links to the original notice when no method is stored", async (t) => {
+  const { PolicyApplicationMethodSection } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicyApplicationMethodSection, {
+    detail: policyDetail({ applicationMethod: null }),
+    summary: null,
+  }));
+
+  assert.match(html, /신청 방법 정보가 아직 수집되지 않았어요\./);
+  assert.match(html, /href="https:\/\/example\.com\/original"/);
+  assert.match(html, /target="_blank"/);
+  assert.match(html, /rel="noopener noreferrer"/);
+});
+
+test("application method section prefers expanded method over stored method", async (t) => {
+  const { PolicyApplicationMethodSection } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicyApplicationMethodSection, {
+    detail: policyDetail(),
+    summary: { summaryLines: [], highlights: [], expandedApplicationMethod: "정리된 신청 방법" },
+  }));
+
+  assert.match(html, /정리된 신청 방법/);
+  assert.doesNotMatch(html, /저장된 신청 방법/);
+});

@@ -56,6 +56,10 @@ interface PolicySummaryData {
   expandedApplicationMethod?: string | null;
 }
 
+function hasText(value: string | null | undefined): value is string {
+  return Boolean(value?.trim());
+}
+
 // AI/미구현 필드 기본값 — AI 연동 후 API 응답으로 교체 예정
 const AI_DEFAULTS = {
   tags: [] as string[],
@@ -73,6 +77,148 @@ const AI_DEFAULTS = {
   },
   applicationChecklist: [] as { id: string; label: string; required: boolean; description?: string }[],
 };
+
+interface PolicySummaryPanelProps {
+  detail: PolicyDetailData;
+  summary: PolicySummaryData | null;
+  summaryState: "loading" | "done" | "error";
+}
+
+export function PolicySummaryPanel({ detail, summary, summaryState }: PolicySummaryPanelProps) {
+  const summaryLines = summary?.summaryLines?.filter(hasText) ?? [];
+  const summaryHighlights = summary?.highlights?.filter(
+    (highlight) => hasText(highlight.label) || hasText(highlight.content),
+  ) ?? [];
+  const hasExpandedDescription = hasText(summary?.expandedDescription);
+  const hasExpandedApplicationMethod = hasText(summary?.expandedApplicationMethod);
+  const hasPanelContent = summaryLines.length > 0 || summaryHighlights.length > 0;
+  const hasSummaryContent = hasPanelContent || hasExpandedDescription || hasExpandedApplicationMethod;
+  const showUnavailable = summaryState === "error" || (summaryState === "done" && !hasSummaryContent);
+  const showAppliedNote = summaryState === "done" && hasSummaryContent && !hasPanelContent;
+
+  return (
+    <div className="bg-primary-50 rounded-2xl border border-primary-100 overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-primary-100">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-xl bg-primary-500 flex items-center justify-center">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-white">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </div>
+          <span className="text-sm font-bold text-gray-800">핵심 요약</span>
+        </div>
+        {summaryState === "done" && hasSummaryContent ? (
+          <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-primary-600 border border-primary-100">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" />
+            완료
+          </span>
+        ) : summaryState === "loading" ? (
+          <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block animate-pulse" />
+            요약 중
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
+            준비 중
+          </span>
+        )}
+      </div>
+
+      <div className="px-5 py-4 flex flex-col gap-4">
+        {summaryState === "loading" && (
+          <div className="flex flex-col gap-2 animate-pulse">
+            <div className="h-3.5 bg-white rounded w-full" />
+            <div className="h-3.5 bg-white rounded w-5/6" />
+            <div className="h-3.5 bg-white rounded w-2/3" />
+            <p className="text-xs text-gray-400 mt-1">AI가 공고문을 요약하고 있어요...</p>
+          </div>
+        )}
+
+        {showUnavailable && (
+          <div className="flex flex-col gap-3">
+            <p className="text-sm text-gray-500 leading-7">자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요.</p>
+            {(detail.purposeText || detail.description) && (
+              <div className="flex flex-col gap-2">
+                {detail.purposeText && (
+                  <p className="text-sm text-gray-600 leading-6 whitespace-pre-line">{detail.purposeText}</p>
+                )}
+                {detail.description && (
+                  <p className="text-sm text-gray-600 leading-6 whitespace-pre-line">{detail.description}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {showAppliedNote && (
+          <p className="text-sm text-gray-500 leading-7">자동 정리된 상세 정보를 본문에 반영했어요.</p>
+        )}
+
+        {summaryState === "done" && hasPanelContent && (
+          <>
+            {summaryLines.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {summaryLines.map((line, i) => (
+                  <li key={i} className="flex gap-2 text-sm text-gray-600 leading-6">
+                    <span className="text-primary-500 font-bold shrink-0">{i + 1}.</span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {summaryHighlights.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {summaryHighlights.map((h, i) => (
+                  <div key={i} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
+                    <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
+                      <p className="text-sm text-gray-500 leading-6">{h.content}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface PolicyApplicationMethodSectionProps {
+  detail: PolicyDetailData;
+  summary: PolicySummaryData | null;
+}
+
+export function PolicyApplicationMethodSection({ detail, summary }: PolicyApplicationMethodSectionProps) {
+  const applicationMethod = summary?.expandedApplicationMethod?.trim() || detail.applicationMethod?.trim();
+  const originalNoticeUrl = detail.detailUrl || detail.applicationUrl;
+
+  return (
+    <section className="mb-6">
+      <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
+      {applicationMethod ? (
+        <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{applicationMethod}</p>
+      ) : (
+        <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+          <p className="text-sm text-gray-600 flex-1">신청 방법 정보가 아직 수집되지 않았어요.</p>
+          {originalNoticeUrl && (
+            <a
+              href={originalNoticeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 text-sm font-semibold text-primary-600 hover:underline"
+            >
+              원문 공고 보기
+            </a>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function PolicyDetail() {
   const { id } = useParams<{ id: string }>();
@@ -177,11 +323,6 @@ export default function PolicyDetail() {
   }
 
   const originalNoticeUrl = apiDetail.detailUrl || apiDetail.applicationUrl;
-  const summaryLines = summary?.summaryLines?.filter((line) => line.trim()) ?? [];
-  const summaryHighlights = summary?.highlights ?? [];
-  const hasSummaryContent = summaryLines.length > 0 || summaryHighlights.length > 0;
-  const applicationMethod = summary?.expandedApplicationMethod?.trim()
-    || apiDetail.applicationMethod?.trim();
 
   return (
     <div className="bg-gray-50 min-h-screen pt-15">
@@ -276,11 +417,11 @@ export default function PolicyDetail() {
               <PolicyBriefing detail={apiDetail} />
 
               {/* 사업 내용: AI가 원본(사업 목적+사업 내용)만으로 재구성한 문장 우선, 없으면 원본 필드 폴백 */}
-              {(summary?.expandedDescription || apiDetail.purposeText || apiDetail.description) && (
+              {(summary?.expandedDescription?.trim() || apiDetail.purposeText || apiDetail.description) && (
                 <section className="mb-6">
                   <h2 className="text-lg font-bold text-gray-900 mb-3">사업 내용</h2>
-                  {summary?.expandedDescription ? (
-                    <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{summary.expandedDescription}</p>
+                  {summary?.expandedDescription?.trim() ? (
+                    <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{summary.expandedDescription.trim()}</p>
                   ) : (
                     <div className="flex flex-col gap-3">
                       {apiDetail.purposeText && (
@@ -294,29 +435,7 @@ export default function PolicyDetail() {
                 </section>
               )}
 
-              {/* 신청 방법: AI 재구성 우선, 없으면 원본 폴백 */}
-              <section className="mb-6">
-                <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
-                {applicationMethod ? (
-                  <p className="text-base text-gray-700 leading-8 whitespace-pre-line">
-                    {applicationMethod}
-                  </p>
-                ) : (
-                  <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <p className="text-sm text-gray-600 flex-1">신청 방법 정보가 아직 수집되지 않았어요.</p>
-                    {originalNoticeUrl && (
-                      <a
-                        href={originalNoticeUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 text-sm font-semibold text-primary-600 hover:underline"
-                      >
-                        원문 공고 보기
-                      </a>
-                    )}
-                  </div>
-                )}
-              </section>
+              <PolicyApplicationMethodSection detail={apiDetail} summary={summary} />
 
               {/* 더 자세한 내용 안내 */}
               {originalNoticeUrl && (
@@ -343,90 +462,7 @@ export default function PolicyDetail() {
 
         {/* Right: AI panels */}
         <div className="w-110 shrink-0 flex flex-col gap-4 sticky top-6">
-          {/* AI Summary */}
-          <div className="bg-primary-50 rounded-2xl border border-primary-100 overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-primary-100">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-xl bg-primary-500 flex items-center justify-center">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-white">
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                  </svg>
-                </div>
-                <span className="text-sm font-bold text-gray-800">핵심 요약</span>
-              </div>
-              {summaryState === "done" && hasSummaryContent ? (
-                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-primary-600 border border-primary-100">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" />
-                  완료
-                </span>
-              ) : summaryState === "loading" ? (
-                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block animate-pulse" />
-                  요약 중
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
-                  준비 중
-                </span>
-              )}
-            </div>
-
-            <div className="px-5 py-4 flex flex-col gap-4">
-              {summaryState === "loading" && (
-                <div className="flex flex-col gap-2 animate-pulse">
-                  <div className="h-3.5 bg-white rounded w-full" />
-                  <div className="h-3.5 bg-white rounded w-5/6" />
-                  <div className="h-3.5 bg-white rounded w-2/3" />
-                  <p className="text-xs text-gray-400 mt-1">AI가 공고문을 요약하고 있어요...</p>
-                </div>
-              )}
-
-              {(summaryState === "error" || (summaryState === "done" && !hasSummaryContent)) && (
-                <div className="flex flex-col gap-3">
-                  <p className="text-sm text-gray-500 leading-7">자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요.</p>
-                  {(apiDetail.purposeText || apiDetail.description) && (
-                    <div className="flex flex-col gap-2">
-                      {apiDetail.purposeText && (
-                        <p className="text-sm text-gray-600 leading-6 whitespace-pre-line">{apiDetail.purposeText}</p>
-                      )}
-                      {apiDetail.description && (
-                        <p className="text-sm text-gray-600 leading-6 whitespace-pre-line">{apiDetail.description}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {summaryState === "done" && summary && hasSummaryContent && (
-                <>
-                  {summaryLines.length > 0 && (
-                    <ul className="flex flex-col gap-2">
-                      {summaryLines.map((line, i) => (
-                        <li key={i} className="flex gap-2 text-sm text-gray-600 leading-6">
-                          <span className="text-primary-500 font-bold shrink-0">{i + 1}.</span>
-                          <span>{line}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {summaryHighlights.length > 0 && (
-                    <div className="flex flex-col gap-2">
-                      {summaryHighlights.map((h, i) => (
-                        <div key={i} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
-                          <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
-                          <div>
-                            <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
-                            <p className="text-sm text-gray-500 leading-6">{h.content}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+          <PolicySummaryPanel detail={apiDetail} summary={summary} summaryState={summaryState} />
 
           <DiagnosisEntryCard policyId={policyId} />
 
