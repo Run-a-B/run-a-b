@@ -259,7 +259,9 @@ public class PolicyDiagnosisService {
     private String reason(String key, MatchStatus status) {
         return switch (status) {
             case PASS -> "입력한 조건이 공고 조건과 맞아요.";
-            case PARTIAL -> "입력한 구간이 공고 기준과 일부 겹쳐요.";
+            case PARTIAL -> "date".equals(key)
+                    ? "아직 접수 전이에요. 신청 시작일을 확인해 주세요."
+                    : "입력한 구간이 공고 기준과 일부 겹쳐요.";
             case FAIL -> "date".equals(key) ? "신청 기간이 종료되었어요."
                     : "region".equals(key) ? "지역 조건이 맞지 않아요." : "공고 조건과 맞지 않아요.";
             case UNKNOWN -> "공고 조건을 확인하지 못했어요.";

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildPolicyBrief,
   buildPolicyQuality,
+  evidenceStatusPresentation,
   statusPresentation,
   type PolicyDetailData,
 } from "../src/features/policy/presentation.ts";
@@ -175,4 +176,9 @@ test("status presentation uses exact Korean labels and classes", () => {
       { label, className },
     );
   }
+});
+
+test("upcoming application dates use a truthful contextual status label", () => {
+  assert.equal(evidenceStatusPresentation("date", "PARTIAL").label, "접수 예정");
+  assert.equal(evidenceStatusPresentation("revenue", "PARTIAL").label, "부분 일치");
 });

@@ -14,7 +14,11 @@ import {
   type EvidenceStatus,
   type SavedBusiness,
 } from "@/features/diagnosis/model";
-import { statusPresentation, type PolicyDetailData } from "@/features/policy/presentation";
+import {
+  evidenceStatusPresentation,
+  statusPresentation,
+  type PolicyDetailData,
+} from "@/features/policy/presentation";
 import { diagnosisPolicyViewState, isLoadedPolicyForRoute, type LoadedPolicy, type PolicyLoadState } from "@/features/diagnosis/policyRoute";
 
 type FlowState =
@@ -109,7 +113,7 @@ function SelectField({
 }
 
 function EvidenceRow({ evidence }: { evidence: DiagnosisResponse["evidence"][number] }) {
-  const presentation = statusPresentation[evidence.status];
+  const presentation = evidenceStatusPresentation(evidence.key, evidence.status);
   return (
     <li className="rounded-xl border border-gray-200 p-4">
       <div className="flex items-start justify-between gap-3">

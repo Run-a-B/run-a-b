@@ -81,6 +81,8 @@ class PolicyDiagnosisServiceTest {
 
         assertThat(result.isHardFail()).isFalse();
         assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.PARTIAL);
+        assertThat(evidence(result, "date").getReason())
+                .isEqualTo("아직 접수 전이에요. 신청 시작일을 확인해 주세요.");
     }
 
     @Test
@@ -264,6 +266,8 @@ class PolicyDiagnosisServiceTest {
                 """)));
         PolicyDiagnosisResponse upcoming = service.diagnose(42L, operatingCafeInSeoul());
         assertThat(evidence(upcoming, "date").getStatus()).isEqualTo(MatchStatus.PARTIAL);
+        assertThat(evidence(upcoming, "date").getReason())
+                .isEqualTo("아직 접수 전이에요. 신청 시작일을 확인해 주세요.");
     }
 
     @Test

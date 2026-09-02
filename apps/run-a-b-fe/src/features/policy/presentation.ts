@@ -69,6 +69,17 @@ export const statusPresentation: Record<
     className: "bg-green-100 text-green-700 border-green-200",
   },
 };
+
+export function evidenceStatusPresentation(
+  key: string,
+  status: EvidenceStatus,
+): { label: string; className: string } {
+  const presentation = statusPresentation[status];
+  return key === "date" && status === "PARTIAL"
+    ? { ...presentation, label: "접수 예정" }
+    : presentation;
+}
+
 export interface BriefItem {
   label: string;
   value: string;
