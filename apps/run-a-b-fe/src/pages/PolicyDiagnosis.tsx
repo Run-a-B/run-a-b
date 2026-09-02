@@ -15,6 +15,7 @@ import {
   type SavedBusiness,
 } from "@/features/diagnosis/model";
 import { statusPresentation, type PolicyDetailData } from "@/features/policy/presentation";
+import { isLoadedPolicyForRoute, type LoadedPolicy } from "@/features/diagnosis/policyRoute";
 
 type FlowState =
   | { tag: "idle" }
@@ -183,7 +184,7 @@ export default function PolicyDiagnosis() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const policyId = Number(id);
-  const [policy, setPolicy] = useState<PolicyDetailData | null>(null);
+  const [loadedPolicy, setLoadedPolicy] = useState<LoadedPolicy | null>(null);
   const [policyState, setPolicyState] = useState<"loading" | "missing" | "error" | "ready">("loading");
   const [form, setForm] = useState<DiagnosisForm>(EMPTY_FORM);
   const [errors, setErrors] = useState<Partial<Record<keyof DiagnosisForm, string>>>({});
@@ -192,6 +193,8 @@ export default function PolicyDiagnosis() {
   const mountedRef = useRef(true);
   const diagnosisGenerationRef = useRef(0);
   const minimumTimerRef = useRef<{ timer: number; resolve: () => void } | null>(null);
+  const policyBelongsToRoute = isLoadedPolicyForRoute(loadedPolicy, policyId);
+  const policy = policyBelongsToRoute ? loadedPolicy?.detail ?? null : null;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -219,7 +222,7 @@ export default function PolicyDiagnosis() {
     api.get(`/api/v1/policies/${policyId}`)
       .then((response) => {
         if (!active) return;
-        setPolicy(response.data.data as PolicyDetailData);
+        setLoadedPolicy({ policyId, detail: response.data.data as PolicyDetailData });
         setPolicyState("ready");
       })
       .catch((error: unknown) => {
@@ -288,7 +291,7 @@ export default function PolicyDiagnosis() {
       : { tag: "error", policyId: requestPolicyId, message: settled.message });
   }
 
-  if (policyState === "loading") {
+  if (policyState === "loading" || (loadedPolicy !== null && !policyBelongsToRoute)) {
     return (
       <div className="bg-gray-50 min-h-screen pt-15 px-40">
         <div className="py-20 max-w-3xl mx-auto">

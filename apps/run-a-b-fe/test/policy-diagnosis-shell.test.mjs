@@ -122,3 +122,14 @@ test("renders exact result metadata and explicit missing metadata fallbacks", as
   assert.match(missing, /정보 없음/);
   assert.match(missing, /기간 정보 없음 — 원문 공고 확인/);
 });
+
+test("only treats policy detail as ready when it belongs to the current route", async (t) => {
+  const vite = await createServer({ root: process.cwd(), appType: "custom", logLevel: "silent" });
+  t.after(() => vite.close());
+  const { isLoadedPolicyForRoute } = await vite.ssrLoadModule("/src/features/diagnosis/policyRoute.ts");
+
+  const loadedPolicy = { policyId: 1, detail: { id: 1, title: "첫 번째 정책" } };
+  assert.equal(isLoadedPolicyForRoute(loadedPolicy, 1), true);
+  assert.equal(isLoadedPolicyForRoute(loadedPolicy, 2), false);
+  assert.equal(isLoadedPolicyForRoute(null, 2), false);
+});
