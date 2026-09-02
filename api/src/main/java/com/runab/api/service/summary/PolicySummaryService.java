@@ -51,6 +51,13 @@ public class PolicySummaryService {
         Policy policy = policyRepository.findById(policyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.POLICY_NOT_FOUND));
 
+        if (!openAiClient.isConfigured()) {
+            return PolicySummaryResponse.builder()
+                    .summaryLines(Collections.emptyList())
+                    .highlights(Collections.emptyList())
+                    .build();
+        }
+
         JsonNode ai = openAiClient.chatJson(buildSystemPrompt(), buildUserPrompt(policy));
         PolicySummaryResponse generated = mapAi(ai);
 

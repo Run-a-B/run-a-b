@@ -63,7 +63,7 @@ public class PolicyDiagnosisService {
                 .policy(policyInfo(policy))
                 .verdict(verdict)
                 .verdictLabel(verdictLabel(verdict))
-                .score(score(evidence, comparableCount))
+                .score(score(cardData, evidence, comparableCount))
                 .confidence(confidence(cardData, evidence, comparableCount))
                 .summary(summary(verdict))
                 .evidence(evidence)
@@ -89,24 +89,52 @@ public class PolicyDiagnosisService {
             JsonNode eligibility = cardData.eligibility();
             JsonNode regionNode = field(eligibility, "regions");
             String type = text(cardData.eligibility(), "region_condition_type");
-            if ("unknown".equals(type)) return unknown("region", "지역", business.region());
             if ("nationwide".equals(type)) {
                 return evidence("region", "지역", business.region(), "전국", MatchStatus.PASS, cardSource());
             }
-            if (regionNode == null) return unknown("region", "지역", business.region());
-            List<String> regions = textList(regionNode);
-            if (regions.isEmpty()) {
-                if ("specific".equals(type)) return unknown("region", "지역", business.region());
-                return explicitNoCondition("region", "지역", business.region(), cardData, regionNode);
+            if (!"unknown".equals(type) && regionNode != null) {
+                List<String> regions = textList(regionNode);
+                if (regions.isEmpty()) {
+                    if (regionNode.isArray() && !regionNode.isEmpty()) {
+                        if (!cardData.fullyExtracted()) {
+                            return nonFailingMetadataRegionEvidence(policy, business);
+                        }
+                        return unknown("region", "지역", business.region());
+                    }
+                    if (cardData.fullyExtracted()) {
+                        if ("specific".equals(type)) return unknown("region", "지역", business.region());
+                        return explicitNoCondition("region", "지역", business.region(), cardData, regionNode);
+                    }
+                } else {
+                    if (regions.contains("전국")) {
+                        return evidence("region", "지역", business.region(), "전국", MatchStatus.PASS, cardSource());
+                    }
+                    boolean match = regions.stream()
+                            .anyMatch(region -> RegionHierarchy.sameProvince(business.region(), region));
+                    if (match) {
+                        return evidence("region", "지역", business.region(), String.join(", ", regions),
+                                MatchStatus.PASS, cardSource());
+                    }
+                    boolean allRecognized = regions.stream()
+                            .allMatch(region -> !RegionHierarchy.provincesOf(region).isEmpty());
+                    if (!allRecognized) {
+                        if (!cardData.fullyExtracted()) {
+                            return nonFailingMetadataRegionEvidence(policy, business);
+                        }
+                        return unknown("region", "지역", business.region());
+                    }
+                    hardFailReasons.add("지역 조건이 맞지 않아요.");
+                    return evidence("region", "지역", business.region(), String.join(", ", regions),
+                            MatchStatus.FAIL, cardSource());
+                }
             }
-            if (regions.contains("전국")) {
-                return evidence("region", "지역", business.region(), "전국", MatchStatus.PASS, cardSource());
-            }
-            boolean match = regions.stream().anyMatch(region -> RegionHierarchy.sameProvince(business.region(), region));
-            if (!match) hardFailReasons.add("지역 조건이 맞지 않아요.");
-            return evidence("region", "지역", business.region(), String.join(", ", regions),
-                    match ? MatchStatus.PASS : MatchStatus.FAIL, cardSource());
+            if (cardData.fullyExtracted()) return unknown("region", "지역", business.region());
         }
+        return metadataRegionEvidence(policy, business, hardFailReasons);
+    }
+
+    private PolicyDiagnosisResponse.Evidence metadataRegionEvidence(
+            Policy policy, DiagnosisInputNormalizer.NormalizedBusiness business, List<String> hardFailReasons) {
         String policyRegion = policy.getRegion();
         if (blank(policyRegion)) return unknown("region", "지역", business.region());
         if ("전국".equals(policyRegion)) {
@@ -118,29 +146,47 @@ public class PolicyDiagnosisService {
                 match ? MatchStatus.PASS : MatchStatus.FAIL, metadataSource("지역"));
     }
 
+    private PolicyDiagnosisResponse.Evidence nonFailingMetadataRegionEvidence(
+            Policy policy, DiagnosisInputNormalizer.NormalizedBusiness business) {
+        PolicyDiagnosisResponse.Evidence metadata = metadataRegionEvidence(policy, business, new ArrayList<>());
+        return metadata.getStatus() == MatchStatus.FAIL
+                ? unknown("region", "지역", business.region())
+                : metadata;
+    }
+
     private PolicyDiagnosisResponse.Evidence industryEvidence(Policy policy, CardData cardData,
                                                                DiagnosisInputNormalizer.NormalizedBusiness business) {
         if (cardData.usable()) {
             JsonNode eligibility = cardData.eligibility();
             JsonNode industryNode = field(eligibility, "industries");
             String type = text(cardData.eligibility(), "industry_condition_type");
-            if ("unknown".equals(type)) return unknown("industry", "업종", business.industry());
             if ("all".equals(type)) {
                 return evidence("industry", "업종", business.industry(), "전업종", MatchStatus.PASS, cardSource());
             }
-            if (industryNode == null) return unknown("industry", "업종", business.industry());
-            List<String> industries = textList(industryNode);
-            if (industries.isEmpty()) {
-                if ("specific".equals(type)) return unknown("industry", "업종", business.industry());
-                return explicitNoCondition("industry", "업종", business.industry(), cardData, industryNode);
+            if (!"unknown".equals(type) && industryNode != null) {
+                List<String> industries = textList(industryNode);
+                if (industries.isEmpty()) {
+                    if (cardData.fullyExtracted()) {
+                        if ("specific".equals(type)) return unknown("industry", "업종", business.industry());
+                        return explicitNoCondition("industry", "업종", business.industry(), cardData, industryNode);
+                    }
+                } else {
+                    if (industries.contains("전업종")) {
+                        return evidence("industry", "업종", business.industry(), "전업종", MatchStatus.PASS, cardSource());
+                    }
+                    boolean match = industries.stream()
+                            .anyMatch(industry -> IndustryHierarchy.sameIndustry(business.industry(), industry));
+                    return evidence("industry", "업종", business.industry(), String.join(", ", industries),
+                            match ? MatchStatus.PASS : MatchStatus.FAIL, cardSource());
+                }
             }
-            if (industries.contains("전업종")) {
-                return evidence("industry", "업종", business.industry(), "전업종", MatchStatus.PASS, cardSource());
-            }
-            boolean match = industries.stream().anyMatch(industry -> IndustryHierarchy.sameIndustry(business.industry(), industry));
-            return evidence("industry", "업종", business.industry(), String.join(", ", industries),
-                    match ? MatchStatus.PASS : MatchStatus.FAIL, cardSource());
+            if (cardData.fullyExtracted()) return unknown("industry", "업종", business.industry());
         }
+        return metadataIndustryEvidence(policy, business);
+    }
+
+    private PolicyDiagnosisResponse.Evidence metadataIndustryEvidence(
+            Policy policy, DiagnosisInputNormalizer.NormalizedBusiness business) {
         String policyIndustry = policy.getIndustry();
         if (!blank(policyIndustry) && !"전체".equals(policyIndustry)) {
             boolean match = IndustryHierarchy.sameIndustry(business.industry(), policyIndustry);
@@ -148,7 +194,8 @@ public class PolicyDiagnosisService {
                     match ? MatchStatus.PASS : MatchStatus.FAIL, metadataSource("업종"));
         }
         if (PolicyIndustryFallbackMatcher.matches(policy, business.industry())) {
-            return evidence("industry", "업종", business.industry(), "본문의 업종 표현", MatchStatus.PASS, "정책 목록의 제목·설명 정보");
+            return evidence("industry", "업종", business.industry(), "본문의 업종 표현", MatchStatus.PASS,
+                    "정책 목록의 제목·지원 대상·설명 정보");
         }
         return unknown("industry", "업종", business.industry());
     }
@@ -156,27 +203,32 @@ public class PolicyDiagnosisService {
     private PolicyDiagnosisResponse.Evidence dateEvidence(Policy policy, CardData cardData, List<String> hardFailReasons) {
         if (cardData.usable()) {
             JsonNode applicationPeriod = field(cardData.root(), "application_period");
-            if (applicationPeriod == null) return unknown("date", "신청 기간", "오늘");
-            if (applicationPeriod.isNull()) {
-                return explicitNoCondition("date", "신청 기간", "오늘", cardData, applicationPeriod);
+            if (applicationPeriod != null && applicationPeriod.isNull()) {
+                if (cardData.fullyExtracted()) {
+                    return explicitNoCondition("date", "신청 기간", "오늘", cardData, applicationPeriod);
+                }
+            } else if (applicationPeriod != null) {
+                String status = text(applicationPeriod, "status");
+                if ("closed".equals(status)) {
+                    hardFailReasons.add("신청 기간이 종료되었어요.");
+                    return evidence("date", "신청 기간", "오늘", "마감", MatchStatus.FAIL, cardSource());
+                }
+                if ("open".equals(status)) {
+                    return evidence("date", "신청 기간", "오늘", "접수 중", MatchStatus.PASS, cardSource());
+                }
+                if ("upcoming".equals(status) || "scheduled".equals(status)) {
+                    return evidence("date", "신청 기간", "오늘", "접수 예정", MatchStatus.PARTIAL, cardSource());
+                }
+                if (!"unknown".equals(status) && hasFutureStructuredStart(applicationPeriod)) {
+                    return evidence("date", "신청 기간", "오늘", "접수 예정", MatchStatus.PARTIAL, cardSource());
+                }
             }
-            String status = text(applicationPeriod, "status");
-            if ("closed".equals(status)) {
-                hardFailReasons.add("신청 기간이 종료되었어요.");
-                return evidence("date", "신청 기간", "오늘", "마감", MatchStatus.FAIL, cardSource());
-            }
-            if ("open".equals(status)) {
-                return evidence("date", "신청 기간", "오늘", "접수 중", MatchStatus.PASS, cardSource());
-            }
-            if ("upcoming".equals(status) || "scheduled".equals(status)) {
-                return evidence("date", "신청 기간", "오늘", "접수 예정", MatchStatus.PARTIAL, cardSource());
-            }
-            if ("unknown".equals(status)) return unknown("date", "신청 기간", "오늘");
-            if (hasFutureStructuredStart(applicationPeriod)) {
-                return evidence("date", "신청 기간", "오늘", "접수 예정", MatchStatus.PARTIAL, cardSource());
-            }
-            return unknown("date", "신청 기간", "오늘");
+            if (cardData.fullyExtracted()) return unknown("date", "신청 기간", "오늘");
         }
+        return metadataDateEvidence(policy, hardFailReasons);
+    }
+
+    private PolicyDiagnosisResponse.Evidence metadataDateEvidence(Policy policy, List<String> hardFailReasons) {
         LocalDate today = LocalDate.now();
         LocalDate start = policy.getApplicationStartDate();
         LocalDate end = policy.getApplicationEndDate();
@@ -299,8 +351,8 @@ public class PolicyDiagnosisService {
         return "LIKELY_ELIGIBLE";
     }
 
-    private Integer score(List<PolicyDiagnosisResponse.Evidence> evidence, int comparableCount) {
-        if (comparableCount < 2) return null;
+    private Integer score(CardData cardData, List<PolicyDiagnosisResponse.Evidence> evidence, int comparableCount) {
+        if (comparableCount < 2 && !completeEvidence(cardData, evidence)) return null;
         int[] weights = {25, 25, 15, 15, 10, 10};
         double numerator = 0;
         int denominator = 0;
@@ -310,6 +362,7 @@ public class PolicyDiagnosisService {
             denominator += weights[i];
             numerator += weights[i] * multiplier(status);
         }
+        if (denominator == 0) return null;
         return (int) Math.round(numerator * 100 / denominator);
     }
 
@@ -324,9 +377,14 @@ public class PolicyDiagnosisService {
     }
 
     private String confidence(CardData cardData, List<PolicyDiagnosisResponse.Evidence> evidence, int comparableCount) {
+        if (completeEvidence(cardData, evidence)) return "HIGH";
         if (!cardData.usable() || comparableCount <= 2) return "LOW";
-        if (cardData.fullyExtracted() && evidence.stream().noneMatch(item -> item.getStatus() == MatchStatus.UNKNOWN)) return "HIGH";
         return "MEDIUM";
+    }
+
+    private static boolean completeEvidence(CardData cardData, List<PolicyDiagnosisResponse.Evidence> evidence) {
+        return cardData.fullyExtracted()
+                && evidence.stream().noneMatch(item -> item.getStatus() == MatchStatus.UNKNOWN);
     }
 
     private static boolean comparable(MatchStatus status) {
@@ -380,7 +438,13 @@ public class PolicyDiagnosisService {
 
     private static List<String> textList(JsonNode node) {
         List<String> values = new ArrayList<>();
-        if (node.isArray()) node.forEach(value -> values.add(value.asText()));
+        if (node.isArray()) {
+            node.forEach(value -> {
+                if (!value.isTextual()) return;
+                String text = value.asText().trim();
+                if (!text.isEmpty()) values.add(text);
+            });
+        }
         return values;
     }
 

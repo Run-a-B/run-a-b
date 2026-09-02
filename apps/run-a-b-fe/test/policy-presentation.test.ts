@@ -4,6 +4,7 @@ import {
   buildPolicyBrief,
   buildPolicyQuality,
   evidenceStatusPresentation,
+  firstSafeExternalUrl,
   statusPresentation,
   type PolicyDetailData,
 } from "../src/features/policy/presentation.ts";
@@ -181,4 +182,13 @@ test("status presentation uses exact Korean labels and classes", () => {
 test("upcoming application dates use a truthful contextual status label", () => {
   assert.equal(evidenceStatusPresentation("date", "PARTIAL").label, "접수 예정");
   assert.equal(evidenceStatusPresentation("revenue", "PARTIAL").label, "부분 일치");
+});
+
+test("external policy links skip unsafe candidates and keep a safe fallback", () => {
+  assert.equal(
+    firstSafeExternalUrl("javascript:alert(1)", "https://example.com/original"),
+    "https://example.com/original",
+  );
+  assert.equal(firstSafeExternalUrl("mailto:test@example.com", "not a url"), null);
+  assert.equal(firstSafeExternalUrl("http://example.com/apply"), "http://example.com/apply");
 });

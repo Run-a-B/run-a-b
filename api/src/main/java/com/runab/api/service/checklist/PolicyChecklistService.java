@@ -93,7 +93,8 @@ public class PolicyChecklistService {
     }
 
     private JsonNode parseEligibility(PolicyCard card) {
-        if (card == null || card.getFullJson() == null || card.getFullJson().isBlank()) {
+        if (card == null || !isUsableExtraction(card.getExtractionStatus())
+                || card.getFullJson() == null || card.getFullJson().isBlank()) {
             return JsonNodeFactory.instance.objectNode();
         }
         try {
@@ -103,6 +104,11 @@ public class PolicyChecklistService {
                     card.getPolicyId(), e.getMessage());
             return JsonNodeFactory.instance.objectNode();
         }
+    }
+
+    private boolean isUsableExtraction(String extractionStatus) {
+        return "extracted".equals(extractionStatus)
+                || "partially_extracted".equals(extractionStatus);
     }
 
     // 담당 부서 우선, 없으면 주관 기관, 그것도 없으면 지역

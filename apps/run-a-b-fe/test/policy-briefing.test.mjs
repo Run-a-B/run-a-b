@@ -91,6 +91,35 @@ test("renders diagnosis entry copy and policy-specific route", async (t) => {
   assert.match(html, /href="\/policies\/42\/diagnosis"/);
 });
 
+test("renders the real structured-condition extraction status", async (t) => {
+  const vite = await createServer({
+    root: process.cwd(),
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+    optimizeDeps: { noDiscovery: true },
+    ssr: { optimizeDeps: { noDiscovery: true } },
+  });
+  t.after(() => vite.close());
+  const { PolicyBriefing } = await vite.ssrLoadModule(
+    "/src/components/policy/PolicyBriefing.tsx",
+  );
+
+  const complete = await render(React.createElement(PolicyBriefing, {
+    detail: policyDetail({ extractionStatus: "extracted" }),
+  }));
+  const partial = await render(React.createElement(PolicyBriefing, {
+    detail: policyDetail({ extractionStatus: "partially_extracted" }),
+  }));
+  const failed = await render(React.createElement(PolicyBriefing, {
+    detail: policyDetail({ extractionStatus: "failed" }),
+  }));
+
+  assert.match(complete, /구조화 조건 상태: 완료/);
+  assert.match(partial, /구조화 조건 상태: 부분 확인/);
+  assert.match(failed, /구조화 조건 상태: 미확인/);
+});
+
 function policyDetail(overrides = {}) {
   return {
     id: 42,
@@ -235,6 +264,21 @@ test("application method section links to the original notice when no method is 
   assert.match(html, /href="https:\/\/example\.com\/original"/);
   assert.match(html, /target="_blank"/);
   assert.match(html, /rel="noopener noreferrer"/);
+});
+
+test("application method section skips an unsafe primary URL for a safe fallback", async (t) => {
+  const { PolicyApplicationMethodSection } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicyApplicationMethodSection, {
+    detail: policyDetail({
+      applicationMethod: null,
+      detailUrl: "javascript:alert(1)",
+      applicationUrl: "https://example.com/safe-apply",
+    }),
+    summary: null,
+  }));
+
+  assert.match(html, /href="https:\/\/example\.com\/safe-apply"/);
+  assert.doesNotMatch(html, /javascript:/);
 });
 
 test("application method section prefers expanded method over stored method", async (t) => {

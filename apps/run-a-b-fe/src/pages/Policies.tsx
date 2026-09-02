@@ -28,7 +28,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const PER_PAGE = 12;
 
-function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
+export function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
 
@@ -79,11 +79,12 @@ function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: b
       </div>
       <button
         type="button"
+        aria-label={`${policy.title} 60초 진단`}
         onClick={(event) => {
           event.stopPropagation();
           navigate(`/policies/${policy.id}/diagnosis`);
         }}
-        className="w-full rounded-xl border border-primary-200 bg-primary-50 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-100 transition-colors"
+        className="min-h-11 w-full rounded-xl border border-primary-200 bg-primary-50 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-100 transition-colors"
       >
         60초 진단
       </button>
@@ -91,7 +92,7 @@ function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: b
   );
 }
 
-function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
+export function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
 
@@ -131,11 +132,12 @@ function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visite
       <div className="flex items-center gap-4 shrink-0">
         <button
           type="button"
+          aria-label={`${policy.title} 60초 진단`}
           onClick={(event) => {
             event.stopPropagation();
             navigate(`/policies/${policy.id}/diagnosis`);
           }}
-          className="rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-100 transition-colors"
+          className="min-h-11 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-100 transition-colors"
         >
           60초 진단
         </button>

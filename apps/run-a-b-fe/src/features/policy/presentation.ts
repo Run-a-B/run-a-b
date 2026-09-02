@@ -18,6 +18,7 @@ export interface PolicyDetailData {
   industry: string | null;
   agency: string | null;
   sourceSystem: string | null;
+  extractionStatus?: string | null;
   tags?: string[];
   targetConditions?: string[];
   supportItems?: { category: string; amount: string; method: string }[];
@@ -78,6 +79,27 @@ export function evidenceStatusPresentation(
   return key === "date" && status === "PARTIAL"
     ? { ...presentation, label: "접수 예정" }
     : presentation;
+}
+
+export function firstSafeExternalUrl(
+  ...candidates: Array<string | null | undefined>
+): string | null {
+  for (const candidate of candidates) {
+    if (!candidate?.trim()) continue;
+    try {
+      const url = new URL(candidate);
+      if (url.protocol === "https:" || url.protocol === "http:") return url.href;
+    } catch {
+      // Try the next stored source URL.
+    }
+  }
+  return null;
+}
+
+export function structuredConditionLabel(extractionStatus: string | null | undefined): string {
+  if (extractionStatus === "extracted") return "완료";
+  if (extractionStatus === "partially_extracted") return "부분 확인";
+  return "미확인";
 }
 
 export interface BriefItem {

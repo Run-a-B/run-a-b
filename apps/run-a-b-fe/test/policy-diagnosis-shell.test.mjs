@@ -61,6 +61,9 @@ test("renders the diagnosis loading shell at the diagnosis route", async (t) => 
 
   assert.match(html, /60초 정책 진단/);
   assert.match(html, /정책 정보를 불러오고 있어요/);
+  assert.match(html, /role="status"/);
+  assert.match(html, /aria-live="polite"/);
+  assert.match(html, /aria-atomic="true"/);
 });
 
 function diagnosisResult(policy) {
@@ -121,6 +124,78 @@ test("renders exact result metadata and explicit missing metadata fallbacks", as
   assert.match(populated, /2026\.09\.01 ~ 2026\.09\.30/);
   assert.match(missing, /정보 없음/);
   assert.match(missing, /기간 정보 없음 — 원문 공고 확인/);
+});
+
+test("required diagnosis selects expose a visible marker and a strong focus indicator", async (t) => {
+  const vite = await createServer({ root: process.cwd(), appType: "custom", logLevel: "silent" });
+  t.after(() => vite.close());
+  const { SelectField } = await vite.ssrLoadModule("/src/pages/PolicyDiagnosis.tsx");
+
+  const html = await render(React.createElement(SelectField, {
+    id: "region",
+    label: "지역",
+    value: "",
+    options: ["서울특별시"],
+    onChange: () => {},
+  }));
+
+  assert.match(html, /aria-hidden="true"[^>]*>\*</);
+  assert.match(html, /<select[^>]*required=""/);
+  assert.match(html, /<select[^>]*aria-required="true"/);
+  assert.match(html, /focus-visible:border-primary-600/);
+  assert.match(html, /focus-visible:ring-primary-600/);
+  assert.match(html, /focus-visible:ring-offset-2/);
+});
+
+test("diagnosis steps expose complete, current, and waiting states in text", async (t) => {
+  const vite = await createServer({ root: process.cwd(), appType: "custom", logLevel: "silent" });
+  t.after(() => vite.close());
+  const { DiagnosisSteps } = await vite.ssrLoadModule("/src/pages/PolicyDiagnosis.tsx");
+
+  const html = await render(React.createElement(DiagnosisSteps, { step: 1 }));
+
+  assert.match(html, /내 사업 정보 확인[\s\S]*완료/);
+  assert.match(html, /aria-current="step"[\s\S]*공고문 조건 대조[\s\S]*진행 중/);
+  assert.match(html, /판정 근거 정리[\s\S]*대기/);
+  assert.match(html, /text-gray-600/);
+});
+
+test("diagnosis transition targets and breadcrumb expose focus and location semantics", async (t) => {
+  const vite = await createServer({ root: process.cwd(), appType: "custom", logLevel: "silent" });
+  t.after(() => vite.close());
+  const { DiagnosisAnalysisPanel, DiagnosisErrorNotice, DiagnosisResult } = await vite.ssrLoadModule("/src/pages/PolicyDiagnosis.tsx");
+
+  const analyzing = await render(React.createElement(DiagnosisAnalysisPanel, { step: 0 }));
+  const failure = await render(React.createElement(DiagnosisErrorNotice, { message: "다시 시도해 주세요.", detailUrl: null }));
+  const result = await render(React.createElement(
+    MemoryRouter,
+    null,
+    React.createElement(DiagnosisResult, {
+      policyId: 42,
+      result: diagnosisResult({ id: 42, title: "테스트 정책", category: null, agency: null, applicationPeriod: null, detailUrl: null }),
+    }),
+  ));
+
+  assert.match(analyzing, /<h2[^>]*tabindex="-1"/);
+  assert.match(failure, /role="alert"[^>]*tabindex="-1"/);
+  assert.match(result, /<nav[^>]*aria-label="현재 위치"/);
+  assert.equal((result.match(/aria-hidden="true"/g) ?? []).length, 2);
+  assert.match(result, /aria-current="page"/);
+  assert.match(result, /<h1[^>]*tabindex="-1"/);
+});
+
+test("diagnosis result localizes source and extraction tokens", async (t) => {
+  const vite = await createServer({ root: process.cwd(), appType: "custom", logLevel: "silent" });
+  t.after(() => vite.close());
+  const { DiagnosisResult } = await vite.ssrLoadModule("/src/pages/PolicyDiagnosis.tsx");
+  const result = diagnosisResult({ id: 42, title: "테스트 정책", category: null, agency: null, applicationPeriod: null, detailUrl: null });
+  result.dataQuality.extractionStatus = "partially_extracted";
+
+  const html = await render(React.createElement(MemoryRouter, null, React.createElement(DiagnosisResult, { policyId: 42, result })));
+
+  assert.match(html, /기업마당/);
+  assert.match(html, /일부 추출/);
+  assert.doesNotMatch(html, /partially_extracted/);
 });
 
 test("only treats policy detail as ready when it belongs to the current route", async (t) => {

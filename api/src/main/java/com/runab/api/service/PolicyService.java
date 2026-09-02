@@ -169,6 +169,9 @@ public class PolicyService {
     public PolicyDetailResponse getPolicyDetail(Long id) {
         Policy policy = policyRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.POLICY_NOT_FOUND));
-        return PolicyDetailResponse.from(policy);
+        PolicyCard card = policy.getExternalId() == null
+                ? null
+                : policyCardRepository.findByPolicyId(PolicyCard.toPolicyId(policy.getExternalId())).orElse(null);
+        return PolicyDetailResponse.from(policy, card == null ? null : card.getExtractionStatus());
     }
 }

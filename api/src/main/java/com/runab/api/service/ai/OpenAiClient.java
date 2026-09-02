@@ -46,6 +46,10 @@ public class OpenAiClient {
         log.info("[OpenAiClient] 초기화 완료 - model={}", model);
     }
 
+    public boolean isConfigured() {
+        return apiKey != null && !apiKey.isBlank();
+    }
+
     /**
      * systemPrompt + userPrompt를 보내고, JSON 객체 응답 본문(JsonNode)을 그대로 파싱해서 반환.
      */

@@ -3,7 +3,16 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { getSavedReport } from "@/data/reports";
 import { markPolicyVisited } from "@/data/visited";
-import type { PolicyDetailData } from "@/features/policy/presentation";
+import {
+  firstSafeExternalUrl,
+  type PolicyDetailData,
+} from "@/features/policy/presentation";
+import {
+  isPolicyDetailForRoute,
+  policyDetailViewState,
+  type LoadedPolicyDetail,
+  type PolicyDetailLoadState,
+} from "@/features/policy/detailRoute";
 import { PolicyBriefing } from "@/components/policy/PolicyBriefing";
 import { DiagnosisEntryCard } from "@/components/policy/DiagnosisEntryCard";
 
@@ -194,7 +203,7 @@ interface PolicyApplicationMethodSectionProps {
 
 export function PolicyApplicationMethodSection({ detail, summary }: PolicyApplicationMethodSectionProps) {
   const applicationMethod = summary?.expandedApplicationMethod?.trim() || detail.applicationMethod?.trim();
-  const originalNoticeUrl = detail.detailUrl || detail.applicationUrl;
+  const originalNoticeUrl = firstSafeExternalUrl(detail.detailUrl, detail.applicationUrl);
 
   return (
     <section className="mb-6">
@@ -209,7 +218,7 @@ export function PolicyApplicationMethodSection({ detail, summary }: PolicyApplic
               href={originalNoticeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="shrink-0 text-sm font-semibold text-primary-600 hover:underline"
+              className="inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-primary-600 hover:underline"
             >
               원문 공고 보기
             </a>
@@ -225,32 +234,42 @@ export default function PolicyDetail() {
   const navigate = useNavigate();
   const policyId = Number(id);
 
-  const [apiDetail, setApiDetail] = useState<PolicyDetailData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [loadedDetail, setLoadedDetail] = useState<LoadedPolicyDetail | null>(null);
+  const [detailLoadState, setDetailLoadState] = useState<PolicyDetailLoadState>("loading");
   const [reportState, setReportState] = useState<"idle" | "loading" | "done">("idle");
   const [summary, setSummary] = useState<PolicySummaryData | null>(null);
   const [summaryState, setSummaryState] = useState<"loading" | "done" | "error">("loading");
+  const detailBelongsToRoute = isPolicyDetailForRoute(loadedDetail, policyId);
+  const apiDetail = detailBelongsToRoute ? loadedDetail?.detail ?? null : null;
+  const detailViewState = policyDetailViewState(detailLoadState, loadedDetail, policyId);
 
   useEffect(() => {
+    let active = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 즉시 새 정책의 로딩 상태로 전환한다.
-    setLoading(true);
-    setNotFound(false);
+    setDetailLoadState("loading");
+    setLoadedDetail(null);
     api.get(`/api/v1/policies/${policyId}`)
       .then(res => {
+        if (!active) return;
         const data: PolicyDetailData = res.data.data;
-        setApiDetail(data);
+        setLoadedDetail({ policyId, detail: data });
+        setDetailLoadState("ready");
         markPolicyVisited(policyId);
       })
       .catch(err => {
-        if (err.response?.status === 404) setNotFound(true);
-      })
-      .finally(() => setLoading(false));
+        if (!active) return;
+        setDetailLoadState(err.response?.status === 404 ? "missing" : "error");
+      });
+    return () => {
+      active = false;
+    };
   }, [policyId]);
 
   // 이미 이 정책 리포트를 만들었는지 백엔드에서 확인 (계정별 스코프)
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 리포트 상태도 현재 정책 경로에 귀속한다.
+    setReportState("idle");
     getSavedReport(policyId)
       .then((found) => {
         if (active && found) setReportState("done");
@@ -296,7 +315,7 @@ export default function PolicyDetail() {
       });
   }
 
-  if (loading) {
+  if (detailViewState === "loading") {
     return (
       <div className="bg-gray-50 min-h-screen pt-15 px-40 py-8">
         <div className="flex flex-col gap-4 animate-pulse">
@@ -311,10 +330,12 @@ export default function PolicyDetail() {
     );
   }
 
-  if (notFound || !apiDetail) {
+  if (detailViewState !== "ready" || !apiDetail) {
     return (
-      <div className="flex flex-col items-center justify-center py-40 text-gray-400">
-        <p className="text-lg font-semibold mb-2">정책을 찾을 수 없어요</p>
+      <div className="flex flex-col items-center justify-center py-40 text-gray-600">
+        <p className="text-lg font-semibold mb-2">
+          {detailViewState === "missing" ? "정책을 찾을 수 없어요" : "정책을 불러오지 못했어요"}
+        </p>
         <button onClick={() => navigate("/policies")} className="mt-4 text-sm text-primary-600 hover:underline">
           정책 목록으로 돌아가기
         </button>
@@ -322,7 +343,7 @@ export default function PolicyDetail() {
     );
   }
 
-  const originalNoticeUrl = apiDetail.detailUrl || apiDetail.applicationUrl;
+  const originalNoticeUrl = firstSafeExternalUrl(apiDetail.detailUrl, apiDetail.applicationUrl);
 
   return (
     <div className="bg-gray-50 min-h-screen pt-15">
@@ -391,7 +412,7 @@ export default function PolicyDetail() {
                 <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[apiDetail.category ?? ""] ?? "bg-gray-100 text-gray-600"}`}>
                   {apiDetail.category ?? "분류 정보 없음"}
                 </span>
-                <span className="text-xs text-gray-400">{apiDetail.region ?? "지역 정보 없음"}</span>
+                <span className="text-xs text-gray-600">{apiDetail.region ?? "지역 정보 없음"}</span>
               </div>
               <h1 className="text-2xl font-bold text-gray-900 leading-snug mb-6">{apiDetail.title}</h1>
 

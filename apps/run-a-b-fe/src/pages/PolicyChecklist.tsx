@@ -33,6 +33,30 @@ export type ChecklistLoadState =
     }
   | { tag: "failed"; policyId: number };
 
+export function ChecklistLoadNotice({
+  failed,
+  onBack,
+  onRetry,
+}: {
+  failed: boolean;
+  onBack: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-24">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50"><ChecklistIcon className="text-primary-400" /></div>
+      <div role={failed ? "alert" : "status"} aria-live={failed ? undefined : "polite"} aria-busy={failed ? undefined : true} className="text-center">
+        <p className="mb-1 text-base font-bold text-gray-700">{failed ? "체크리스트를 불러오지 못했어요" : "체크리스트 정보를 불러오고 있어요"}</p>
+        <p className="text-sm leading-6 text-gray-600">{failed ? "네트워크 상태를 확인한 뒤 다시 시도해 주세요." : "정책 원문과 신청 준비 정보를 확인하고 있어요."}</p>
+      </div>
+      <div className="mt-2 flex gap-3">
+        <button onClick={onBack} className="min-h-11 rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50">정책 상세 보기</button>
+        {failed && <button onClick={onRetry} className="min-h-11 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700">다시 시도</button>}
+      </div>
+    </div>
+  );
+}
+
 function currentChecklistLoad(state: ChecklistLoadState, policyId: number): ChecklistLoadState {
   if (!Number.isInteger(policyId) || policyId < 1) return { tag: "failed", policyId };
   return state.policyId === policyId ? state : { tag: "loading", policyId };
@@ -73,17 +97,7 @@ export default function PolicyChecklist() {
     return (
       <div className="min-h-screen bg-gray-50 pt-15">
         <ChecklistBreadcrumb policyId={policyId} title={failed ? "정책" : "정책 로딩 중..."} />
-        <div className="flex flex-col items-center justify-center gap-4 py-24">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50"><ChecklistIcon className="text-primary-400" /></div>
-          <div className="text-center">
-            <p className="mb-1 text-base font-bold text-gray-700">{failed ? "체크리스트를 불러오지 못했어요" : "체크리스트 정보를 불러오고 있어요"}</p>
-            <p className="text-sm leading-6 text-gray-400">{failed ? "네트워크 상태를 확인한 뒤 다시 시도해 주세요." : "정책 원문과 신청 준비 정보를 확인하고 있어요."}</p>
-          </div>
-          <div className="mt-2 flex gap-3">
-            <button onClick={() => navigate(`/policies/${policyId}`)} className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50">정책 상세 보기</button>
-            {failed && <button onClick={retryChecklist} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700">다시 시도</button>}
-          </div>
-        </div>
+        <ChecklistLoadNotice failed={failed} onBack={() => navigate(`/policies/${policyId}`)} onRetry={retryChecklist} />
       </div>
     );
   }
@@ -121,7 +135,7 @@ export default function PolicyChecklist() {
           <div className="rounded-2xl border border-gray-200 bg-white px-6 py-5">
             <div className="mb-3 flex items-center gap-2">
               <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${categoryColor}`}>{policy.category ?? "기타"}</span>
-              <span className="text-xs text-gray-400">{detail.applicationPeriod}</span>
+              <span className="text-xs text-gray-600">{detail.applicationPeriod}</span>
             </div>
             <h1 className="mb-1 text-lg font-bold leading-snug text-gray-900">{policy.title}</h1>
             <p className="text-sm text-gray-500">{detail.department}</p>
@@ -146,10 +160,10 @@ export default function PolicyChecklist() {
               <ProgressRing checked={totalChecked} total={checklist.length} />
               <div>
                 <p className="text-sm font-semibold text-gray-800">{progress.kind === "required" ? `필수 서류 ${progress.completed}/${progress.total} 준비됨` : `준비 권장 서류 ${progress.completed}/${progress.total} 확인됨`}</p>
-                <p className="mt-0.5 text-xs text-gray-400">{progress.notice ?? `${progress.total - progress.completed}개 필수 서류가 남았어요`}</p>
+                <p className="mt-0.5 text-xs text-gray-600">{progress.notice ?? `${progress.total - progress.completed}개 필수 서류가 남았어요`}</p>
               </div>
             </div>
-            {progress.kind === "required" && <div className="mb-4 flex flex-col gap-1.5">{required.map((item) => <div key={item.id} className="flex items-center gap-2"><div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${checked[item.id] ? "bg-green-400" : "bg-gray-100"}`}>{checked[item.id] && <span className="text-[8px] font-bold text-white">✓</span>}</div><span className={`truncate text-xs ${checked[item.id] ? "text-gray-400 line-through" : "text-gray-600"}`}>{item.label}</span></div>)}</div>}
+            {progress.kind === "required" && <div className="mb-4 flex flex-col gap-1.5">{required.map((item) => <div key={item.id} className="flex items-center gap-2"><div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${checked[item.id] ? "bg-green-400" : "bg-gray-100"}`}>{checked[item.id] && <span className="text-[8px] font-bold text-white">✓</span>}</div><span className={`truncate text-xs ${checked[item.id] ? "text-gray-600 line-through" : "text-gray-600"}`}>{item.label}</span></div>)}</div>}
             {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-700">원문 공고·신청 페이지 보기 <ExternalIcon /></a> : <p className="rounded-xl bg-gray-50 px-4 py-3 text-center text-xs leading-5 text-gray-500">원문 공고·신청 페이지 URL을 확인해 주세요.</p>}
           </div>
           <button onClick={() => navigate(`/policies/${policyId}`)} className="flex items-center justify-center gap-1.5 py-2 text-sm text-gray-500 transition-colors hover:text-gray-700">정책 상세로 돌아가기</button>
@@ -168,7 +182,7 @@ function ChecklistGroup({ title, completed, total, required, notice, items, chec
 }
 
 export function ChecklistRow({ item, checked, onToggle }: { item: ChecklistItem; checked: boolean; onToggle: () => void }) {
-  return <button type="button" aria-pressed={checked} onClick={onToggle} className={`flex w-full items-start gap-4 px-6 py-4 text-left transition-colors hover:bg-gray-50 ${checked ? "bg-gray-50" : ""}`}><span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 ${checked ? "border-primary-600 bg-primary-600" : "border-gray-300"}`}>{checked && <span className="text-[10px] font-bold text-white">✓</span>}</span><span className="min-w-0 flex-1"><span className={`block text-sm font-medium ${checked ? "text-gray-400 line-through" : "text-gray-800"}`}>{item.label}</span>{item.required && <span className="mt-1 block text-xs font-medium text-red-400">필수</span>}{item.description && <span className="mt-0.5 block text-xs leading-5 text-gray-400">{item.description}</span>}</span></button>;
+  return <button type="button" aria-pressed={checked} onClick={onToggle} className={`flex w-full items-start gap-4 px-6 py-4 text-left transition-colors hover:bg-gray-50 ${checked ? "bg-gray-50" : ""}`}><span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 ${checked ? "border-primary-600 bg-primary-600" : "border-gray-300"}`}>{checked && <span className="text-[10px] font-bold text-white">✓</span>}</span><span className="min-w-0 flex-1"><span className={`block text-sm font-medium ${checked ? "text-gray-600 line-through" : "text-gray-800"}`}>{item.label}</span>{item.required && <span className="mt-1 block text-xs font-medium text-red-400">필수</span>}{item.description && <span className="mt-0.5 block text-xs leading-5 text-gray-600">{item.description}</span>}</span></button>;
 }
 
 function ProgressRing({ checked, total }: { checked: number; total: number }) {

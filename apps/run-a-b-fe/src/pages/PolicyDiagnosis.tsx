@@ -15,6 +15,13 @@ import {
   type SavedBusiness,
 } from "@/features/diagnosis/model";
 import {
+  DIAGNOSIS_AUDIT_STEPS,
+  diagnosisAnnouncement,
+  diagnosisExtractionLabel,
+  diagnosisFocusTarget,
+  diagnosisSourceLabel,
+} from "@/features/diagnosis/presentation";
+import {
   evidenceStatusPresentation,
   statusPresentation,
   type PolicyDetailData,
@@ -34,8 +41,6 @@ const EMPTY_FORM: DiagnosisForm = {
   annualRevenueBand: "",
   employeeCountBand: "",
 };
-
-const AUDIT_STEPS = ["내 사업 정보 확인", "공고문 조건 대조", "판정 근거 정리"];
 
 const STATUS_ICONS: Record<EvidenceStatus, string> = {
   PASS: "✓",
@@ -71,13 +76,46 @@ export function OriginalNoticeLink({ detailUrl }: { detailUrl: string | null }) 
   const originalUrl = safeExternalUrl(detailUrl);
   if (!originalUrl) return null;
   return (
-    <a href={originalUrl} target="_blank" rel="noopener noreferrer" className="rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-700">
+    <a href={originalUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white hover:bg-primary-700">
       원문 공고 보기
     </a>
   );
 }
 
-function SelectField({
+export function DiagnosisBreadcrumb({ policyId, title }: { policyId: number; title: string }) {
+  return (
+    <nav aria-label="현재 위치" className="flex items-center gap-1.5 text-sm text-gray-500">
+      <Link to="/policies">정책 모아보기</Link>
+      <span aria-hidden="true" className="text-gray-300">›</span>
+      <Link to={`/policies/${policyId}`}>{title}</Link>
+      <span aria-hidden="true" className="text-gray-300">›</span>
+      <span aria-current="page" className="text-gray-700">60초 정책 진단</span>
+    </nav>
+  );
+}
+
+export function DiagnosisStatus({ message }: { message: string }) {
+  return <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">{message}</p>;
+}
+
+export function DiagnosisErrorNotice({
+  message,
+  detailUrl,
+  alertRef,
+}: {
+  message: string;
+  detailUrl: string | null;
+  alertRef?: React.Ref<HTMLParagraphElement>;
+}) {
+  return (
+    <>
+      <p ref={alertRef} role="alert" tabIndex={-1} className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{message}</p>
+      <div className="mt-3"><OriginalNoticeLink detailUrl={detailUrl} /></div>
+    </>
+  );
+}
+
+export function SelectField({
   id,
   label,
   value,
@@ -95,20 +133,51 @@ function SelectField({
   const errorId = `${id}-error`;
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-semibold text-gray-700 mb-2">{label}</label>
+      <label htmlFor={id} className="block text-sm font-semibold text-gray-700 mb-2">
+        {label}<span aria-hidden="true" className="ml-1 text-red-600">*</span><span className="sr-only"> (필수)</span>
+      </label>
       <select
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        required
+        aria-required="true"
         aria-invalid={Boolean(error)}
         aria-describedby={error ? errorId : undefined}
-        className={`w-full rounded-xl border bg-white px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-200 ${error ? "border-red-400" : "border-gray-200 focus:border-primary-400"}`}
+        className={`w-full rounded-xl border bg-white px-4 py-3 text-sm text-gray-700 focus-visible:border-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 ${error ? "border-red-400" : "border-gray-200"}`}
       >
         <option value="">선택해 주세요</option>
         {options.map((option) => <option key={option} value={option}>{option}</option>)}
       </select>
       {error && <p id={errorId} role="alert" className="mt-1.5 text-xs text-red-600">{error}</p>}
     </div>
+  );
+}
+
+export function DiagnosisSteps({ step }: { step: number }) {
+  return (
+    <ol className="mt-7 max-w-md mx-auto space-y-3">
+      {DIAGNOSIS_AUDIT_STEPS.map((label, index) => {
+        const status = index < step ? "완료" : index === step ? "진행 중" : "대기";
+        return (
+          <li key={label} aria-current={index === step ? "step" : undefined} className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm ${index <= step ? "bg-primary-50 text-primary-700" : "bg-gray-50 text-gray-600"}`}>
+            <span aria-hidden="true" className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${index < step ? "bg-primary-600 text-white" : index === step ? "bg-primary-200 text-primary-700" : "bg-gray-200 text-gray-600"}`}>{index < step ? "✓" : index + 1}</span>
+            <span>{label}</span>
+            <span className="ml-auto text-xs font-semibold">{status}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+export function DiagnosisAnalysisPanel({ step, headingRef }: { step: number; headingRef?: React.Ref<HTMLHeadingElement> }) {
+  return (
+    <section className="mt-6 bg-white rounded-2xl border border-gray-200 px-6 py-10">
+      <div className="mx-auto w-10 h-10 rounded-full border-[3px] border-primary-200 border-t-primary-600 animate-spin" />
+      <h2 ref={headingRef} tabIndex={-1} className="mt-5 text-center text-base font-bold text-gray-800">공고문 조건을 비교하고 있어요</h2>
+      <DiagnosisSteps step={step} />
+    </section>
   );
 }
 
@@ -124,16 +193,16 @@ function EvidenceRow({ evidence }: { evidence: DiagnosisResponse["evidence"][num
         </span>
       </div>
       <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-        <div><dt className="text-xs text-gray-400">내 조건</dt><dd className="mt-0.5 text-gray-700">{evidence.userValue ?? "입력 정보 없음"}</dd></div>
-        <div><dt className="text-xs text-gray-400">공고 조건</dt><dd className="mt-0.5 text-gray-700">{evidence.policyValue ?? "확인된 근거 없음"}</dd></div>
+        <div><dt className="text-xs text-gray-600">내 조건</dt><dd className="mt-0.5 text-gray-700">{evidence.userValue ?? "입력 정보 없음"}</dd></div>
+        <div><dt className="text-xs text-gray-600">공고 조건</dt><dd className="mt-0.5 text-gray-700">{evidence.policyValue ?? "확인된 근거 없음"}</dd></div>
       </dl>
       <p className="mt-3 text-sm leading-6 text-gray-600">{evidence.reason ?? "판정 이유를 확인할 수 없어요."}</p>
-      <p className="mt-2 text-xs text-gray-400">출처: {evidence.source ?? "출처 정보 없음"}</p>
+      <p className="mt-2 text-xs text-gray-600">출처: {evidence.source ?? "출처 정보 없음"}</p>
     </li>
   );
 }
 
-export function DiagnosisResult({ policyId, result, onRetry }: { policyId: number; result: DiagnosisResponse; onRetry?: () => void }) {
+export function DiagnosisResult({ policyId, result, onRetry, headingRef }: { policyId: number; result: DiagnosisResponse; onRetry?: () => void; headingRef?: React.Ref<HTMLHeadingElement> }) {
   const verdict = statusPresentation[result.verdict];
   const category = nonblank(result.policy.category, "정보 없음");
   const agency = nonblank(result.policy.agency, "정보 없음");
@@ -141,18 +210,18 @@ export function DiagnosisResult({ policyId, result, onRetry }: { policyId: numbe
   return (
     <div className="bg-gray-50 min-h-screen pt-15 px-40">
       <main className="max-w-4xl mx-auto py-10">
-        <nav className="flex items-center gap-1.5 text-sm text-gray-500"><Link to="/policies">정책 모아보기</Link><span className="text-gray-300">›</span><Link to={`/policies/${policyId}`}>{result.policy.title}</Link><span className="text-gray-300">›</span><span className="text-gray-700">60초 정책 진단</span></nav>
+        <DiagnosisBreadcrumb policyId={policyId} title={result.policy.title} />
         <section className="mt-5 bg-white rounded-2xl border border-gray-200 p-6" aria-live="polite">
           <p className="text-sm text-gray-500">{result.policy.title}</p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-bold text-gray-900">{result.verdictLabel || verdict.label}</h1>
+            <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold text-gray-900">{result.verdictLabel || verdict.label}</h1>
             <span className={`rounded-full border px-3 py-1 text-sm font-semibold ${verdict.className}`}>{verdict.label}</span>
             <span className="text-sm text-gray-500">판정 신뢰도: {result.confidence === "HIGH" ? "높음" : result.confidence === "MEDIUM" ? "보통" : "낮음"}</span>
           </div>
           <dl className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600">
-            <div className="flex gap-1.5"><dt className="text-gray-400">분야</dt><dd>{category}</dd></div>
-            <div className="flex gap-1.5"><dt className="text-gray-400">주관 기관</dt><dd>{agency}</dd></div>
-            <div className="flex gap-1.5"><dt className="text-gray-400">신청 기간</dt><dd>{applicationPeriod}</dd></div>
+            <div className="flex gap-1.5"><dt className="text-gray-600">분야</dt><dd>{category}</dd></div>
+            <div className="flex gap-1.5"><dt className="text-gray-600">주관 기관</dt><dd>{agency}</dd></div>
+            <div className="flex gap-1.5"><dt className="text-gray-600">신청 기간</dt><dd>{applicationPeriod}</dd></div>
           </dl>
           <p className="mt-4 text-base leading-7 text-gray-700">{result.summary}</p>
           <div className="mt-5 rounded-xl bg-primary-50 border border-primary-100 px-4 py-3 text-sm text-primary-700">
@@ -169,15 +238,15 @@ export function DiagnosisResult({ policyId, result, onRetry }: { policyId: numbe
 
         <section className="mt-5 bg-white rounded-2xl border border-gray-200 p-6 text-sm text-gray-600">
           <h2 className="font-bold text-gray-900">정보 품질</h2>
-          <dl className="mt-3 grid gap-3 sm:grid-cols-2"><div><dt className="text-gray-400">출처</dt><dd>{result.dataQuality.sourceSystem ?? "출처 정보 없음"}</dd></div><div><dt className="text-gray-400">확인 가능한 항목 수</dt><dd>{result.dataQuality.verifiedFactCount}/{result.dataQuality.totalFactCount}</dd></div><div><dt className="text-gray-400">구조화 조건</dt><dd>{result.dataQuality.policyCardAvailable ? "확인됨" : "미확인"}</dd></div><div><dt className="text-gray-400">추출 상태</dt><dd>{result.dataQuality.extractionStatus ?? "상태 정보 없음"}</dd></div></dl>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2"><div><dt className="text-gray-600">출처</dt><dd>{diagnosisSourceLabel(result.dataQuality.sourceSystem)}</dd></div><div><dt className="text-gray-600">확인 가능한 항목 수</dt><dd>{result.dataQuality.verifiedFactCount}/{result.dataQuality.totalFactCount}</dd></div><div><dt className="text-gray-600">구조화 조건</dt><dd>{result.dataQuality.policyCardAvailable ? "확인됨" : "미확인"}</dd></div><div><dt className="text-gray-600">추출 상태</dt><dd>{diagnosisExtractionLabel(result.dataQuality.extractionStatus)}</dd></div></dl>
           <p className="mt-5 rounded-xl bg-gray-50 px-4 py-3 leading-6">{result.disclaimer}</p>
         </section>
 
         <div className="mt-5 flex flex-wrap gap-3">
           <OriginalNoticeLink detailUrl={result.policy.detailUrl} />
-          <Link to={`/policies/${policyId}/checklist`} className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">신청 체크리스트</Link>
-          {onRetry && <button onClick={onRetry} className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">입력 다시 하기</button>}
-          <Link to={`/policies/${policyId}`} className="rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">정책 상세 보기</Link>
+          <Link to={`/policies/${policyId}/checklist`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">신청 체크리스트</Link>
+          {onRetry && <button onClick={onRetry} className="min-h-11 rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">입력 다시 하기</button>}
+          <Link to={`/policies/${policyId}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">정책 상세 보기</Link>
         </div>
       </main>
     </div>
@@ -197,9 +266,26 @@ export default function PolicyDiagnosis() {
   const mountedRef = useRef(true);
   const diagnosisGenerationRef = useRef(0);
   const minimumTimerRef = useRef<{ timer: number; resolve: () => void } | null>(null);
+  const formHeadingRef = useRef<HTMLHeadingElement>(null);
+  const analyzingHeadingRef = useRef<HTMLHeadingElement>(null);
+  const resultHeadingRef = useRef<HTMLHeadingElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const policyBelongsToRoute = isLoadedPolicyForRoute(loadedPolicy, policyId);
   const policy = policyBelongsToRoute ? loadedPolicy?.detail ?? null : null;
   const policyViewState = diagnosisPolicyViewState(policyState, loadedPolicy, policyId);
+  const flowBelongsToRoute = flow.tag === "idle" || flow.policyId === policyId;
+  const activeFlow: FlowState = flowBelongsToRoute ? flow : { tag: "idle" };
+  const announcement = policyViewState === "loading"
+    ? diagnosisAnnouncement({ tag: "loading" })
+    : policyViewState === "unavailable"
+      ? diagnosisAnnouncement({ tag: "unavailable" })
+      : activeFlow.tag === "analyzing"
+        ? diagnosisAnnouncement({ tag: "analyzing", step: activeFlow.step })
+        : activeFlow.tag === "result"
+          ? diagnosisAnnouncement({ tag: "result", verdictLabel: activeFlow.result.verdictLabel || statusPresentation[activeFlow.result.verdict].label })
+          : activeFlow.tag === "error"
+            ? diagnosisAnnouncement({ tag: "error", message: activeFlow.message })
+            : diagnosisAnnouncement({ tag: "form" });
 
   useEffect(() => {
     mountedRef.current = true;
@@ -263,6 +349,18 @@ export default function PolicyDiagnosis() {
     };
   }, [flow.tag]);
 
+  useEffect(() => {
+    if (typeof document === "undefined" || policyViewState !== "ready") return;
+    const target = diagnosisFocusTarget(activeFlow.tag);
+    const targets = {
+      form: formHeadingRef,
+      analyzing: analyzingHeadingRef,
+      result: resultHeadingRef,
+      error: errorRef,
+    };
+    targets[target].current?.focus();
+  }, [activeFlow.tag, policyId, policyViewState]);
+
   function updateForm<K extends keyof DiagnosisForm>(key: K, value: DiagnosisForm[K]) {
     editedRef.current = true;
     setForm((current) => ({ ...current, [key]: value }));
@@ -299,72 +397,80 @@ export default function PolicyDiagnosis() {
 
   if (policyViewState === "loading") {
     return (
-      <div className="bg-gray-50 min-h-screen pt-15 px-40">
-        <div className="py-20 max-w-3xl mx-auto">
-          <h1 className="text-2xl font-bold text-gray-900">60초 정책 진단</h1>
-          <div className="mt-6 bg-white rounded-2xl border border-gray-200 px-6 py-12 text-center">
-            <div className="mx-auto w-9 h-9 rounded-full border-[3px] border-gray-200 border-t-primary-600 animate-spin" />
-            <p className="mt-4 text-sm text-gray-500">정책 정보를 불러오고 있어요</p>
+      <>
+        <DiagnosisStatus message={announcement} />
+        <div className="bg-gray-50 min-h-screen pt-15 px-40">
+          <div className="py-20 max-w-3xl mx-auto">
+            <h1 className="text-2xl font-bold text-gray-900">60초 정책 진단</h1>
+            <div className="mt-6 bg-white rounded-2xl border border-gray-200 px-6 py-12 text-center">
+              <div className="mx-auto w-9 h-9 rounded-full border-[3px] border-gray-200 border-t-primary-600 animate-spin" />
+              <p className="mt-4 text-sm text-gray-500">정책 정보를 불러오고 있어요</p>
+            </div>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (policyViewState === "unavailable" || !policy) {
     return (
-      <div className="bg-gray-50 min-h-screen pt-15 px-40">
-        <div className="py-20 max-w-3xl mx-auto text-center bg-white rounded-2xl border border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900">{policyState === "missing" ? "정책을 찾을 수 없어요" : "정책 정보를 불러오지 못했어요"}</h1>
-          <button onClick={() => navigate("/policies")} className="mt-5 text-sm font-semibold text-primary-600 hover:underline">정책 목록으로 돌아가기</button>
+      <>
+        <DiagnosisStatus message={announcement} />
+        <div className="bg-gray-50 min-h-screen pt-15 px-40">
+          <div className="py-20 max-w-3xl mx-auto text-center bg-white rounded-2xl border border-gray-200">
+            <h1 className="text-xl font-bold text-gray-900">{policyState === "missing" ? "정책을 찾을 수 없어요" : "정책 정보를 불러오지 못했어요"}</h1>
+            <button onClick={() => navigate("/policies")} className="mt-5 min-h-11 text-sm font-semibold text-primary-600 hover:underline">정책 목록으로 돌아가기</button>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   if (flow.tag === "analyzing" && flow.policyId === policyId) {
     return (
-      <div className="bg-gray-50 min-h-screen pt-15 px-40">
-        <main className="max-w-3xl mx-auto py-10">
-          <h1 className="text-2xl font-bold text-gray-900">60초 정책 진단</h1>
-          <p className="mt-2 text-sm text-gray-500">{policy.title}</p>
-          <section className="mt-6 bg-white rounded-2xl border border-gray-200 px-6 py-10" aria-live="polite">
-            <div className="mx-auto w-10 h-10 rounded-full border-[3px] border-primary-200 border-t-primary-600 animate-spin" />
-            <h2 className="mt-5 text-center text-base font-bold text-gray-800">공고문 조건을 비교하고 있어요</h2>
-            <ol className="mt-7 max-w-md mx-auto space-y-3">
-              {AUDIT_STEPS.map((step, index) => (
-                <li key={step} className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm ${index <= flow.step ? "bg-primary-50 text-primary-700" : "bg-gray-50 text-gray-400"}`}>
-                  <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${index < flow.step ? "bg-primary-600 text-white" : index === flow.step ? "bg-primary-200 text-primary-700" : "bg-gray-200 text-gray-500"}`}>{index < flow.step ? "✓" : index + 1}</span>
-                  {step}
-                </li>
-              ))}
-            </ol>
-          </section>
-        </main>
-      </div>
+      <>
+        <DiagnosisStatus message={announcement} />
+        <div className="bg-gray-50 min-h-screen pt-15 px-40">
+          <main className="max-w-3xl mx-auto py-10">
+            <h1 className="text-2xl font-bold text-gray-900">60초 정책 진단</h1>
+            <p className="mt-2 text-sm text-gray-500">{policy.title}</p>
+            <DiagnosisAnalysisPanel step={flow.step} headingRef={analyzingHeadingRef} />
+          </main>
+        </div>
+      </>
     );
   }
 
-  if (flow.tag === "result" && flow.policyId === policyId) return <DiagnosisResult policyId={policyId} result={flow.result} onRetry={() => setFlow({ tag: "idle" })} />;
+  if (flow.tag === "result" && flow.policyId === policyId) {
+    return (
+      <>
+        <DiagnosisStatus message={announcement} />
+        <DiagnosisResult policyId={policyId} result={flow.result} headingRef={resultHeadingRef} onRetry={() => setFlow({ tag: "idle" })} />
+      </>
+    );
+  }
 
   return (
-    <div className="bg-gray-50 min-h-screen pt-15 px-40">
-      <main className="max-w-3xl mx-auto py-10">
-        <nav className="flex items-center gap-1.5 text-sm text-gray-500"><Link to="/policies">정책 모아보기</Link><span className="text-gray-300">›</span><Link to={`/policies/${policyId}`}>{policy.title}</Link><span className="text-gray-300">›</span><span className="text-gray-700">60초 정책 진단</span></nav>
-        <section className="mt-5 bg-white rounded-2xl border border-gray-200 p-6">
-          <h1 className="text-2xl font-bold text-gray-900">60초 정책 진단</h1>
-          <p className="mt-2 text-sm text-gray-500">내 사업 정보와 공고 조건을 1차 비교해 드려요. 최종 자격은 원문 공고와 담당 기관에서 확인해 주세요.</p>
-          <p className="mt-4 rounded-xl border border-primary-100 bg-primary-50 px-4 py-3 text-sm text-primary-700">{policy.title}</p>
-          {flow.tag === "error" && flow.policyId === policyId && <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{flow.message}</p>}
-          {flow.tag === "error" && flow.policyId === policyId && <div className="mt-3"><OriginalNoticeLink detailUrl={policy.detailUrl} /></div>}
-          <form className="mt-6 space-y-5" onSubmit={submit} noValidate>
-            <fieldset><legend className="text-sm font-semibold text-gray-700 mb-2">사업 상태</legend><div className="flex gap-3"><label className={`flex-1 cursor-pointer rounded-xl border px-4 py-3 text-sm ${form.businessStatus ? "border-primary-400 bg-primary-50 text-primary-700" : "border-gray-200 text-gray-600"}`}><input type="radio" name="businessStatus" checked={form.businessStatus} onChange={() => updateForm("businessStatus", true)} className="mr-2" />사업 중</label><label className={`flex-1 cursor-pointer rounded-xl border px-4 py-3 text-sm ${!form.businessStatus ? "border-primary-400 bg-primary-50 text-primary-700" : "border-gray-200 text-gray-600"}`}><input type="radio" name="businessStatus" checked={!form.businessStatus} onChange={() => updateForm("businessStatus", false)} className="mr-2" />사업 준비 중</label></div></fieldset>
-            <div className="grid gap-5 sm:grid-cols-2"><SelectField id="region" label="지역" value={form.region} options={REGION_OPTIONS} error={errors.region} onChange={(value) => updateForm("region", value)} /><SelectField id="industry" label="업종" value={form.industry} options={INDUSTRY_OPTIONS} error={errors.industry} onChange={(value) => updateForm("industry", value)} /></div>
-            {form.businessStatus && <div className="grid gap-5 sm:grid-cols-2"><SelectField id="annualRevenueBand" label="연 매출 구간" value={form.annualRevenueBand} options={REVENUE_OPTIONS} error={errors.annualRevenueBand} onChange={(value) => updateForm("annualRevenueBand", value)} /><SelectField id="employeeCountBand" label="직원 수 구간" value={form.employeeCountBand} options={EMPLOYEE_OPTIONS} error={errors.employeeCountBand} onChange={(value) => updateForm("employeeCountBand", value)} /></div>}
-            <button type="submit" className="w-full rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:bg-primary-300">{flow.tag === "error" && flow.policyId === policyId ? "다시 진단하기" : "내 조건으로 진단하기"}</button>
-          </form>
-        </section>
-      </main>
-    </div>
+    <>
+      <DiagnosisStatus message={announcement} />
+      <div className="bg-gray-50 min-h-screen pt-15 px-40">
+        <main className="max-w-3xl mx-auto py-10">
+          <DiagnosisBreadcrumb policyId={policyId} title={policy.title} />
+          <section className="mt-5 bg-white rounded-2xl border border-gray-200 p-6">
+            <h1 ref={formHeadingRef} tabIndex={-1} className="text-2xl font-bold text-gray-900">60초 정책 진단</h1>
+            <p className="mt-2 text-sm text-gray-500">내 사업 정보와 공고 조건을 1차 비교해 드려요. 최종 자격은 원문 공고와 담당 기관에서 확인해 주세요.</p>
+            <p className="mt-4 rounded-xl border border-primary-100 bg-primary-50 px-4 py-3 text-sm text-primary-700">{policy.title}</p>
+            <p className="mt-3 text-xs text-gray-600"><span aria-hidden="true" className="text-red-600">*</span> 표시는 필수 입력 항목입니다.</p>
+            {flow.tag === "error" && flow.policyId === policyId && <DiagnosisErrorNotice message={flow.message} detailUrl={policy.detailUrl} alertRef={errorRef} />}
+            <form className="mt-6 space-y-5" onSubmit={submit} noValidate>
+              <fieldset><legend className="text-sm font-semibold text-gray-700 mb-2">사업 상태</legend><div className="flex gap-3"><label className={`flex-1 cursor-pointer rounded-xl border px-4 py-3 text-sm ${form.businessStatus ? "border-primary-400 bg-primary-50 text-primary-700" : "border-gray-200 text-gray-600"}`}><input type="radio" name="businessStatus" checked={form.businessStatus} onChange={() => updateForm("businessStatus", true)} className="mr-2" />사업 중</label><label className={`flex-1 cursor-pointer rounded-xl border px-4 py-3 text-sm ${!form.businessStatus ? "border-primary-400 bg-primary-50 text-primary-700" : "border-gray-200 text-gray-600"}`}><input type="radio" name="businessStatus" checked={!form.businessStatus} onChange={() => updateForm("businessStatus", false)} className="mr-2" />사업 준비 중</label></div></fieldset>
+              <div className="grid gap-5 sm:grid-cols-2"><SelectField id="region" label="지역" value={form.region} options={REGION_OPTIONS} error={errors.region} onChange={(value) => updateForm("region", value)} /><SelectField id="industry" label="업종" value={form.industry} options={INDUSTRY_OPTIONS} error={errors.industry} onChange={(value) => updateForm("industry", value)} /></div>
+              {form.businessStatus && <div className="grid gap-5 sm:grid-cols-2"><SelectField id="annualRevenueBand" label="연 매출 구간" value={form.annualRevenueBand} options={REVENUE_OPTIONS} error={errors.annualRevenueBand} onChange={(value) => updateForm("annualRevenueBand", value)} /><SelectField id="employeeCountBand" label="직원 수 구간" value={form.employeeCountBand} options={EMPLOYEE_OPTIONS} error={errors.employeeCountBand} onChange={(value) => updateForm("employeeCountBand", value)} /></div>}
+              <button type="submit" className="min-h-11 w-full rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:bg-primary-300">{flow.tag === "error" && flow.policyId === policyId ? "다시 진단하기" : "내 조건으로 진단하기"}</button>
+            </form>
+          </section>
+        </main>
+      </div>
+    </>
   );
 }

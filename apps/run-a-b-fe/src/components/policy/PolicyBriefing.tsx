@@ -1,6 +1,7 @@
 import {
   buildPolicyBrief,
   buildPolicyQuality,
+  structuredConditionLabel,
   type PolicyDetailData,
 } from "@/features/policy/presentation";
 
@@ -58,7 +59,7 @@ export function PolicyBriefing({ detail }: PolicyBriefingProps) {
         <div className="flex flex-col gap-1 text-xs text-gray-600 leading-5">
           <p>{`확인 가능한 항목 수: ${quality.availableCount}/${quality.totalCount}`}</p>
           <p>확인되지 않은 항목: {quality.missingLabels.length > 0 ? quality.missingLabels.join(", ") : "없음"}</p>
-          <p>구조화 조건 상태: 미확인</p>
+          <p>{`구조화 조건 상태: ${structuredConditionLabel(detail.extractionStatus)}`}</p>
           <p className="text-gray-500">원문 공고가 최종 기준입니다.</p>
         </div>
       </div>

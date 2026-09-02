@@ -103,6 +103,48 @@ class PolicyChecklistServiceTest {
                 .doesNotContain("객체 서류", "42");
     }
 
+    @Test
+    void failedCardJsonIsNeverPresentedAsNoticeDerivedDocuments() {
+        PolicyCard card = PolicyCard.builder()
+                .policyId(PolicyCard.toPolicyId("PBLN_TEST"))
+                .externalId("PBLN_TEST")
+                .extractionStatus("failed")
+                .fullJson("""
+                        {"eligibility": {"documents": ["신뢰할 수 없는 이전 서류"]}}
+                        """)
+                .build();
+        given(policyRepository.findById(1L)).willReturn(Optional.of(policyWithoutDates()));
+        given(policyCardRepository.findByPolicyId(PolicyCard.toPolicyId("PBLN_TEST")))
+                .willReturn(Optional.of(card));
+
+        var result = service.getChecklist(1L);
+
+        assertThat(result.getApplicationChecklist())
+                .extracting(PolicyChecklistResponse.ChecklistItem::getLabel)
+                .doesNotContain("신뢰할 수 없는 이전 서류");
+    }
+
+    @Test
+    void partiallyExtractedCardCanProvideConservativeDocumentMentions() {
+        PolicyCard card = PolicyCard.builder()
+                .policyId(PolicyCard.toPolicyId("PBLN_TEST"))
+                .externalId("PBLN_TEST")
+                .extractionStatus("partially_extracted")
+                .fullJson("""
+                        {"eligibility": {"documents": ["확인된 서류 언급"]}}
+                        """)
+                .build();
+        given(policyRepository.findById(1L)).willReturn(Optional.of(policyWithoutDates()));
+        given(policyCardRepository.findByPolicyId(PolicyCard.toPolicyId("PBLN_TEST")))
+                .willReturn(Optional.of(card));
+
+        var result = service.getChecklist(1L);
+
+        assertThat(result.getApplicationChecklist())
+                .extracting(PolicyChecklistResponse.ChecklistItem::getLabel)
+                .contains("확인된 서류 언급");
+    }
+
     private Policy policyWithoutDates() {
         Policy policy = Policy.builder()
                 .externalId("PBLN_TEST")

@@ -17,4 +17,15 @@ class PolicyDetailResponseTest {
 
         assertThat(PolicyDetailResponse.from(policy).getSourceSystem()).isEqualTo("bizinfo");
     }
+
+    @Test
+    void exposesThePolicyCardExtractionStatus() {
+        Policy policy = Policy.builder()
+                .externalId("PBLN_TEST")
+                .title("테스트 정책")
+                .build();
+
+        assertThat(PolicyDetailResponse.from(policy, "partially_extracted").getExtractionStatus())
+                .isEqualTo("partially_extracted");
+    }
 }
