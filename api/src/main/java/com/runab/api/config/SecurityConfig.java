@@ -91,6 +91,7 @@ public class SecurityConfig {
         config.setAllowedOrigins(List.of(
                 "http://localhost:3000",   // React 로컬 개발
                 "http://localhost:5173",   // Vite 로컬 개발
+                "http://127.0.0.1:5173",   // Vite 로컬 개발 (Makefile 실행 주소)
                 "https://run-a-b.com",     // 배포 도메인
                 "https://www.run-a-b.com"
         ));
