@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { type Policy } from "@/data/policies";
 import { getVisitedPolicies } from "@/data/visited";
+import { relevancePresentation } from "@/features/policy/presentation";
 
 const REGIONS = [
   "전체 지역", "서울특별시", "부산광역시", "대구광역시", "인천광역시",
@@ -28,9 +29,10 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const PER_PAGE = 12;
 
-export function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
+export function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number | null }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
+  const relevanceView = relevancePresentation(relevance);
 
   return (
     <div
@@ -66,12 +68,18 @@ export function PolicyCard({ policy, visited, relevance }: { policy: Policy; vis
       <p className="text-xs text-gray-500 leading-relaxed line-clamp-2 flex-1">{policy.description}</p>
 
       <div className="flex items-end justify-between pt-1">
-        <div className="flex items-center gap-2">
-          <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary-500 rounded-full" style={{ width: `${relevance}%` }} />
+        {relevanceView.available ? (
+          <div className="flex items-center gap-2">
+            <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-primary-500 rounded-full" style={{ width: relevanceView.width }} />
+            </div>
+            <span className="text-xs font-medium text-primary-600">{relevanceView.label}</span>
           </div>
-          <span className="text-xs font-medium text-primary-600">관련도 {relevance}%</span>
-        </div>
+        ) : (
+          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+            {relevanceView.label}
+          </span>
+        )}
         <div className="text-right">
           <p className="text-xs text-gray-500">{policy.agency}</p>
           <p className="text-xs text-gray-400">{policy.date}</p>
@@ -92,9 +100,10 @@ export function PolicyCard({ policy, visited, relevance }: { policy: Policy; vis
   );
 }
 
-export function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
+export function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number | null }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
+  const relevanceView = relevancePresentation(relevance);
 
   return (
     <div
@@ -141,12 +150,18 @@ export function PolicyListItem({ policy, visited, relevance }: { policy: Policy;
         >
           60초 진단
         </button>
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary-500 rounded-full" style={{ width: `${relevance}%` }} />
+        {relevanceView.available ? (
+          <div className="flex items-center gap-2">
+            <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-primary-500 rounded-full" style={{ width: relevanceView.width }} />
+            </div>
+            <span className="w-16 text-xs font-medium text-primary-600">{relevanceView.label}</span>
           </div>
-          <span className="text-xs font-medium text-primary-600 w-16">관련도 {relevance}%</span>
-        </div>
+        ) : (
+          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+            {relevanceView.label}
+          </span>
+        )}
         <span className="text-xs text-gray-500 w-20 text-right">{policy.agency}</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
           <polyline points="9 18 15 12 9 6" />

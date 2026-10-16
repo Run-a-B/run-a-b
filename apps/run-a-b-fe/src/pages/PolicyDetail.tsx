@@ -15,6 +15,7 @@ import {
 } from "@/features/policy/detailRoute";
 import { PolicyBriefing } from "@/components/policy/PolicyBriefing";
 import { DiagnosisEntryCard } from "@/components/policy/DiagnosisEntryCard";
+import { PolicyNoticeDetails } from "@/components/policy/PolicyNoticeDetails";
 
 const HIGHLIGHT_ICONS: Record<string, React.ReactNode> = {
   money: (
@@ -436,47 +437,7 @@ export default function PolicyDetail() {
               </div>
 
               <PolicyBriefing detail={apiDetail} />
-
-              {/* 사업 내용: AI가 원본(사업 목적+사업 내용)만으로 재구성한 문장 우선, 없으면 원본 필드 폴백 */}
-              {(summary?.expandedDescription?.trim() || apiDetail.purposeText || apiDetail.description) && (
-                <section className="mb-6">
-                  <h2 className="text-lg font-bold text-gray-900 mb-3">사업 내용</h2>
-                  {summary?.expandedDescription?.trim() ? (
-                    <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{summary.expandedDescription.trim()}</p>
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      {apiDetail.purposeText && (
-                        <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.purposeText}</p>
-                      )}
-                      {apiDetail.description && (
-                        <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.description}</p>
-                      )}
-                    </div>
-                  )}
-                </section>
-              )}
-
-              <PolicyApplicationMethodSection detail={apiDetail} summary={summary} />
-
-              {/* 더 자세한 내용 안내 */}
-              {originalNoticeUrl && (
-                <div className="mt-2 flex items-center gap-3 bg-primary-50 border border-primary-100 rounded-xl px-5 py-4">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/>
-                  </svg>
-                  <p className="text-sm text-gray-600 flex-1">더 자세한 내용은 원문 공고에서 확인할 수 있어요.</p>
-                  <a
-                    href={originalNoticeUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 text-sm font-semibold text-primary-600 hover:underline"
-                  >
-                    원문 보기 →
-                  </a>
-                </div>
-              )}
+              <PolicyNoticeDetails detail={apiDetail} summary={summary} />
             </div>
           </div>
         </div>

@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildPolicyNotice,
   buildPolicyBrief,
   buildPolicyQuality,
   evidenceStatusPresentation,
   firstSafeExternalUrl,
+  relevancePresentation,
   statusPresentation,
   type PolicyDetailData,
 } from "../src/features/policy/presentation.ts";
@@ -191,4 +193,60 @@ test("external policy links skip unsafe candidates and keep a safe fallback", ()
   );
   assert.equal(firstSafeExternalUrl("mailto:test@example.com", "not a url"), null);
   assert.equal(firstSafeExternalUrl("http://example.com/apply"), "http://example.com/apply");
+});
+
+test("missing relevance is unavailable instead of a fake zero percent", () => {
+  assert.deepEqual(relevancePresentation(null), {
+    available: false,
+    label: "로그인 후 분석",
+    value: null,
+    width: "0%",
+  });
+});
+
+test("numeric relevance keeps its visible percentage", () => {
+  assert.deepEqual(relevancePresentation(64), {
+    available: true,
+    label: "관련도 64%",
+    value: 64,
+    width: "64%",
+  });
+});
+
+test("notice keeps the overview and splits source-marked clauses in order", () => {
+  assert.deepEqual(
+    buildPolicyNotice(policy({
+      description: "여성친화기업을 지원합니다. ☞ 경산시 소재 2년 이상 기업 ☞ 편의시설 개선비 최대 500만원",
+      targetGroup: "중소기업",
+      applicationPeriod: "2026.09.07 ~ 2026.09.14",
+      applicationMethod: "방문 또는 이메일 접수",
+    })),
+    {
+      overview: ["여성친화기업을 지원합니다."],
+      keyPoints: [
+        "경산시 소재 2년 이상 기업",
+        "편의시설 개선비 최대 500만원",
+      ],
+      targetGroup: "중소기업",
+      applicationPeriod: "2026.09.07 ~ 2026.09.14",
+      applicationMethod: "방문 또는 이메일 접수",
+    },
+  );
+});
+
+test("notice removes blank and duplicate marked clauses without rewriting text", () => {
+  const notice = buildPolicyNotice(policy({
+    purposeText: "저장된 사업 목적",
+    description: "  ☞ 실제 지원 조건 ☞  ☞ 실제 지원 조건 ☞ 원문 그대로의 혜택  ",
+  }));
+
+  assert.deepEqual(notice.overview, ["저장된 사업 목적"]);
+  assert.deepEqual(notice.keyPoints, ["실제 지원 조건", "원문 그대로의 혜택"]);
+});
+
+test("unmarked notice text remains a source overview", () => {
+  const notice = buildPolicyNotice(policy({ description: "구분자 없는 원문 설명" }));
+
+  assert.deepEqual(notice.overview, ["구분자 없는 원문 설명"]);
+  assert.deepEqual(notice.keyPoints, []);
 });

@@ -302,3 +302,41 @@ test("application method section uses the stored method when no expanded method 
   assert.match(html, /저장된 신청 방법/);
   assert.doesNotMatch(html, /신청 방법 정보가 아직 수집되지 않았어요\./);
 });
+
+test("detailed notice renders every stored source clause and application fact", async (t) => {
+  const vite = await createServer({
+    root: process.cwd(),
+    appType: "custom",
+    logLevel: "silent",
+    server: { middlewareMode: true },
+    optimizeDeps: { noDiscovery: true },
+    ssr: { optimizeDeps: { noDiscovery: true } },
+  });
+  t.after(() => vite.close());
+  const { PolicyNoticeDetails } = await vite.ssrLoadModule(
+    "/src/components/policy/PolicyNoticeDetails.tsx",
+  );
+
+  const html = await render(React.createElement(PolicyNoticeDetails, {
+    detail: policyDetail({
+      description: "여성친화기업을 지원합니다. ☞ 경산시 소재 2년 이상 기업 ☞ 편의시설 개선비 최대 500만원",
+      purposeText: null,
+      targetGroup: "중소기업",
+      applicationPeriod: "2026.09.07 ~ 2026.09.14",
+      applicationMethod: "방문 또는 이메일 접수",
+    }),
+    summary: null,
+  }));
+
+  assert.match(html, /상세 공고 내용/);
+  assert.match(html, /사업 개요/);
+  assert.match(html, /여성친화기업을 지원합니다\./);
+  assert.match(html, /공고문 핵심 항목/);
+  assert.match(html, /경산시 소재 2년 이상 기업/);
+  assert.match(html, /편의시설 개선비 최대 500만원/);
+  assert.match(html, /중소기업/);
+  assert.match(html, /2026\.09\.07 ~ 2026\.09\.14/);
+  assert.match(html, /방문 또는 이메일 접수/);
+  assert.match(html, /공고문 원문이 최종 기준입니다\./);
+  assert.match(html, /href="https:\/\/example\.com\/original"/);
+});

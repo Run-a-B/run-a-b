@@ -7,7 +7,7 @@ export interface Policy {
   isAIRecommended: boolean;
   title: string;
   description: string;
-  relevance: number;
+  relevance: number | null;
   agency: string;
   date: string;
 }
@@ -72,7 +72,7 @@ interface UserInfo {
   employees?: string;
 }
 
-export function calcRelevance(policy: Policy, user: UserInfo | null): number {
+export function calcRelevance(policy: Policy, user: UserInfo | null): number | null {
   // 비로그인 시 하드코딩값 그대로
   if (!user) return policy.relevance;
 

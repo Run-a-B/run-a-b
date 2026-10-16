@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import Reveal from "@/components/common/Reveal";
+import { relevancePresentation } from "@/features/policy/presentation";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "기술": "bg-violet-100 text-violet-700",
@@ -21,7 +22,7 @@ interface LatestPolicy {
   category: string;
   date: string;
   agency: string;
-  relevance: number;
+  relevance: number | null;
 }
 
 function PolicyCardSkeleton() {
@@ -137,6 +138,7 @@ export function HomePage() {
               [1, 2, 3].map(i => <PolicyCardSkeleton key={i} />)
             ) : latestPolicies.map((policy, i) => {
               const tagStyle = CATEGORY_COLORS[policy.category] ?? "bg-primary-100 text-primary-600";
+              const relevanceView = relevancePresentation(policy.relevance);
               return (
                 <Reveal key={policy.id} index={i} className="flex-1">
                   <div
@@ -150,12 +152,18 @@ export function HomePage() {
                     <h2 className="text-base font-bold leading-snug line-clamp-2">{policy.title}</h2>
                     <p className="text-sm text-text-secondary leading-relaxed line-clamp-2">{policy.description}</p>
                     <div className="flex items-center justify-between mt-auto pt-2">
-                      <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary-100">
-                        <div className="w-10 h-1 rounded-full bg-gray-300 overflow-hidden">
-                          <div className="h-full rounded-full bg-primary-600" style={{ width: `${policy.relevance}%` }} />
+                      {relevanceView.available ? (
+                        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary-100">
+                          <div className="w-10 h-1 rounded-full bg-gray-300 overflow-hidden">
+                            <div className="h-full rounded-full bg-primary-600" style={{ width: relevanceView.width }} />
+                          </div>
+                          <span className="text-xs font-bold text-primary-600">{relevanceView.label}</span>
                         </div>
-                        <span className="text-xs font-bold text-primary-600">관련도 {policy.relevance}%</span>
-                      </div>
+                      ) : (
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500">
+                          {relevanceView.label}
+                        </span>
+                      )}
                       <span className="text-xs text-text-secondary">{policy.agency}</span>
                     </div>
                   </div>

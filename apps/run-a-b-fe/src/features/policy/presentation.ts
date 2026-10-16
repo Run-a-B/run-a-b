@@ -107,8 +107,83 @@ export interface BriefItem {
   value: string;
   available: boolean;
 }
+
+export interface RelevancePresentation {
+  available: boolean;
+  label: string;
+  value: number | null;
+  width: string;
+}
+
+export interface PolicyNotice {
+  overview: string[];
+  keyPoints: string[];
+  targetGroup: string | null;
+  applicationPeriod: string | null;
+  applicationMethod: string | null;
+}
+
 function isPresent(value: string | null | undefined): boolean {
   return Boolean(value?.trim());
+}
+
+function uniquePresent(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.filter(isPresent).map((value) => value!.trim()))];
+}
+
+export function relevancePresentation(
+  relevance: number | null | undefined,
+): RelevancePresentation {
+  if (relevance === null || relevance === undefined || !Number.isFinite(relevance)) {
+    return {
+      available: false,
+      label: "로그인 후 분석",
+      value: null,
+      width: "0%",
+    };
+  }
+
+  const value = Math.min(100, Math.max(0, Math.round(relevance)));
+  return {
+    available: true,
+    label: `관련도 ${value}%`,
+    value,
+    width: `${value}%`,
+  };
+}
+
+export function buildPolicyNotice(policy: PolicyDetailData): PolicyNotice {
+  const description = policy.description?.trim() ?? "";
+  const descriptionOverview: string[] = [];
+  const keyPoints: string[] = [];
+
+  if (description.includes("☞")) {
+    const [overview, ...points] = description.split(/\s*☞\s*/u);
+    if (overview?.trim()) descriptionOverview.push(overview.trim());
+    keyPoints.push(...points);
+  } else if (description) {
+    const lines = description.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+    const bulletPattern = /^(?:[•·▪■▶※]|[-–—])\s*/u;
+    if (lines.some((line) => bulletPattern.test(line))) {
+      for (const line of lines) {
+        if (bulletPattern.test(line)) {
+          keyPoints.push(line.replace(bulletPattern, ""));
+        } else {
+          descriptionOverview.push(line);
+        }
+      }
+    } else {
+      descriptionOverview.push(description);
+    }
+  }
+
+  return {
+    overview: uniquePresent([policy.purposeText, ...descriptionOverview]),
+    keyPoints: uniquePresent(keyPoints),
+    targetGroup: firstPresent(policy.targetGroup),
+    applicationPeriod: firstPresent(policy.applicationPeriod),
+    applicationMethod: firstPresent(policy.applicationMethod),
+  };
 }
 
 function firstPresent(
