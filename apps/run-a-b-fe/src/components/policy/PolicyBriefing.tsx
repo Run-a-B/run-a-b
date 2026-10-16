@@ -35,7 +35,7 @@ export function PolicyBriefing({ detail }: PolicyBriefingProps) {
       <h2 id="policy-briefing-heading" className="text-lg font-bold text-gray-900 mb-3">
         한눈에 보기
       </h2>
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-1 gap-3 mb-4 md:grid-cols-3">
         {briefItems.map((item) => (
           <div
             key={item.label}

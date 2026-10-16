@@ -12,14 +12,19 @@ class PolicyIndustryFallbackMatcherTest {
     @CsvSource(delimiter = '|', textBlock = """
             음식점업       | 외식업체 시설 개선 지원
             카페/음료      | 커피전문점 경영 환경 개선
+            음식점         | 외식업체 시설 개선 지원
+            카페/베이커리  | 커피전문점 경영 환경 개선
             의류/패션      | 패션기업 해외 진출 지원
             뷰티/미용      | 미용업 사업자 시설 개선
             교육/학원      | 학원업 소상공인 운영 지원
             교육/학원      | 학원 운영자 경영 지원
+            교육           | 학원 운영자 경영 지원
             IT/소프트웨어  | 소프트웨어기업 기술개발 지원
             IT/소프트웨어  | 소프트웨어 개발사 해외 진출 지원
             제조업         | 제조기업 생산성 향상 지원
+            제조           | 제조기업 생산성 향상 지원
             도소매업       | 도소매업 사업자 판로 지원
+            도소매         | 도소매업 사업자 판로 지원
             """)
     void matchesExplicitIndustryTerms(String industry, String title) {
         Policy policy = Policy.builder()

@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -112,10 +113,13 @@ public class EligibilityMatcher {
 
         // ---- date (10) : application_period.status와 반드시 일치 (규칙1·2) ----
         MatchStatus dateStatus = evalDate(root, card, hardFailReasons);
+        Double dateFraction = null;
         if (dateStatus == MatchStatus.UNKNOWN) {
-            dateStatus = evalPolicyDate(policy, hardFailReasons);
+            PolicyDateEvaluation policyDate = evalPolicyDate(policy, hardFailReasons);
+            dateStatus = policyDate.status();
+            dateFraction = policyDate.scoreFraction();
         }
-        scorer.add("date", dateStatus, W_DATE, false);
+        scorer.add("date", dateStatus, W_DATE, false, dateFraction);
 
         // ---- business_stage (10) ----
         scorer.add("business_stage", evalBusinessStage(elig, user.getBusinessStatus()), W_BUSINESS_STAGE, false);
@@ -274,9 +278,9 @@ public class EligibilityMatcher {
                 : MatchStatus.UNKNOWN;
     }
 
-    private MatchStatus evalPolicyDate(Policy policy, List<String> hardFailReasons) {
+    private PolicyDateEvaluation evalPolicyDate(Policy policy, List<String> hardFailReasons) {
         if (policy == null) {
-            return MatchStatus.UNKNOWN;
+            return new PolicyDateEvaluation(MatchStatus.UNKNOWN, null);
         }
 
         LocalDate today = LocalDate.now();
@@ -284,16 +288,31 @@ public class EligibilityMatcher {
         LocalDate end = policy.getApplicationEndDate();
         if (end != null && end.isBefore(today)) {
             hardFailReasons.add("application_period.status=closed");
-            return MatchStatus.FAIL;
+            return new PolicyDateEvaluation(MatchStatus.FAIL, 0.0);
         }
         if (start != null && start.isAfter(today)) {
-            return MatchStatus.PARTIAL;
+            return new PolicyDateEvaluation(MatchStatus.PARTIAL, 0.5);
         }
         if (start != null || end != null) {
-            return MatchStatus.PASS;
+            return new PolicyDateEvaluation(MatchStatus.PASS, deadlineFraction(today, end));
         }
-        return MatchStatus.UNKNOWN;
+        return new PolicyDateEvaluation(MatchStatus.UNKNOWN, null);
     }
+
+    private double deadlineFraction(LocalDate today, LocalDate end) {
+        if (end == null) {
+            return 0.6;
+        }
+        long remainingDays = ChronoUnit.DAYS.between(today, end);
+        if (remainingDays <= 7) return 1.0;
+        if (remainingDays <= 14) return 0.9;
+        if (remainingDays <= 30) return 0.8;
+        if (remainingDays <= 60) return 0.7;
+        if (remainingDays <= 120) return 0.6;
+        return 0.5;
+    }
+
+    private record PolicyDateEvaluation(MatchStatus status, Double scoreFraction) {}
 
     private MatchStatus evalBusinessStage(JsonNode elig, Boolean businessStatus) {
         List<String> stages = list(elig, "business_stages");
@@ -409,6 +428,11 @@ public class EligibilityMatcher {
 
         // important(region/industry)는 UNKNOWN 감점이 더 큼(30%), 나머지는 40%
         void add(String name, MatchStatus status, double maxPoints, boolean important) {
+            add(name, status, maxPoints, important, null);
+        }
+
+        void add(String name, MatchStatus status, double maxPoints, boolean important,
+                 Double scoreFraction) {
             // 버킷 분류는 상태 그대로 유지 (리포트/디버깅용 — 점수 계산과 무관)
             switch (status) {
                 case PASS -> pass.add(name);
@@ -428,7 +452,7 @@ public class EligibilityMatcher {
                 return;
             }
 
-            double fraction = switch (status) {
+            double fraction = scoreFraction != null ? scoreFraction : switch (status) {
                 case PASS -> 1.0;
                 case PARTIAL -> 0.5;                 // 배윤성 40~70% → MVP 일괄 50% 고정
                 case UNKNOWN -> important ? 0.3 : 0.4; // region/industry는 중요필수라 낮게

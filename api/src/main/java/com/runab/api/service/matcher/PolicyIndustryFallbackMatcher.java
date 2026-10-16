@@ -48,7 +48,9 @@ public final class PolicyIndustryFallbackMatcher {
                 value(policy.getTargetGroup()),
                 value(policy.getDescription())).toLowerCase(Locale.ROOT);
 
-        return KEYWORDS.getOrDefault(selectedIndustry, List.of()).stream()
+        return KEYWORDS.entrySet().stream()
+                .filter(entry -> IndustryHierarchy.sameIndustry(selectedIndustry, entry.getKey()))
+                .flatMap(entry -> entry.getValue().stream())
                 .map(keyword -> keyword.toLowerCase(Locale.ROOT))
                 .anyMatch(text::contains);
     }

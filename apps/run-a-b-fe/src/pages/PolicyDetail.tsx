@@ -348,7 +348,7 @@ export default function PolicyDetail() {
 
   return (
     <div className="bg-gray-50 min-h-screen pt-15">
-      <div className="px-40 py-4">
+      <div className="px-4 py-4 sm:px-6 lg:px-10 2xl:px-40">
         <nav className="flex items-center gap-1.5 text-sm text-gray-500">
           <Link to="/" className="hover:text-gray-700 transition-colors">홈</Link>
           <span className="text-gray-300">›</span>
@@ -358,12 +358,12 @@ export default function PolicyDetail() {
         </nav>
       </div>
 
-      <div className="px-40 py-8 flex gap-6 items-start">
+      <div className="flex flex-col items-start gap-6 px-4 py-8 sm:px-6 lg:px-10 xl:flex-row 2xl:px-40">
         {/* Left: Policy Document */}
-        <div className="flex-1 min-w-0">
+        <div className="w-full min-w-0 flex-1">
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-gray-700">정책 원문</span>
                 <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">공식 문서</span>
               </div>
@@ -396,7 +396,7 @@ export default function PolicyDetail() {
               </div>
             </div>
 
-            <div className="px-6 py-6">
+            <div className="px-5 py-6 sm:px-6">
               {/* Tags */}
               {AI_DEFAULTS.tags.length > 0 && (
                 <div className="flex items-center gap-2 mb-4">
@@ -415,10 +415,10 @@ export default function PolicyDetail() {
                 </span>
                 <span className="text-xs text-gray-600">{apiDetail.region ?? "지역 정보 없음"}</span>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 leading-snug mb-6">{apiDetail.title}</h1>
+              <h1 className="text-xl font-bold text-gray-900 leading-snug mb-6 sm:text-2xl">{apiDetail.title}</h1>
 
               {/* Metadata grid */}
-              <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden text-sm mb-8">
+              <div className="grid grid-cols-1 border border-gray-200 rounded-xl overflow-hidden text-sm mb-8 sm:grid-cols-2">
                 {[
                   { label: "주관 기관", value: apiDetail.agency ?? "-" },
                   { label: "지역", value: apiDetail.region ?? "-" },
@@ -443,7 +443,7 @@ export default function PolicyDetail() {
         </div>
 
         {/* Right: AI panels */}
-        <div className="w-110 shrink-0 flex flex-col gap-4 sticky top-6">
+        <aside className="flex w-full flex-col gap-4 xl:sticky xl:top-6 xl:w-110 xl:shrink-0">
           <PolicySummaryPanel detail={apiDetail} summary={summary} summaryState={summaryState} />
 
           <DiagnosisEntryCard policyId={policyId} />
@@ -528,7 +528,7 @@ export default function PolicyDetail() {
             </svg>
             목록으로 돌아가기
           </button>
-        </div>
+        </aside>
       </div>
     </div>
   );

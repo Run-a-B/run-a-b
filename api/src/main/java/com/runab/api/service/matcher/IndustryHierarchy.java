@@ -27,13 +27,14 @@ public final class IndustryHierarchy {
     private static Map<String, String> buildAliasMap() {
         Map<String, String> m = new HashMap<>();
         // extractor "음식점업" 규칙에 "카페" 키워드가 포함돼 있어, 음식점업 카드는 카페/음료 사용자에게도 매칭돼야 함
-        group(m, "음식점업", "음식점업", "카페/음료");
+        group(m, "음식점업", "음식점업", "음식점", "음식점업 (한식·양식·중식 등)",
+                "카페/음료", "카페/베이커리");
         group(m, "미용업", "미용업", "뷰티/미용");
-        group(m, "교육서비스업", "교육서비스업", "교육/학원");
+        group(m, "교육서비스업", "교육서비스업", "교육/학원", "교육");
         group(m, "정보통신업", "정보통신업", "IT/소프트웨어");
         // 이름이 정확히 같은 것도 명시(가독성용 — equals로도 처리되지만 그룹 목록을 한눈에 보이게)
-        group(m, "제조업", "제조업");
-        group(m, "도소매업", "도소매업");
+        group(m, "제조업", "제조업", "제조");
+        group(m, "도소매업", "도소매업", "도소매");
         return m;
     }
 

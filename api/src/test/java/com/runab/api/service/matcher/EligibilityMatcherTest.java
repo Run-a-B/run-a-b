@@ -122,6 +122,52 @@ class EligibilityMatcherTest {
     }
 
     @Test
+    @DisplayName("접수중 정책은 마감 임박도를 날짜 배점에 반영해 동률을 줄인다")
+    void openPolicyDates_useDeadlineUrgencyAsTieBreaker() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        MatchResult closesSoon = matcher.match(user, null, policy(
+                "전국", "전체", null,
+                LocalDate.now().minusDays(1), LocalDate.now().plusDays(3)));
+        MatchResult closesLater = matcher.match(user, null, policy(
+                "전국", "전체", null,
+                LocalDate.now().minusDays(1), LocalDate.now().plusDays(150)));
+
+        assertThat(closesSoon.getPass()).contains("date");
+        assertThat(closesLater.getPass()).contains("date");
+        assertThat(closesSoon.getScore()).isGreaterThan(closesLater.getScore());
+    }
+
+    @Test
+    @DisplayName("접수 마감 10일과 20일 정책도 날짜 관련도에서 구분한다")
+    void openPolicyDates_distinguishNearDeadlineBands() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        MatchResult tenDays = matcher.match(user, null, policy(
+                "전국", "전체", null,
+                LocalDate.now().minusDays(1), LocalDate.now().plusDays(10)));
+        MatchResult twentyDays = matcher.match(user, null, policy(
+                "전국", "전체", null,
+                LocalDate.now().minusDays(1), LocalDate.now().plusDays(20)));
+
+        assertThat(tenDays.getPass()).contains("date");
+        assertThat(twentyDays.getPass()).contains("date");
+        assertThat(tenDays.getScore()).isGreaterThan(twentyDays.getScore());
+    }
+
+    @Test
+    @DisplayName("회원가입 업종 별칭도 정책 업종과 같은 그룹으로 판정한다")
+    void signupIndustryAlias_matchesPolicyIndustry() {
+        BusinessInfo user = user(true, "카페/베이커리", "서울특별시", null, null);
+        Policy policy = policy(
+                "전국", "음식점업", null,
+                LocalDate.now().minusDays(1), LocalDate.now().plusDays(7));
+
+        MatchResult result = matcher.match(user, null, policy);
+
+        assertThat(result.getPass()).contains("industry");
+        assertThat(result.getFail()).doesNotContain("industry");
+    }
+
+    @Test
     @DisplayName("정책 메타데이터도 비어 있으면 기존 UNKNOWN 기준점을 유지한다")
     void missingCardAndMetadata_remainsUnknown() {
         BusinessInfo user = user(null, null, null, null, null);

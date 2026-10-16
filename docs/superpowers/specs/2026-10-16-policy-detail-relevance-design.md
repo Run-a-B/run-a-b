@@ -19,8 +19,8 @@ The live database contains policies but no `policy_card` rows. The list matcher 
 `PolicyCard` remains authoritative when it contains a usable value. Only an `UNKNOWN` region, industry, or date result may fall back to `Policy` metadata.
 
 - **Region:** `전국` or the same province is `PASS`. A different metadata region stays `UNKNOWN`, because metadata alone may be incomplete; it is not a hard failure.
-- **Industry:** an explicit non-`전체` stored industry is compared with `IndustryHierarchy`. A mismatch is `FAIL`. When the stored industry is broad, the existing conservative text matcher may return `PASS`; otherwise it stays `UNKNOWN`.
-- **Application date:** an end date before today is `FAIL` and a hard failure; a future start date is `PARTIAL`; a currently active range or one-sided current date is `PASS`; no dates is `UNKNOWN`.
+- **Industry:** an explicit non-`전체` stored industry is compared with `IndustryHierarchy`. Signup and profile aliases such as `카페/베이커리`, `음식점`, `교육`, `제조`, and `도소매` normalize to the same canonical groups used by policy filtering. A mismatch is `FAIL`. When the stored industry is broad, the existing conservative text matcher may return `PASS`; otherwise it stays `UNKNOWN`.
+- **Application date:** an end date before today is `FAIL` and a hard failure; a future start date is `PARTIAL`; a currently active range or one-sided current date is `PASS`; no dates is `UNKNOWN`. For metadata-backed active policies, remaining-time bands refine only the existing date weight so an imminent, actionable deadline breaks otherwise identical ties without overriding region or industry evidence.
 - All other card-only criteria retain their current behavior. Missing evidence remains `UNKNOWN` or `NOT_REQUIRED` according to the existing matcher contract.
 - Anonymous users or users without business information receive `relevance: null`, rendered as `로그인 후 분석`, not `0%`.
 
