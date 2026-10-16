@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.runab.api.dto.recommend.MatchResult;
 import com.runab.api.entity.BusinessInfo;
+import com.runab.api.entity.Policy;
 import com.runab.api.entity.PolicyCard;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -76,6 +78,10 @@ public class EligibilityMatcher {
     }
 
     public MatchResult match(BusinessInfo user, PolicyCard card) {
+        return match(user, card, null);
+    }
+
+    public MatchResult match(BusinessInfo user, PolicyCard card, Policy policy) {
         JsonNode root = parse(card);
         JsonNode elig = root.path("eligibility");
 
@@ -92,14 +98,23 @@ public class EligibilityMatcher {
 
         // ---- region (20) ----
         MatchStatus regionStatus = evalRegion(elig, user.getRegion(), hardFailReasons);
+        if (regionStatus == MatchStatus.UNKNOWN) {
+            regionStatus = evalPolicyRegion(policy, user.getRegion());
+        }
         scorer.add("region", regionStatus, W_REGION, true);
 
         // ---- industry (20) ----
         MatchStatus industryStatus = evalIndustry(elig, user.getJobCategory());
+        if (industryStatus == MatchStatus.UNKNOWN) {
+            industryStatus = evalPolicyIndustry(policy, user.getJobCategory());
+        }
         scorer.add("industry", industryStatus, W_INDUSTRY, true);
 
         // ---- date (10) : application_period.status와 반드시 일치 (규칙1·2) ----
         MatchStatus dateStatus = evalDate(root, card, hardFailReasons);
+        if (dateStatus == MatchStatus.UNKNOWN) {
+            dateStatus = evalPolicyDate(policy, hardFailReasons);
+        }
         scorer.add("date", dateStatus, W_DATE, false);
 
         // ---- business_stage (10) ----
@@ -220,6 +235,61 @@ public class EligibilityMatcher {
             return MatchStatus.FAIL;
         }
         if ("open".equals(status)) {
+            return MatchStatus.PASS;
+        }
+        return MatchStatus.UNKNOWN;
+    }
+
+    private MatchStatus evalPolicyRegion(Policy policy, String userRegion) {
+        if (policy == null || policy.getRegion() == null || policy.getRegion().isBlank()) {
+            return MatchStatus.UNKNOWN;
+        }
+        if ("전국".equals(policy.getRegion().trim())) {
+            return MatchStatus.PASS;
+        }
+        if (userRegion == null || userRegion.isBlank()) {
+            return MatchStatus.UNKNOWN;
+        }
+        return RegionHierarchy.sameProvince(userRegion, policy.getRegion())
+                ? MatchStatus.PASS
+                : MatchStatus.UNKNOWN;
+    }
+
+    private MatchStatus evalPolicyIndustry(Policy policy, String userIndustry) {
+        if (policy == null || userIndustry == null || userIndustry.isBlank()) {
+            return MatchStatus.UNKNOWN;
+        }
+
+        String storedIndustry = policy.getIndustry();
+        if (storedIndustry != null && !storedIndustry.isBlank()
+                && !"전체".equals(storedIndustry.trim())
+                && !"전체 업종".equals(storedIndustry.trim())) {
+            return IndustryHierarchy.sameIndustry(userIndustry, storedIndustry)
+                    ? MatchStatus.PASS
+                    : MatchStatus.FAIL;
+        }
+
+        return PolicyIndustryFallbackMatcher.matches(policy, userIndustry)
+                ? MatchStatus.PASS
+                : MatchStatus.UNKNOWN;
+    }
+
+    private MatchStatus evalPolicyDate(Policy policy, List<String> hardFailReasons) {
+        if (policy == null) {
+            return MatchStatus.UNKNOWN;
+        }
+
+        LocalDate today = LocalDate.now();
+        LocalDate start = policy.getApplicationStartDate();
+        LocalDate end = policy.getApplicationEndDate();
+        if (end != null && end.isBefore(today)) {
+            hardFailReasons.add("application_period.status=closed");
+            return MatchStatus.FAIL;
+        }
+        if (start != null && start.isAfter(today)) {
+            return MatchStatus.PARTIAL;
+        }
+        if (start != null || end != null) {
             return MatchStatus.PASS;
         }
         return MatchStatus.UNKNOWN;

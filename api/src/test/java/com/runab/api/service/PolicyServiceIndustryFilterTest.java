@@ -2,6 +2,7 @@ package com.runab.api.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.runab.api.dto.policy.PolicyPageResponse;
+import com.runab.api.entity.BusinessInfo;
 import com.runab.api.entity.Policy;
 import com.runab.api.entity.PolicyCard;
 import com.runab.api.repository.BusinessInfoRepository;
@@ -16,7 +17,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -97,6 +100,50 @@ class PolicyServiceIndustryFilterTest {
         assertThat(response.getPolicies())
                 .extracting(policy -> policy.getTitle())
                 .containsExactly("창업기업 운영자금 지원");
+    }
+
+    @Test
+    @DisplayName("정책카드가 없어도 실제 정책 메타데이터에 따라 관련도가 달라진다")
+    void scoresPoliciesFromTheirOwnMetadataWhenCardsAreMissing() {
+        BusinessInfo business = BusinessInfo.builder()
+                .businessStatus(true)
+                .jobCategory("카페/음료")
+                .region("서울특별시")
+                .build();
+        Policy matching = Policy.builder()
+                .externalId("PBLN_MATCH")
+                .title("전국 카페 사업자 지원")
+                .region("전국")
+                .industry("카페/음료")
+                .publishedDate(LocalDate.now().minusDays(2))
+                .applicationStartDate(LocalDate.now().minusDays(1))
+                .applicationEndDate(LocalDate.now().plusDays(7))
+                .build();
+        Policy closedMismatch = Policy.builder()
+                .externalId("PBLN_MISMATCH")
+                .title("지역 제조기업 지원")
+                .region("부산광역시")
+                .industry("제조업")
+                .publishedDate(LocalDate.now().minusDays(1))
+                .applicationStartDate(LocalDate.now().minusDays(10))
+                .applicationEndDate(LocalDate.now().minusDays(1))
+                .build();
+
+        when(businessInfoRepository.findByUserId(99L)).thenReturn(Optional.of(business));
+        when(policyRepository.findAll(any(Specification.class)))
+                .thenReturn(List.of(closedMismatch, matching));
+        when(policyCardRepository.findByPolicyIdIn(anyCollection())).thenReturn(List.of());
+
+        PolicyPageResponse response = policyService.getPolicies(
+                "전체 지역", "전체 업종", "전체 카테고리", null,
+                "관련도 높은순", 0, 12, 99L);
+
+        assertThat(response.getPolicies())
+                .extracting(policy -> policy.getTitle())
+                .containsExactly("전국 카페 사업자 지원", "지역 제조기업 지원");
+        assertThat(response.getPolicies())
+                .extracting(policy -> policy.getRelevance())
+                .doesNotHaveDuplicates();
     }
 
     private Policy policy(String externalId, String title, String description) {

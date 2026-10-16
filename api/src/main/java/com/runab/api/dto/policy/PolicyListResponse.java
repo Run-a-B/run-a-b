@@ -25,15 +25,15 @@ public class PolicyListResponse {
     private String industry;
     private String agency;
     private String date;              // publishedDate → "yyyy.MM.dd"
-    private int relevance;            // 관련도 도메인 전까지 고정값 0
+    private Integer relevance;        // 사업정보 비교를 하지 않았으면 null
     private boolean isAIRecommended;  // 추천 도메인 전까지 고정값 false
 
     public static PolicyListResponse from(Policy policy) {
-        return from(policy, 0, false);
+        return from(policy, null, false);
     }
 
     // userId 기반 matcher 점수가 있을 때 (EligibilityMatcher.score 그대로 사용)
-    public static PolicyListResponse from(Policy policy, int relevance, boolean isAIRecommended) {
+    public static PolicyListResponse from(Policy policy, Integer relevance, boolean isAIRecommended) {
         return PolicyListResponse.builder()
                 .id(policy.getId())
                 .title(policy.getTitle())

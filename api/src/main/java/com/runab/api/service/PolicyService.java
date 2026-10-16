@@ -112,7 +112,7 @@ public class PolicyService {
                         return new ScoredPolicy(p, 0, false);
                     }
                     PolicyCard card = cardMap.get(PolicyCard.toPolicyId(p.getExternalId()));
-                    MatchResult m = eligibilityMatcher.match(businessInfo, card);
+                    MatchResult m = eligibilityMatcher.match(businessInfo, card, p);
                     return new ScoredPolicy(p, m.getScore(), m.getScore() >= AI_RECOMMEND_THRESHOLD && !m.isHardFail());
                 })
                 .collect(Collectors.toList());
@@ -126,7 +126,9 @@ public class PolicyService {
         int from = Math.min(page * size, scored.size());
         int to = Math.min(from + size, scored.size());
         List<PolicyListResponse> content = scored.subList(from, to).stream()
-                .map(sp -> PolicyListResponse.from(sp.policy(), sp.score(), sp.aiRecommended()))
+                .map(sp -> businessInfo == null
+                        ? PolicyListResponse.from(sp.policy())
+                        : PolicyListResponse.from(sp.policy(), sp.score(), sp.aiRecommended()))
                 .toList();
 
         return PolicyPageResponse.from(new PageImpl<>(content, PageRequest.of(page, size), total));
@@ -147,7 +149,7 @@ public class PolicyService {
             return PolicyListResponse.from(policy);
         }
         PolicyCard card = cardMap.get(PolicyCard.toPolicyId(policy.getExternalId()));
-        MatchResult match = eligibilityMatcher.match(businessInfo, card);
+        MatchResult match = eligibilityMatcher.match(businessInfo, card, policy);
         return PolicyListResponse.from(policy, match.getScore(),
                 match.getScore() >= AI_RECOMMEND_THRESHOLD && !match.isHardFail());
     }

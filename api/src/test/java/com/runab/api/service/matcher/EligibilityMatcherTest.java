@@ -3,9 +3,12 @@ package com.runab.api.service.matcher;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.runab.api.dto.recommend.MatchResult;
 import com.runab.api.entity.BusinessInfo;
+import com.runab.api.entity.Policy;
 import com.runab.api.entity.PolicyCard;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -33,6 +36,122 @@ class EligibilityMatcherTest {
                 .externalId("PBLN_TEST")
                 .fullJson(fullJson)
                 .build();
+    }
+
+    private Policy policy(String region, String industry, String description,
+                          LocalDate startDate, LocalDate endDate) {
+        return Policy.builder()
+                .externalId("PBLN_POLICY")
+                .title("정책 제목")
+                .region(region)
+                .industry(industry)
+                .description(description)
+                .applicationStartDate(startDate)
+                .applicationEndDate(endDate)
+                .build();
+    }
+
+    @Test
+    @DisplayName("카드가 없으면 전국·명시 업종·접수 기간을 정책 메타데이터에서 판정한다")
+    void missingCard_usesPolicyMetadata() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        Policy policy = policy(
+                "전국",
+                "카페/음료",
+                "전국 카페 사업자 지원",
+                LocalDate.now().minusDays(1),
+                LocalDate.now().plusDays(7));
+
+        MatchResult result = matcher.match(user, null, policy);
+
+        assertThat(result.getPass()).contains("region", "industry", "date");
+        assertThat(result.getScore()).isGreaterThan(37);
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    @DisplayName("정책의 같은 시도와 보수적 본문 업종 근거를 사용할 수 있다")
+    void missingCard_usesSameProvinceAndConservativeIndustryText() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        Policy policy = policy(
+                "강남구",
+                "전체",
+                "베이커리와 제과점 사업자를 지원합니다.",
+                null,
+                LocalDate.now().plusDays(7));
+
+        MatchResult result = matcher.match(user, null, policy);
+
+        assertThat(result.getPass()).contains("region", "industry", "date");
+    }
+
+    @Test
+    @DisplayName("명시된 정책 업종 불일치는 soft fail로 구분한다")
+    void explicitPolicyIndustryMismatch_isSoftFail() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        Policy policy = policy(
+                "전국",
+                "제조업",
+                null,
+                LocalDate.now().minusDays(1),
+                LocalDate.now().plusDays(7));
+
+        MatchResult result = matcher.match(user, null, policy);
+
+        assertThat(result.getFail()).contains("industry");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    @DisplayName("접수 예정은 부분 일치이고 마감된 정책은 hard fail이다")
+    void policyDates_distinguishUpcomingAndClosed() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        MatchResult upcoming = matcher.match(user, null, policy(
+                "전국", "전체", null,
+                LocalDate.now().plusDays(2), LocalDate.now().plusDays(9)));
+        MatchResult closed = matcher.match(user, null, policy(
+                "전국", "전체", null,
+                LocalDate.now().minusDays(9), LocalDate.now().minusDays(1)));
+
+        assertThat(upcoming.getPartial()).contains("date");
+        assertThat(upcoming.isHardFail()).isFalse();
+        assertThat(closed.getFail()).contains("date");
+        assertThat(closed.getHardFailReasons()).contains("application_period.status=closed");
+        assertThat(closed.isHardFail()).isTrue();
+        assertThat(upcoming.getScore()).isGreaterThan(closed.getScore());
+    }
+
+    @Test
+    @DisplayName("정책 메타데이터도 비어 있으면 기존 UNKNOWN 기준점을 유지한다")
+    void missingCardAndMetadata_remainsUnknown() {
+        BusinessInfo user = user(null, null, null, null, null);
+
+        MatchResult result = matcher.match(user, null, policy(null, null, null, null, null));
+
+        assertThat(result.getUnknown()).contains("region", "industry", "date");
+        assertThat(result.getScore()).isEqualTo(37);
+    }
+
+    @Test
+    @DisplayName("카드의 명시 조건은 더 약한 정책 메타데이터보다 우선한다")
+    void cardEvidence_remainsAuthoritative() {
+        String json = """
+            {
+              "application_period": { "status": "open" },
+              "eligibility": {
+                "regions": ["부산광역시"], "region_condition_type": "specific",
+                "industries": ["제조업"], "industry_condition_type": "specific"
+              }
+            }
+            """;
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        Policy policy = policy("전국", "카페/음료", null, null, LocalDate.now().plusDays(7));
+
+        MatchResult result = matcher.match(user, card(json), policy);
+
+        assertThat(result.getFail()).contains("region", "industry");
+        assertThat(result.getPass()).contains("date");
+        assertThat(result.isHardFail()).isTrue();
     }
 
     @Test
