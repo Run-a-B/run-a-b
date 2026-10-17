@@ -228,9 +228,10 @@ public class EligibilityMatcher {
         return MatchStatus.FAIL;
     }
 
-    // 규칙1·2: closed면 date=FAIL + hardFail. open이면 PASS. 없으면 UNKNOWN
+    // 규칙1·2: 구조화된 카드의 상태/시작일을 우선하고, 판단할 수 없을 때만 정책 메타데이터를 사용한다.
     private MatchStatus evalDate(JsonNode root, PolicyCard card, List<String> hardFailReasons) {
-        String status = text(root.path("application_period"), "status", null);
+        JsonNode applicationPeriod = root.path("application_period");
+        String status = text(applicationPeriod, "status", null);
         if (status == null && card != null) {
             status = card.getApplicationStatus(); // fullJson에 없으면 컬럼값 폴백
         }
@@ -241,7 +242,23 @@ public class EligibilityMatcher {
         if ("open".equals(status)) {
             return MatchStatus.PASS;
         }
+        if ("upcoming".equals(status) || "scheduled".equals(status)
+                || hasFutureStructuredStart(applicationPeriod)) {
+            return MatchStatus.PARTIAL;
+        }
         return MatchStatus.UNKNOWN;
+    }
+
+    private boolean hasFutureStructuredStart(JsonNode applicationPeriod) {
+        String start = text(applicationPeriod, "start", null);
+        if (start == null || start.isBlank()) {
+            return false;
+        }
+        try {
+            return LocalDate.parse(start).isAfter(LocalDate.now());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     private MatchStatus evalPolicyRegion(Policy policy, String userRegion) {

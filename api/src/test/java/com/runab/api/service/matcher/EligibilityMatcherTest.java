@@ -201,6 +201,35 @@ class EligibilityMatcherTest {
     }
 
     @Test
+    @DisplayName("카드의 접수 예정 상태와 미래 시작일은 보조 메타데이터의 접수중 판정보다 우선한다")
+    void upcomingCardEvidence_remainsAuthoritativeOverOpenMetadata() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        Policy openMetadata = policy(
+                "전국", "카페/음료", null,
+                null, LocalDate.now().plusDays(3));
+        PolicyCard scheduledColumnCard = PolicyCard.builder()
+                .policyId("bizinfo_support_program:PBLN_SCHEDULED")
+                .externalId("PBLN_SCHEDULED")
+                .applicationStatus("scheduled")
+                .build();
+
+        MatchResult upcomingStatus = matcher.match(user, card("""
+                {"application_period":{"status":"upcoming"},"eligibility":{}}
+                """), openMetadata);
+        MatchResult scheduledColumn = matcher.match(user, scheduledColumnCard, openMetadata);
+        MatchResult futureStructuredStart = matcher.match(user, card("""
+                {"application_period":{"start":"%s"},"eligibility":{}}
+                """.formatted(LocalDate.now().plusDays(1))), openMetadata);
+
+        assertThat(upcomingStatus.getPartial()).contains("date");
+        assertThat(scheduledColumn.getPartial()).contains("date");
+        assertThat(futureStructuredStart.getPartial()).contains("date");
+        assertThat(upcomingStatus.getPass()).doesNotContain("date");
+        assertThat(scheduledColumn.getPass()).doesNotContain("date");
+        assertThat(futureStructuredStart.getPass()).doesNotContain("date");
+    }
+
+    @Test
     @DisplayName("자격요건 데이터가 전혀 없어도 예외 없이 UNKNOWN/NOT_REQUIRED로 동작한다")
     void noEligibilityData_allUnknown() {
         BusinessInfo user = user(null, null, null, null, null);
