@@ -37,6 +37,7 @@ jobs:
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15 \
             -o NumberOfPasswordPrompts=1 -- "$EC2_USER@$EC2_HOST" 'bash -s' <<'REMOTE'
           set -u
+          # Inspect partial bootstrap without adopting, deleting, or restarting resources.
           id -un
           uname -m
           cat /etc/os-release
@@ -49,6 +50,13 @@ jobs:
           systemctl is-active nginx mysqld mariadb docker || true
           if sudo -n true 2>/dev/null; then echo 'NONINTERACTIVE_SUDO_AVAILABLE'; else echo 'NONINTERACTIVE_SUDO_UNAVAILABLE'; fi
           ss -ltnH | awk '{print $4}'
+          sudo -n docker ps -a --format '{{.Names}} {{.Status}}' || true
+          sudo -n docker image ls --format '{{.Repository}}:{{.Tag}} {{.Size}}' || true
+          sudo -n docker inspect runab-mysql --format '{{json .State}}' || true
+          sudo -n journalctl -u docker --no-pager -n 25 -o cat || true
+          for path in /etc/runab/bootstrap.json /etc/runab/api.env /srv/runab/ops /var/lib/runab/mysql; do
+            if sudo -n test -e "$path"; then sudo -n stat -c '%a %U %n' "$path"; fi
+          done
           for file in /etc/runab/api.env /home/ec2-user/run-a-b/.env; do
             if test -r "$file"; then
               printf 'Environment variable names in %s (values omitted):\n' "$file"
