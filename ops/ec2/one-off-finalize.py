@@ -160,12 +160,18 @@ def finalize(root=Path("/"), runner=run, mysql_uid=999):
     print(json.dumps({"services_inactive": True}), flush=True)
     print(json.dumps({"partial_state_verified": True}))
 
+    ping = ["docker", "exec", "--user", "0", "runab-mysql", "mysqladmin", "--no-defaults",
+            "--protocol=TCP", "--host=127.0.0.1", "--port=3306", "--connect-timeout=3",
+            "--user=runab_readiness", "--skip-password", "ping"]
     mysql = ["docker", "exec", "-i", "--user", "0", "runab-mysql", "mysql",
-             "--defaults-extra-file=/run/runab-secrets/root-client.cnf", "--protocol=TCP",
-             "--host=127.0.0.1", "--port=3306", "--connect-timeout=3", "--batch", "--skip-column-names"]
+             "--defaults-extra-file=/run/runab-secrets/root-client.cnf", "--protocol=SOCKET",
+             "--connect-timeout=3", "--batch", "--skip-column-names"]
     deadline = time.monotonic() + 120
     while True:
         try:
+            # Ping's exit status confirms the final networked server, including
+            # access-denied replies. Root authentication remains socket-only.
+            runner(ping)
             if runner(mysql, input="SELECT 1;\n").strip() == "1":
                 break
         except RuntimeError:
