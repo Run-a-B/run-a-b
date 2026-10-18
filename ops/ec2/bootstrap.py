@@ -53,7 +53,7 @@ def command(args, *, input=None, allow_failure=False):
 def expected_container(digest):
     return {"Config": {"Image": digest, "Labels": {LABEL: "1"}, "Cmd": MYSQL_OPTIONS},
             "HostConfig": {"Memory": 512 * 1024**2, "MemorySwap": 512 * 1024**2,
-                           "PidsLimit": 128, "RestartPolicy": {"Name": "unless-stopped"},
+                           "PidsLimit": 128, "RestartPolicy": {"Name": "unless-stopped", "MaximumRetryCount": 0},
                            "PortBindings": {"3306/tcp": [{"HostIp": "127.0.0.1", "HostPort": "3307"}]},
                            "LogConfig": {"Type": "local", "Config": {"max-size": "10m", "max-file": "3"}}}}
 

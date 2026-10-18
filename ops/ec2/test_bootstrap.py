@@ -52,7 +52,7 @@ class BootstrapTest(unittest.TestCase):
                 "HostConfig": {"Memory": int(values("--memory")[0][:-1]) * 1024**2,
                                "MemorySwap": int(values("--memory-swap")[0][:-1]) * 1024**2,
                                "PidsLimit": int(values("--pids-limit")[0]),
-                               "RestartPolicy": {"Name": values("--restart")[0]},
+                               "RestartPolicy": {"Name": values("--restart")[0], "MaximumRetryCount": 0},
                                "PortBindings": {"3306/tcp": [{"HostIp": ip, "HostPort": port}]},
                                "LogConfig": {"Type": values("--log-driver")[0],
                                              "Config": dict(value.split("=", 1) for value in values("--log-opt"))}},
@@ -126,6 +126,13 @@ class BootstrapTest(unittest.TestCase):
         env = self.root / "etc/runab/api.env"
         env.chmod(0o644)
         with self.assertRaises(Exception):
+            tool.apply("run-a-b.com")
+
+    def test_replay_rejects_nonzero_restart_retry_limit(self):
+        tool = self.bootstrap()
+        tool.apply("run-a-b.com")
+        self.container["HostConfig"]["RestartPolicy"]["MaximumRetryCount"] = 1
+        with self.assertRaises(RuntimeError):
             tool.apply("run-a-b.com")
 
     def test_low_disk_and_install_failure_never_report_completion(self):
