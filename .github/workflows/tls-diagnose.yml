@@ -1,0 +1,63 @@
+name: Diagnose TLS prerequisite failure without changing server state
+
+on:
+  push:
+    branches: [codex/ec2-preflight-20261019]
+    paths: ['.github/workflows/tls-diagnose.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runab-production
+  cancel-in-progress: false
+
+env:
+  EXPECTED_DIAGNOSTIC_SHA256: c10d3cd6a217bb01a8f299f34068017a2cd4cdbf43a77cb2693ce2aee90eb601
+
+jobs:
+  diagnose-tls:
+    if: github.ref == 'refs/heads/codex/ec2-preflight-20261019' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify reviewed read-only helper
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_EVENT_NAME" == push ]] || exit 1
+          [[ "$EXPECTED_DIAGNOSTIC_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          printf '%s  %s\n' "$EXPECTED_DIAGNOSTIC_SHA256" ops/ec2/tls-diagnose.py | sha256sum --check --status
+      - name: Install SSH password client
+        run: sudo apt-get update -qq > /dev/null 2>&1 && sudo apt-get install -y -qq sshpass > /dev/null 2>&1
+      - name: Run read-only TLS diagnosis with fixed boolean output
+        env:
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_EVENT_NAME" == push ]] || exit 1
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
+          [[ "$EXPECTED_DIAGNOSTIC_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          printf '%s  %s\n' "$EXPECTED_DIAGNOSTIC_SHA256" ops/ec2/tls-diagnose.py | sha256sum --check --status
+          : "${SSHPASS:?EC2 password is required}"
+          : "${EC2_KNOWN_HOSTS:?Pinned EC2 host key is required}"
+          upload="/tmp/runab-tls-diagnose-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F 43.201.103.134 -f "$HOME/.ssh/known_hosts" > /dev/null
+          ssh_options=(-o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o ConnectTimeout=15
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "umask 077; mkdir -m 700 -- '$upload'" 2> /dev/null
+          sshpass -e scp -q "${ssh_options[@]}" -- ops/ec2/tls-diagnose.py \
+            "ec2-user@43.201.103.134:$upload/tls-diagnose.py" 2> /dev/null
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "sudo -n python3 -I '$upload/tls-diagnose.py'" 2> /dev/null
