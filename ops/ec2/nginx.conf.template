@@ -1,9 +1,25 @@
-# Replace RUNAB_DOMAIN with the ONE approved domain. Install an existing certificate
+# Replace RUNAB_DOMAIN with the ONE approved canonical domain and its www alias.
+# Install an existing certificate
 # at the named paths first. This file never creates certificates or changes DNS.
 # Include within nginx's http context. Run nginx -t before any reload.
 server {
     listen 80;
-    server_name RUNAB_DOMAIN;
+    server_name RUNAB_DOMAIN www.RUNAB_DOMAIN;
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/lib/runab/acme;
+        try_files $uri =404;
+    }
+    location / {
+        return 308 https://RUNAB_DOMAIN$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name www.RUNAB_DOMAIN;
+    ssl_certificate /etc/letsencrypt/live/RUNAB_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/RUNAB_DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
     return 308 https://RUNAB_DOMAIN$request_uri;
 }
 
@@ -16,6 +32,10 @@ server {
     root /srv/runab/current/dist;
     index index.html;
     client_max_body_size 1m;
+
+    # Preparation must not expose an application before a reviewed release exists.
+    # A server-level return-only guard also covers /api/ and missing SPA assets.
+    if (!-f /srv/runab/current/dist/index.html) { return 503; }
 
     location /api/ {
         proxy_pass http://127.0.0.1:8080;
