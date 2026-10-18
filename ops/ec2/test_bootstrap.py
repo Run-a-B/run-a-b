@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 MODULE = Path(__file__).with_name("bootstrap.py")
 
@@ -219,6 +220,31 @@ class BootstrapTest(unittest.TestCase):
         self.account = "runab:x:0:0::/root:/bin/bash"
         with self.assertRaises(RuntimeError):
             tool.apply("run-a-b.com")
+
+    def test_apply_waits_for_final_networked_server_before_adjusting_application_grants(self):
+        module = self.module()
+        final_server = False
+
+        def finish_initialization(seconds):
+            nonlocal final_server
+            final_server = True
+
+        def startup_runner(args, *, input=None, allow_failure=False):
+            if args[:2] == ["docker", "exec"]:
+                # Official entrypoint's temporary init server accepts socket
+                # queries after setting root's password but before creating users.
+                if "--protocol=TCP" in args and not final_server:
+                    raise RuntimeError("temporary initialization server has networking disabled")
+                if input and "REVOKE " in input and not final_server:
+                    raise RuntimeError("application user/grants do not exist yet")
+            return self.runner(args, input=input, allow_failure=allow_failure)
+
+        tool = module.Bootstrap(self.root, startup_runner, free_bytes=6 * 1024**3)
+        with patch.object(module.time, "sleep", side_effect=finish_initialization):
+            tool.apply("run-a-b.com")
+
+        self.assertTrue(final_server)
+        self.assertTrue((self.root / "etc/runab/bootstrap.json").is_file())
 
 
 if __name__ == "__main__":
