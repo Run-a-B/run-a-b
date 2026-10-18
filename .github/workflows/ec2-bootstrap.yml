@@ -1,0 +1,61 @@
+name: EC2 infrastructure bootstrap
+
+on:
+  push:
+    branches: [codex/ec2-preflight-20261019]
+    paths: ['.github/workflows/ec2-bootstrap.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runab-production
+  cancel-in-progress: false
+
+jobs:
+  prepare-host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test bootstrap before remote changes
+        run: python3 -m unittest discover -s ops/ec2 -p 'test_bootstrap.py' -v
+      - name: Install SSH password client
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
+      - name: Prepare infrastructure only on the pinned approved host
+        env:
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
+          : "${SSHPASS:?EC2_PASSWORD is required}"
+          : "${EC2_KNOWN_HOSTS:?Pinned host key is required}"
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F 43.201.103.134 -f "$HOME/.ssh/known_hosts" > /dev/null
+          ssh_options=(-o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o ConnectTimeout=15
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          upload="/tmp/runab-infra-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 "umask 077; mkdir -m 700 -- '$upload'"
+          sshpass -e scp "${ssh_options[@]}" -- ops/ec2/bootstrap.py ops/ec2/ec2_ops.py \
+            ops/ec2/runab-api.service.template "ec2-user@43.201.103.134:$upload/"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "sudo -n python3 '$upload/bootstrap.py' apply --domain run-a-b.com"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          java -version
+          nginx -v
+          sudo -n docker version --format '{{.Server.Version}}'
+          sudo -n docker inspect runab-mysql --format 'MySQL status={{.State.Status}} memory={{.HostConfig.Memory}} ports={{json .HostConfig.PortBindings}}'
+          systemctl is-active docker nginx
+          systemctl show runab-api -p ActiveState -p User -p Group
+          free -m
+          df -h /
+          ss -ltnH | awk '{print $4}'
+          REMOTE
