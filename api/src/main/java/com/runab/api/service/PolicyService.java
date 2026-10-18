@@ -40,9 +40,10 @@ public class PolicyService {
 
     private static final String SORT_RELEVANCE = "관련도 높은순";
 
-    // 관련도 정렬 비교자: 점수 내림차순 → 동점이면 최신순(publishedDate desc, null 뒤) → id desc (안정 정렬)
+    // 관련도 정렬: hard fail 뒤 → 점수 내림차순 → publishedDate desc(null 뒤) → id desc
     private static final Comparator<ScoredPolicy> RELEVANCE_COMPARATOR =
-            Comparator.comparingInt(ScoredPolicy::score).reversed()
+            Comparator.comparing(ScoredPolicy::hardFail)
+                    .thenComparing(Comparator.comparingInt(ScoredPolicy::score).reversed())
                     .thenComparing(sp -> sp.policy().getPublishedDate(),
                             Comparator.nullsLast(Comparator.reverseOrder()))
                     .thenComparing(sp -> sp.policy().getId(), Comparator.reverseOrder());
@@ -53,7 +54,7 @@ public class PolicyService {
     private final EligibilityMatcher eligibilityMatcher;
 
     // 점수까지 계산된 정책 (관련도 정렬 + 응답 매핑용 임시 홀더)
-    private record ScoredPolicy(Policy policy, int score, boolean aiRecommended) {}
+    private record ScoredPolicy(Policy policy, int score, boolean hardFail, boolean aiRecommended) {}
 
     // ===== 1) 정책 목록 조회 (필터 + 검색 + 정렬 + 페이징) =====
     // userId가 있으면(로그인 + 사업정보 등록) matcher로 관련도를 실제 계산, 없으면 0/false 폴백.
@@ -109,11 +110,12 @@ public class PolicyService {
         List<ScoredPolicy> scored = candidates.stream()
                 .map(p -> {
                     if (businessInfo == null) {
-                        return new ScoredPolicy(p, 0, false);
+                        return new ScoredPolicy(p, 0, false, false);
                     }
                     PolicyCard card = cardMap.get(PolicyCard.toPolicyId(p.getExternalId()));
                     MatchResult m = eligibilityMatcher.match(businessInfo, card, p);
-                    return new ScoredPolicy(p, m.getScore(), m.getScore() >= AI_RECOMMEND_THRESHOLD && !m.isHardFail());
+                    return new ScoredPolicy(p, m.getScore(), m.isHardFail(),
+                            m.getScore() >= AI_RECOMMEND_THRESHOLD && !m.isHardFail());
                 })
                 .collect(Collectors.toList());
 

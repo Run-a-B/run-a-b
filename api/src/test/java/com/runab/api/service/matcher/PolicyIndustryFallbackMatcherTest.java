@@ -52,4 +52,16 @@ class PolicyIndustryFallbackMatcherTest {
 
         assertThat(PolicyIndustryFallbackMatcher.matches(policy, industry)).isFalse();
     }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            카페/음료 | 제조기업 생산성 향상 지원
+            카페/음료 | 관광업 전용 지원
+            카페/음료 | 업종 제한 없는 소상공인 지원
+            """)
+    void unrelatedOrAbsentIndustryEvidenceDoesNotPassFilter(String industry, String title) {
+        Policy policy = Policy.builder().externalId("PBLN_TEST").title(title).industry("전체").build();
+
+        assertThat(PolicyIndustryFallbackMatcher.matches(policy, industry)).isFalse();
+    }
 }

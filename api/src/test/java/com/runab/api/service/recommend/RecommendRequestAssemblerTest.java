@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -56,7 +57,7 @@ class RecommendRequestAssemblerTest {
             {
               "policy_id": "bizinfo_support_program:PBLN_000000000123405",
               "category": "금융",
-              "application_period": { "start": "2026-06-15", "end": "2026-06-29", "status": "open" },
+              "application_period": { "start": "%s", "end": "%s", "status": "open" },
               "benefit": { "benefit_type": "loan_low_interest" },
               "eligibility": {
                 "regions": ["서울특별시"], "region_condition_type": "specific",
@@ -68,7 +69,7 @@ class RecommendRequestAssemblerTest {
               },
               "attachment_analysis": { "status": "documents_found" }
             }
-            """;
+            """.formatted(LocalDate.now().minusDays(1), LocalDate.now().plusDays(7));
         PolicyCard card = PolicyCard.builder()
                 .policyId("bizinfo_support_program:PBLN_000000000123405")
                 .externalId("PBLN_000000000123405")

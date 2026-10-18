@@ -146,6 +146,33 @@ class PolicyServiceIndustryFilterTest {
                 .doesNotHaveDuplicates();
     }
 
+    @Test
+    void relevancePlacesHigherScoringHardFailureAfterLowerNonHardFailure() {
+        BusinessInfo business = BusinessInfo.builder()
+                .businessStatus(true).jobCategory("카페/음료").region("서울특별시").build();
+        Policy hardFailure = policy("PBLN_HARD_FAIL", "마감된 카페 지원", null);
+        Policy uncertain = policy("PBLN_UNCERTAIN", "조건 확인 필요", null);
+        PolicyCard closedCard = PolicyCard.builder()
+                .policyId(PolicyCard.toPolicyId("PBLN_HARD_FAIL"))
+                .externalId("PBLN_HARD_FAIL")
+                .fullJson("""
+                        {"eligibility":{"regions":["전국"],"industries":["카페/음료"]},
+                         "application_period":{"status":"closed"}}
+                        """)
+                .build();
+        when(businessInfoRepository.findByUserId(99L)).thenReturn(Optional.of(business));
+        when(policyRepository.findAll(any(Specification.class))).thenReturn(List.of(hardFailure, uncertain));
+        when(policyCardRepository.findByPolicyIdIn(anyCollection())).thenReturn(List.of(closedCard));
+
+        PolicyPageResponse response = policyService.getPolicies(
+                "전체 지역", "전체 업종", "전체 카테고리", null, "관련도 높은순", 0, 12, 99L);
+
+        assertThat(response.getPolicies()).extracting(policy -> policy.getTitle())
+                .containsExactly("조건 확인 필요", "마감된 카페 지원");
+        assertThat(response.getPolicies().get(0).getRelevance())
+                .isLessThan(response.getPolicies().get(1).getRelevance());
+    }
+
     private Policy policy(String externalId, String title, String description) {
         return Policy.builder()
                 .externalId(externalId)

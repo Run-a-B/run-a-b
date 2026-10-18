@@ -99,8 +99,10 @@ public class EligibilityMatcher {
 
         // ---- region (20) ----
         MatchStatus regionStatus = evalRegion(elig, user.getRegion(), hardFailReasons);
-        if (regionStatus == MatchStatus.UNKNOWN) {
-            regionStatus = evalPolicyRegion(policy, user.getRegion());
+        boolean hasCardRegionEvidence = list(elig, "regions").stream()
+                .anyMatch(region -> !RegionHierarchy.provincesOf(region).isEmpty());
+        if (regionStatus == MatchStatus.UNKNOWN && !hasCardRegionEvidence) {
+            regionStatus = evalPolicyRegion(policy, user.getRegion(), hardFailReasons);
         }
         scorer.add("region", regionStatus, W_REGION, true);
 
@@ -111,15 +113,9 @@ public class EligibilityMatcher {
         }
         scorer.add("industry", industryStatus, W_INDUSTRY, true);
 
-        // ---- date (10) : application_period.status와 반드시 일치 (규칙1·2) ----
-        MatchStatus dateStatus = evalDate(root, card, hardFailReasons);
-        Double dateFraction = null;
-        if (dateStatus == MatchStatus.UNKNOWN) {
-            PolicyDateEvaluation policyDate = evalPolicyDate(policy, hardFailReasons);
-            dateStatus = policyDate.status();
-            dateFraction = policyDate.scoreFraction();
-        }
-        scorer.add("date", dateStatus, W_DATE, false, dateFraction);
+        // ---- date (10) : 유효한 카드 날짜 → 누락된 경계의 정책 날짜 → 상태 문자열 ----
+        PolicyDateEvaluation date = evalDate(root, card, policy, hardFailReasons);
+        scorer.add("date", date.status(), W_DATE, false, date.scoreFraction());
 
         // ---- business_stage (10) ----
         scorer.add("business_stage", evalBusinessStage(elig, user.getBusinessStatus()), W_BUSINESS_STAGE, false);
@@ -193,11 +189,22 @@ public class EligibilityMatcher {
         if (userRegion == null || userRegion.isBlank()) {
             return MatchStatus.UNKNOWN;
         }
-        for (String r : regions) {
-            if (RegionHierarchy.sameProvince(userRegion, r)) {
+        return evalResolvedRegions(regions, userRegion, hardFailReasons);
+    }
+
+    private MatchStatus evalResolvedRegions(List<String> regions, String userRegion, List<String> hardFailReasons) {
+        Set<String> userProvinces = RegionHierarchy.provincesOf(userRegion);
+        if (userProvinces.size() != 1) return MatchStatus.UNKNOWN;
+        boolean unresolved = false;
+        for (String region : regions) {
+            Set<String> provinces = RegionHierarchy.provincesOf(region);
+            if (provinces.size() != 1) {
+                unresolved = true;
+            } else if (provinces.equals(userProvinces)) {
                 return MatchStatus.PASS;
             }
         }
+        if (unresolved) return MatchStatus.UNKNOWN;
         // 지역 불일치는 hard (규칙: hardFail=true)
         hardFailReasons.add("region_mismatch");
         return MatchStatus.FAIL;
@@ -228,81 +235,16 @@ public class EligibilityMatcher {
         return MatchStatus.FAIL;
     }
 
-    // 규칙1·2: 구조화된 카드의 상태/시작일을 우선하고, 판단할 수 없을 때만 정책 메타데이터를 사용한다.
-    private MatchStatus evalDate(JsonNode root, PolicyCard card, List<String> hardFailReasons) {
+    // 날짜 경계는 카드 우선으로 결합하고, 날짜가 없을 때만 상태 문자열을 사용한다.
+    private PolicyDateEvaluation evalDate(JsonNode root, PolicyCard card, Policy policy, List<String> hardFailReasons) {
         JsonNode applicationPeriod = root.path("application_period");
-        String status = text(applicationPeriod, "status", null);
-        if (status == null && card != null) {
-            status = card.getApplicationStatus(); // fullJson에 없으면 컬럼값 폴백
+        LocalDate start = dateOrNull(applicationPeriod, "start");
+        LocalDate end = dateOrNull(applicationPeriod, "end");
+        if (policy != null) {
+            if (start == null) start = policy.getApplicationStartDate();
+            if (end == null) end = policy.getApplicationEndDate();
         }
-        if ("closed".equals(status)) {
-            hardFailReasons.add("application_period.status=closed");
-            return MatchStatus.FAIL;
-        }
-        if ("open".equals(status)) {
-            return MatchStatus.PASS;
-        }
-        if ("upcoming".equals(status) || "scheduled".equals(status)
-                || hasFutureStructuredStart(applicationPeriod)) {
-            return MatchStatus.PARTIAL;
-        }
-        return MatchStatus.UNKNOWN;
-    }
-
-    private boolean hasFutureStructuredStart(JsonNode applicationPeriod) {
-        String start = text(applicationPeriod, "start", null);
-        if (start == null || start.isBlank()) {
-            return false;
-        }
-        try {
-            return LocalDate.parse(start).isAfter(LocalDate.now());
-        } catch (RuntimeException ignored) {
-            return false;
-        }
-    }
-
-    private MatchStatus evalPolicyRegion(Policy policy, String userRegion) {
-        if (policy == null || policy.getRegion() == null || policy.getRegion().isBlank()) {
-            return MatchStatus.UNKNOWN;
-        }
-        if ("전국".equals(policy.getRegion().trim())) {
-            return MatchStatus.PASS;
-        }
-        if (userRegion == null || userRegion.isBlank()) {
-            return MatchStatus.UNKNOWN;
-        }
-        return RegionHierarchy.sameProvince(userRegion, policy.getRegion())
-                ? MatchStatus.PASS
-                : MatchStatus.UNKNOWN;
-    }
-
-    private MatchStatus evalPolicyIndustry(Policy policy, String userIndustry) {
-        if (policy == null || userIndustry == null || userIndustry.isBlank()) {
-            return MatchStatus.UNKNOWN;
-        }
-
-        String storedIndustry = policy.getIndustry();
-        if (storedIndustry != null && !storedIndustry.isBlank()
-                && !"전체".equals(storedIndustry.trim())
-                && !"전체 업종".equals(storedIndustry.trim())) {
-            return IndustryHierarchy.sameIndustry(userIndustry, storedIndustry)
-                    ? MatchStatus.PASS
-                    : MatchStatus.FAIL;
-        }
-
-        return PolicyIndustryFallbackMatcher.matches(policy, userIndustry)
-                ? MatchStatus.PASS
-                : MatchStatus.UNKNOWN;
-    }
-
-    private PolicyDateEvaluation evalPolicyDate(Policy policy, List<String> hardFailReasons) {
-        if (policy == null) {
-            return new PolicyDateEvaluation(MatchStatus.UNKNOWN, null);
-        }
-
         LocalDate today = LocalDate.now();
-        LocalDate start = policy.getApplicationStartDate();
-        LocalDate end = policy.getApplicationEndDate();
         if (end != null && end.isBefore(today)) {
             hardFailReasons.add("application_period.status=closed");
             return new PolicyDateEvaluation(MatchStatus.FAIL, 0.0);
@@ -313,7 +255,48 @@ public class EligibilityMatcher {
         if (start != null || end != null) {
             return new PolicyDateEvaluation(MatchStatus.PASS, deadlineFraction(today, end));
         }
+        String status = text(applicationPeriod, "status", null);
+        if (status == null && card != null) {
+            status = card.getApplicationStatus(); // fullJson에 없으면 컬럼값 폴백
+        }
+        if ("closed".equals(status)) {
+            hardFailReasons.add("application_period.status=closed");
+            return new PolicyDateEvaluation(MatchStatus.FAIL, null);
+        }
+        if ("open".equals(status)) {
+            return new PolicyDateEvaluation(MatchStatus.PASS, null);
+        }
+        if ("upcoming".equals(status) || "scheduled".equals(status)) {
+            return new PolicyDateEvaluation(MatchStatus.PARTIAL, null);
+        }
         return new PolicyDateEvaluation(MatchStatus.UNKNOWN, null);
+    }
+
+    private LocalDate dateOrNull(JsonNode applicationPeriod, String key) {
+        String date = text(applicationPeriod, key, null);
+        if (date == null || date.isBlank()) return null;
+        try {
+            return LocalDate.parse(date);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private MatchStatus evalPolicyRegion(Policy policy, String userRegion, List<String> hardFailReasons) {
+        if (policy == null || policy.getRegion() == null || policy.getRegion().isBlank()) {
+            return MatchStatus.UNKNOWN;
+        }
+        if ("전국".equals(policy.getRegion().trim())) {
+            return MatchStatus.PASS;
+        }
+        if (userRegion == null || userRegion.isBlank()) {
+            return MatchStatus.UNKNOWN;
+        }
+        return evalResolvedRegions(List.of(policy.getRegion()), userRegion, hardFailReasons);
+    }
+
+    private MatchStatus evalPolicyIndustry(Policy policy, String userIndustry) {
+        return PolicyIndustryFallbackMatcher.evaluate(policy, userIndustry);
     }
 
     private double deadlineFraction(LocalDate today, LocalDate end) {

@@ -7,6 +7,8 @@ import com.runab.api.entity.Policy;
 import com.runab.api.entity.PolicyCard;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.LocalDate;
 
@@ -179,6 +181,138 @@ class EligibilityMatcherTest {
     }
 
     @Test
+    void explicitPolicyProvinceMismatch_isHardFail() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                null, policy("부산광역시 강서구", "전체", null, null, null));
+
+        assertThat(result.getFail()).contains("region");
+        assertThat(result.getHardFailReasons()).contains("region_mismatch");
+        assertThat(result.isHardFail()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"강서구", "미확인 지역"})
+    void ambiguousOrUnresolvedRegions_remainUnknown(String region) {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        MatchResult stored = matcher.match(user, null, policy(region, "전체", null, null, null));
+        MatchResult structured = matcher.match(user, card("""
+                {"eligibility":{"regions":["%s"],"region_condition_type":"specific"}}
+                """.formatted(region)));
+
+        assertThat(stored.getUnknown()).contains("region");
+        assertThat(structured.getUnknown()).contains("region");
+        assertThat(stored.isHardFail()).isFalse();
+        assertThat(structured.isHardFail()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"전국", "제주특별자치도"})
+    void ambiguousCardRegionRemainsAuthoritativeOverStoredRegion(String storedRegion) {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"eligibility":{"regions":["강서구"],"region_condition_type":"specific"}}
+                        """),
+                policy(storedRegion, "전체", null, null, null));
+
+        assertThat(result.getUnknown()).contains("region");
+        assertThat(result.getPass()).doesNotContain("region");
+        assertThat(result.getFail()).doesNotContain("region");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    void explicitCardProvinceMismatch_isHardFailDespiteAmbiguousDistrict() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"eligibility":{"regions":["부산광역시 강서구"]}}
+                        """));
+
+        assertThat(result.getFail()).contains("region");
+        assertThat(result.isHardFail()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"제조기업 생산성 향상 지원", "관광업 전용 지원", "운수업 사업자 지원"})
+    void unrelatedExplicitTextIndustry_isSoftFail(String description) {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                null, policy("전국", "전체", description, null, null));
+
+        assertThat(result.getFail()).contains("industry");
+        assertThat(result.getUnknown()).doesNotContain("industry");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    void technologyTopicWithoutIndustryEvidence_remainsUnknown() {
+        MatchResult result = matcher.match(user(true, "IT/소프트웨어", "서울특별시", null, null),
+                null, policy("전국", "전체", "소상공인 소프트웨어 도입 지원", null, null));
+
+        assertThat(result.getUnknown()).contains("industry");
+    }
+
+    @Test
+    void cardDateBoundsOverrideStoredDatesAndStaleStatus() {
+        LocalDate today = LocalDate.now();
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"closed","start":"%s","end":"%s"}}
+                        """.formatted(today.minusDays(1), today.plusDays(3))),
+                policy("전국", "전체", null, today.plusDays(2), today.minusDays(1)));
+
+        assertThat(result.getPass()).contains("date");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    void expiredCardDateOverridesStaleOpenStatus() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"open","end":"%s"}}
+                        """.formatted(LocalDate.now().minusDays(1))),
+                policy("전국", "전체", null, null, LocalDate.now().plusDays(7)));
+
+        assertThat(result.getFail()).contains("date");
+        assertThat(result.getHardFailReasons()).contains("application_period.status=closed");
+    }
+
+    @Test
+    void missingCardEndUsesStoredEndBeforeStaleOpenStatus() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"open","start":"%s"}}
+                        """.formatted(LocalDate.now().minusDays(10))),
+                policy("전국", "전체", null, null, LocalDate.now().minusDays(1)));
+
+        assertThat(result.getFail()).contains("date");
+        assertThat(result.isHardFail()).isTrue();
+    }
+
+    @Test
+    void invalidCardStartUsesStoredStartBeforeStaleOpenStatus() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"open","start":"invalid","end":"%s"}}
+                        """.formatted(LocalDate.now().plusDays(7))),
+                policy("전국", "전체", null, LocalDate.now().plusDays(2), null));
+
+        assertThat(result.getPartial()).contains("date");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    void effectiveCardDatesRetainDeadlineUrgencyScoring() {
+        BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
+        MatchResult soon = matcher.match(user, card("""
+                {"application_period":{"status":"open","end":"%s"}}
+                """.formatted(LocalDate.now().plusDays(3))));
+        MatchResult later = matcher.match(user, card("""
+                {"application_period":{"status":"open","end":"%s"}}
+                """.formatted(LocalDate.now().plusDays(150))));
+
+        assertThat(soon.getScore()).isGreaterThan(later.getScore());
+    }
+
+    @Test
     @DisplayName("카드의 명시 조건은 더 약한 정책 메타데이터보다 우선한다")
     void cardEvidence_remainsAuthoritative() {
         String json = """
@@ -201,12 +335,12 @@ class EligibilityMatcherTest {
     }
 
     @Test
-    @DisplayName("카드의 접수 예정 상태와 미래 시작일은 보조 메타데이터의 접수중 판정보다 우선한다")
-    void upcomingCardEvidence_remainsAuthoritativeOverOpenMetadata() {
+    @DisplayName("유효한 날짜가 없을 때는 카드의 접수 예정 상태를 사용한다")
+    void upcomingCardStatus_isUsedWhenDatesAreAbsent() {
         BusinessInfo user = user(true, "카페/음료", "서울특별시", null, null);
         Policy openMetadata = policy(
                 "전국", "카페/음료", null,
-                null, LocalDate.now().plusDays(3));
+                null, null);
         PolicyCard scheduledColumnCard = PolicyCard.builder()
                 .policyId("bizinfo_support_program:PBLN_SCHEDULED")
                 .externalId("PBLN_SCHEDULED")

@@ -29,18 +29,29 @@ public final class PolicyIndustryFallbackMatcher {
             "도소매업", List.of("도소매업", "도소매 사업자", "소매업", "도매업", "유통업", "유통기업", "유통 기업", "전통시장 상인", "전자상거래업", "온라인몰 사업자")
     );
 
+    private static final List<String> EXCLUSIVE_INDUSTRIES = List.of(
+            "운수업", "숙박업", "바이오산업", "농식품업", "콘텐츠산업", "관광업");
+
     private PolicyIndustryFallbackMatcher() {
     }
 
     public static boolean matches(Policy policy, String selectedIndustry) {
-        if (policy == null || selectedIndustry == null || selectedIndustry.isBlank()
-                || "전체 업종".equals(selectedIndustry)) {
+        if (selectedIndustry == null || selectedIndustry.isBlank() || "전체 업종".equals(selectedIndustry)) {
             return true;
+        }
+        return evaluate(policy, selectedIndustry) == MatchStatus.PASS;
+    }
+
+    public static MatchStatus evaluate(Policy policy, String selectedIndustry) {
+        if (policy == null || selectedIndustry == null || selectedIndustry.isBlank()) {
+            return MatchStatus.UNKNOWN;
         }
 
         String storedIndustry = policy.getIndustry();
-        if (storedIndustry != null && !storedIndustry.isBlank() && !"전체".equals(storedIndustry)) {
-            return IndustryHierarchy.sameIndustry(selectedIndustry, storedIndustry);
+        if (storedIndustry != null && !storedIndustry.isBlank()
+                && !"전체".equals(storedIndustry.trim()) && !"전체 업종".equals(storedIndustry.trim())) {
+            return IndustryHierarchy.sameIndustry(selectedIndustry, storedIndustry)
+                    ? MatchStatus.PASS : MatchStatus.FAIL;
         }
 
         String text = String.join(" ",
@@ -48,11 +59,18 @@ public final class PolicyIndustryFallbackMatcher {
                 value(policy.getTargetGroup()),
                 value(policy.getDescription())).toLowerCase(Locale.ROOT);
 
-        return KEYWORDS.entrySet().stream()
+        boolean selectedMatches = KEYWORDS.entrySet().stream()
                 .filter(entry -> IndustryHierarchy.sameIndustry(selectedIndustry, entry.getKey()))
                 .flatMap(entry -> entry.getValue().stream())
                 .map(keyword -> keyword.toLowerCase(Locale.ROOT))
                 .anyMatch(text::contains);
+        if (selectedMatches) return MatchStatus.PASS;
+        if (EXCLUSIVE_INDUSTRIES.stream().anyMatch(text::contains)
+                || KEYWORDS.values().stream().flatMap(List::stream)
+                .map(keyword -> keyword.toLowerCase(Locale.ROOT)).anyMatch(text::contains)) {
+            return MatchStatus.FAIL;
+        }
+        return MatchStatus.UNKNOWN;
     }
 
     private static String value(String value) {
