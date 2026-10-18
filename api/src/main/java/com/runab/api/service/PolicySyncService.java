@@ -62,7 +62,8 @@ public class PolicySyncService {
             String synopsis = BizinfoSourceTextParser.toText(item.getBsnsSumryCn());
             String description = synopsis == null ? null : truncate(synopsis.replaceAll("\\s+", " "), 1000);
             String originalNoticeText = BizinfoSourceTextParser.toText(item.getDescription());
-            String originalNoticeHtml = originalNoticeText == null ? null : item.getDescription();
+            String originalNoticeHtml = BizinfoSourceTextParser.hasSubstantiveContent(item.getDescription())
+                    ? item.getDescription() : null;
             String region = extractRegion(item.getHashtags(), item.getPblancNm());
             String agency = truncate(item.getJrsdInsttNm(), 100);
             String originalPeriod = firstNonBlank(item.getReqstDt(), item.getReqstBeginEndDe());
@@ -91,7 +92,9 @@ public class PolicySyncService {
                         agency, startDate, endDate, publishedDate, targetGroup,
                         applicationMethod, applicationUrl, detailUrl, SOURCE_SYSTEM);
                 String sourceText = originalNoticeText;
-                if (sourceText == null && policy.getOriginalNoticeText() == null) sourceText = synopsis;
+                if (sourceText == null && (originalNoticeHtml != null || policy.getOriginalNoticeHtml() == null)) {
+                    sourceText = synopsis;
+                }
                 policy.updateSourceFromBizinfo(originalNoticeHtml, sourceText, applicationMethod, originalPeriod,
                         executingAgency, inquiryContact, attachmentName, attachmentUrl, noticeFileName, noticeFileUrl);
                 result.countUpdated();

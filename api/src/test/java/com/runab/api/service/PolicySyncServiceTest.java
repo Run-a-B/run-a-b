@@ -101,6 +101,68 @@ class PolicySyncServiceTest {
     }
 
     @Test
+    void refreshesSynopsisFallbackWhenNoFullNoticeHasEverBeenReceived() throws Exception {
+        Policy initial = sync(payload().put("bsnsSumryCn", "<p>최초 요약</p>"));
+        assertThat(initial.getOriginalNoticeHtml()).isNull();
+        assertThat(initial.getOriginalNoticeText()).isEqualTo("최초 요약");
+
+        Policy updated = sync(payload().put("bsnsSumryCn", "<p>수정된 요약</p>"));
+
+        assertThat(repository.count()).isEqualTo(1);
+        assertThat(updated.getDescription()).isEqualTo("수정된 요약");
+        assertThat(updated.getOriginalNoticeHtml()).isNull();
+        assertThat(updated.getOriginalNoticeText()).isEqualTo("수정된 요약");
+    }
+
+    @Test
+    void preservesImageOnlyRawNoticeAndUsesSynopsisAsReadableFallback() throws Exception {
+        String html = "<p><img src=\"/notice.png\"></p>";
+
+        Policy policy = sync(payload().put("description", html));
+
+        assertThat(policy.getOriginalNoticeHtml()).isEqualTo(html);
+        assertThat(policy.getOriginalNoticeText()).isEqualTo("카드 요약");
+    }
+
+    @Test
+    void imageOnlyNoticeUpdateReplacesRawNoticeAndUsesCurrentSynopsis() throws Exception {
+        sync(payload().put("description", "<p>이전 공식 상세</p>"));
+        String html = "<p><img src=\"/updated-notice.png\"></p>";
+
+        Policy updated = sync(payload().put("description", html).put("bsnsSumryCn", "현재 요약"));
+
+        assertThat(updated.getOriginalNoticeHtml()).isEqualTo(html);
+        assertThat(updated.getOriginalNoticeText()).isEqualTo("현재 요약");
+    }
+
+    @Test
+    void absentNoticeAfterImageOnlySourcePreservesPriorEnrichment() throws Exception {
+        String html = "<p><img src=\"/notice.png\"></p>";
+        sync(payload().put("description", html).put("bsnsSumryCn", "이미지 공고 요약"));
+
+        Policy updated = sync(payload().put("bsnsSumryCn", "새 카드 요약"));
+
+        assertThat(updated.getDescription()).isEqualTo("새 카드 요약");
+        assertThat(updated.getOriginalNoticeHtml()).isEqualTo(html);
+        assertThat(updated.getOriginalNoticeText()).isEqualTo("이미지 공고 요약");
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {
+            "<p><br></p>",
+            "<p><img src=\" \"/></p>",
+            "<p>&nbsp;</p><script>ignored()</script>"
+    })
+    void formattingOnlyNoticeDoesNotEraseSubstantiveSource(String emptyHtml) throws Exception {
+        sync(payload().put("description", "<p>공식 상세</p>"));
+
+        Policy updated = sync(payload().put("description", emptyHtml).put("bsnsSumryCn", "새 카드 요약"));
+
+        assertThat(updated.getOriginalNoticeHtml()).isEqualTo("<p>공식 상세</p>");
+        assertThat(updated.getOriginalNoticeText()).isEqualTo("공식 상세");
+    }
+
+    @Test
     void fallsBackToSynopsisWithoutInventingMissingSourceFacts() throws Exception {
         var payload = mapper.createObjectNode().put("pblancId", "PBLN_SOURCE").put("pblancNm", "지원사업")
                 .put("bsnsSumryCn", "<p>요약 &amp; 조건</p>").put("reqstBeginEndDe", " 예산 소진 시까지 ");

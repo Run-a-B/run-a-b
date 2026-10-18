@@ -12,6 +12,17 @@ public final class BizinfoSourceTextParser {
 
     private BizinfoSourceTextParser() {}
 
+    public static boolean hasSubstantiveContent(String html) {
+        if (html == null || html.isBlank()) return false;
+
+        var body = Jsoup.parse(html).body();
+        body.select("script, style").remove();
+        if (!body.text().isBlank()) return true;
+
+        return body.select("img[src], video[src], audio[src], source[src], iframe[src], embed[src], object[data]")
+                .stream().anyMatch(element -> !element.attr(element.normalName().equals("object") ? "data" : "src").isBlank());
+    }
+
     public static String toText(String html) {
         if (html == null || html.isBlank()) return null;
 
