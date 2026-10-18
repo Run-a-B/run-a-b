@@ -45,6 +45,16 @@ class PolicyIndustryFallbackMatcherTest {
     }
 
     @Test
+    void targetSectionDoesNotPromoteAnIndustryMentionedOnlyAsACustomer() {
+        Policy supplier = Policy.builder().externalId("PBLN_SUPPLIER").industry("전체")
+                .title("판로 지원").targetGroup("중소기업")
+                .description("지원대상: 카페에 납품하는 제조기업").build();
+
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(supplier, "카페/베이커리"))
+                .isEqualTo(MatchStatus.UNKNOWN);
+    }
+
+    @Test
     void selectedIndustryRequiresAffirmativeTargetingAndHonorsExplicitExclusion() {
         Policy excluded = Policy.builder().externalId("PBLN_EXCLUDED").industry("전체")
                 .title("소상공인 경영 지원").targetGroup("카페 제외")

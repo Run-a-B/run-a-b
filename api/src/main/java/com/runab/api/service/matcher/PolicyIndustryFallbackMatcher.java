@@ -43,7 +43,9 @@ public final class PolicyIndustryFallbackMatcher {
     private static final Pattern EXCLUSION_BEFORE_KEYWORD = Pattern.compile(
             "(?:제외|비대상|지원\\s*불가)\\s*(?:대상|업종)?\\s*[:：]?\\s*$");
     private static final Pattern TARGET_PREFIX = Pattern.compile(
-            "(?:지원|신청|참여|모집)\\s*대상\\s*(?:[:：]\\s*[^.!?;\\n,]{0,50})?\\s*$");
+            "(?:지원|신청|참여|모집)\\s*대상\\s*[:：]?\\s*"
+                    + "(?:(?:[가-힣]+(?:특별시|광역시|특별자치시|특별자치도|시|도|군|구)\\s*(?:내|소재)\\s*)?"
+                    + "(?:(?:일반|휴게)\\s*[ㆍ·/]\\s*)?)$");
     private static final Pattern TARGET_SUFFIX = Pattern.compile(
             "^\\s*(?:전용|대상|(?:사업자|기업|업체)?(?:을|를|에게)\\s*지원|(?:사업자|기업|업체)\\s*지원)");
     private static final Pattern OPERATING_TARGET_SUFFIX = Pattern.compile(
@@ -137,7 +139,7 @@ public final class PolicyIndustryFallbackMatcher {
             // 대상 필드의 업종명, 명시적 대상/전용 표현, 업종으로 시작하는 명사형 지원 제목만 대상 근거로 사용한다.
             boolean directTarget = !INCIDENTAL_CONTEXT.matcher(clause).find()
                     && ((targetGroup && TARGET_GROUP_SUFFIX.matcher(after).matches())
-                    || TARGET_PREFIX.matcher(before).find()
+                    || (TARGET_PREFIX.matcher(before).find() && TARGET_GROUP_SUFFIX.matcher(after).matches())
                     || TARGET_SUFFIX.matcher(after).find()
                     || OPERATING_TARGET_SUFFIX.matcher(after).find()
                     || QUALIFICATION_HOLDER_SUFFIX.matcher(after).find()
