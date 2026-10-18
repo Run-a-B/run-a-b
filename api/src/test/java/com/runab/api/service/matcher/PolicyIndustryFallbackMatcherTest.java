@@ -10,6 +10,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PolicyIndustryFallbackMatcherTest {
 
     @Test
+    void selectedIndustryExclusionMustBeBoundToTheIndustryPhrase() {
+        Policy unrelatedExclusion = Policy.builder().externalId("PBLN_UNRELATED_EXCLUSION").industry("전체")
+                .title("소상공인 경영 지원").targetGroup("카페 사업자 지원(휴·폐업자 제외)").build();
+
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(unrelatedExclusion, "카페/음료"))
+                .isEqualTo(MatchStatus.PASS);
+    }
+
+    @Test
+    void naturalOperatingPhraseEstablishesSelectedIndustryTarget() {
+        Policy naturalOperatingTarget = Policy.builder().externalId("PBLN_OPERATING_TARGET").industry("전체")
+                .title("소상공인 경영 지원").targetGroup("카페를 운영하는 소상공인").build();
+
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(naturalOperatingTarget, "카페/음료"))
+                .isEqualTo(MatchStatus.PASS);
+    }
+
+    @Test
     void selectedIndustryRequiresAffirmativeTargetingAndHonorsExplicitExclusion() {
         Policy excluded = Policy.builder().externalId("PBLN_EXCLUDED").industry("전체")
                 .title("소상공인 경영 지원").targetGroup("카페 제외")
@@ -17,12 +35,17 @@ class PolicyIndustryFallbackMatcherTest {
         Policy incidental = Policy.builder().externalId("PBLN_INCIDENTAL").industry("전체")
                 .title("소상공인 경영 지원").targetGroup("소상공인")
                 .description("정책 설계 시 카페 매출 통계를 참고합니다.").build();
+        Policy incidentalSupportCase = Policy.builder().externalId("PBLN_INCIDENTAL_CASE").industry("전체")
+                .title("소상공인 경영 지원").targetGroup("소상공인")
+                .description("우수한 카페 사업자 지원 사례를 참고합니다.").build();
         Policy affirmative = Policy.builder().externalId("PBLN_AFFIRMATIVE").industry("전체")
                 .title("카페 사업자 시설 개선 지원").targetGroup("소상공인").build();
 
         assertThat(PolicyIndustryFallbackMatcher.evaluate(excluded, "카페/음료"))
                 .isEqualTo(MatchStatus.FAIL);
         assertThat(PolicyIndustryFallbackMatcher.evaluate(incidental, "카페/음료"))
+                .isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(incidentalSupportCase, "카페/음료"))
                 .isEqualTo(MatchStatus.UNKNOWN);
         assertThat(PolicyIndustryFallbackMatcher.evaluate(affirmative, "카페/음료"))
                 .isEqualTo(MatchStatus.PASS);

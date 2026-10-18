@@ -34,11 +34,18 @@ public final class PolicyIndustryFallbackMatcher {
     private static final List<String> EXCLUSIVE_INDUSTRIES = List.of(
             "운수업", "숙박업", "바이오산업", "농식품업", "콘텐츠산업", "관광업");
 
-    private static final Pattern EXCLUSION_CONTEXT = Pattern.compile("제외|비대상|불가|아니|아님|않");
+    private static final Pattern INCIDENTAL_CONTEXT = Pattern.compile("무관|통계|동향|사례|참고");
     private static final Pattern NON_TARGET_CONTEXT = Pattern.compile("제외|비대상|불가|아니|아님|않|무관|통계|동향|사례|참고");
+    private static final Pattern EXCLUSION_AFTER_KEYWORD = Pattern.compile(
+            "^\\s*(?:(?:업종|사업자|기업|업체|소상공인)\\s*)?(?:은|는|이|가|을|를)?\\s*"
+                    + "(?:지원\\s*)?(?:제외|비대상|불가|대상(?:이)?\\s*(?:아님|아니)|하지\\s*않)");
+    private static final Pattern EXCLUSION_BEFORE_KEYWORD = Pattern.compile(
+            "(?:제외|비대상|지원\\s*불가)\\s*(?:대상|업종)?\\s*[:：]?\\s*$");
     private static final Pattern TARGET_PREFIX = Pattern.compile("(?:지원|신청|참여|모집)\\s*대상\\s*[:：]?\\s*$");
     private static final Pattern TARGET_SUFFIX = Pattern.compile(
             "^\\s*(?:전용|대상|(?:사업자|기업|업체)?(?:을|를|에게)\\s*지원|(?:사업자|기업|업체)\\s*지원)");
+    private static final Pattern OPERATING_TARGET_SUFFIX = Pattern.compile(
+            "^\\s*(?:을|를)?\\s*(?:운영|경영)하는\\s+(?:소상공인|사업자|기업|업체)");
     private static final Pattern TARGET_GROUP_SUFFIX = Pattern.compile("\\s*(?:사업자|기업|업체|소상공인|중소기업)?\\s*");
     private static final Pattern NOMINAL_SUPPORT_SUFFIX = Pattern.compile(
             "\\s+(?:[\\p{L}\\p{N}·/()-]+\\s+){0,4}(?:지원(?:사업)?|개선|향상|육성)\\s*");
@@ -96,8 +103,16 @@ public final class PolicyIndustryFallbackMatcher {
     private static boolean hasExplicitExclusion(String text, String keyword) {
         for (String part : value(text).toLowerCase(Locale.ROOT).split("[.!?;\\n,]")) {
             String clause = part.trim();
-            if (clause.contains(keyword) && EXCLUSION_CONTEXT.matcher(clause).find()) {
-                return true;
+            int fromIndex = 0;
+            int index;
+            while ((index = clause.indexOf(keyword, fromIndex)) >= 0) {
+                String before = clause.substring(0, index);
+                String after = clause.substring(index + keyword.length());
+                if (EXCLUSION_BEFORE_KEYWORD.matcher(before).find()
+                        || EXCLUSION_AFTER_KEYWORD.matcher(after).find()) {
+                    return true;
+                }
+                fromIndex = index + keyword.length();
             }
         }
         return false;
@@ -107,15 +122,19 @@ public final class PolicyIndustryFallbackMatcher {
         for (String part : value(text).toLowerCase(Locale.ROOT).split("[.!?;\\n,]")) {
             String clause = part.trim();
             int index = clause.indexOf(keyword);
-            if (index < 0 || NON_TARGET_CONTEXT.matcher(clause).find()) continue;
+            if (index < 0 || hasExplicitExclusion(clause, keyword)) continue;
 
             String before = clause.substring(0, index);
             String after = clause.substring(index + keyword.length());
-            // 대상 필드의 업종명, 명시적 대상/전용 표현, 업종으로 시작하는 명사형 지원 제목만 부정 근거로 사용한다.
-            if ((targetGroup && TARGET_GROUP_SUFFIX.matcher(after).matches())
+            // 대상 필드의 업종명, 명시적 대상/전용 표현, 업종으로 시작하는 명사형 지원 제목만 대상 근거로 사용한다.
+            boolean directTarget = !INCIDENTAL_CONTEXT.matcher(clause).find()
+                    && ((targetGroup && TARGET_GROUP_SUFFIX.matcher(after).matches())
                     || TARGET_PREFIX.matcher(before).find()
                     || TARGET_SUFFIX.matcher(after).find()
-                    || (index == 0 && NOMINAL_SUPPORT_SUFFIX.matcher(after).matches())) {
+                    || OPERATING_TARGET_SUFFIX.matcher(after).find());
+            boolean nominalTarget = index == 0 && !NON_TARGET_CONTEXT.matcher(clause).find()
+                    && NOMINAL_SUPPORT_SUFFIX.matcher(after).matches();
+            if (directTarget || nominalTarget) {
                 return true;
             }
         }
