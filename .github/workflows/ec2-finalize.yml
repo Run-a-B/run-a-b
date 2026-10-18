@@ -1,0 +1,47 @@
+name: Complete verified EC2 infrastructure
+
+on:
+  push:
+    branches: [codex/ec2-preflight-20261019]
+    paths: ['.github/workflows/ec2-finalize.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runab-production
+  cancel-in-progress: false
+
+jobs:
+  finish-known-partial-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install SSH password client
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
+      - name: Finish only the verified partial infrastructure, return booleans only
+        env:
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
+          : "${SSHPASS:?EC2_PASSWORD is required}"
+          : "${EC2_KNOWN_HOSTS:?Pinned host key is required}"
+          echo '2d9fda07247bf143e66f128e03177e9ffcefdcf70a964a35287c9ba74ffcf85a  ops/ec2/one-off-finalize.py' | sha256sum --check --status
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F 43.201.103.134 -f "$HOME/.ssh/known_hosts" > /dev/null
+          ssh_options=(-o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o ConnectTimeout=15
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          upload="/tmp/runab-finalize-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 "umask 077; mkdir -m 700 -- '$upload'"
+          sshpass -e scp "${ssh_options[@]}" -- ops/ec2/one-off-finalize.py "ec2-user@43.201.103.134:$upload/finalize.py"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "sudo -n python3 -I '$upload/finalize.py'"
