@@ -1,0 +1,135 @@
+name: Resume reviewed pending TLS preparation once after staging cooldown
+
+on:
+  push:
+    branches: [codex/ec2-preflight-20261019]
+    paths: ['.github/workflows/tls-resume.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runab-production
+  cancel-in-progress: false
+
+jobs:
+  resume-tls-once:
+    if: github.ref == 'refs/heads/codex/ec2-preflight-20261019' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify frozen diagnosis preparation helper and HTTPS template
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_EVENT_NAME" == push ]] || exit 1
+          echo 'f0b777fc2ce2cc1bfb6df11bdcdf950c4d6548fd997e44e9e9e6b7fa95464611  ops/ec2/tls-diagnose.py' | sha256sum --check --status
+          echo 'dc415ef1c72fc0cdfa0ed02d2668aa2c7bcb08e3e335281718b4a39fb02c7ed9  ops/ec2/prepare-tls.py' | sha256sum --check --status
+          echo 'e291af5501f5fa456d91dbcafdeda632bc66451fbe07d5dfcffcb8bbb7a1b610  ops/ec2/nginx.conf.template' | sha256sum --check --status
+      - name: Install SSH password client
+        run: sudo apt-get update -qq > /dev/null 2>&1 && sudo apt-get install -y -qq sshpass > /dev/null 2>&1
+      - name: Fresh read-only gate then one bounded TLS resume
+        env:
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_EVENT_NAME" == push ]] || exit 1
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
+          : "${SSHPASS:?EC2 password is required}"
+          : "${EC2_KNOWN_HOSTS:?Pinned EC2 host key is required}"
+          upload="/tmp/runab-tls-resume-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F 43.201.103.134 -f "$HOME/.ssh/known_hosts" > /dev/null
+          ssh_options=(-o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o ConnectTimeout=15
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "umask 077; mkdir -m 700 -- '$upload'" 2> /dev/null
+          sshpass -e scp -q "${ssh_options[@]}" -- ops/ec2/tls-diagnose.py ops/ec2/prepare-tls.py \
+            ops/ec2/nginx.conf.template "ec2-user@43.201.103.134:$upload/" 2> /dev/null
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            sudo -n python3 -I - "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" 2> /dev/null <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import stat
+          import subprocess
+          import sys
+
+          gate_allowed = False
+
+          def require(value):
+              if not value:
+                  raise RuntimeError('rejected')
+
+          def command(args, timeout=45):
+              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+              require(result.returncode == 0)
+              return result.stdout
+
+          def inactive():
+              require(not os.path.lexists('/srv/runab/current'))
+              require(command(['systemctl', 'show', 'runab-api', '--property=ActiveState', '--value']).strip() == b'inactive')
+              require(not command(['ss', '-H', '-ltn', '( sport = :8080 )']).strip())
+
+          try:
+              require(os.geteuid() == 0 and len(sys.argv) == 3)
+              require(all(re.fullmatch(r'[0-9]+', value) for value in sys.argv[1:]))
+              bundle = Path('/tmp/runab-tls-resume-' + sys.argv[1] + '-' + sys.argv[2])
+              info = bundle.lstat()
+              require(stat.S_ISDIR(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o700)
+              expected = {
+                  'tls-diagnose.py': 'f0b777fc2ce2cc1bfb6df11bdcdf950c4d6548fd997e44e9e9e6b7fa95464611',
+                  'prepare-tls.py': 'dc415ef1c72fc0cdfa0ed02d2668aa2c7bcb08e3e335281718b4a39fb02c7ed9',
+                  'nginx.conf.template': 'e291af5501f5fa456d91dbcafdeda632bc66451fbe07d5dfcffcb8bbb7a1b610',
+              }
+              for name, digest in expected.items():
+                  path = bundle / name
+                  info = path.lstat()
+                  require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 1024 * 1024)
+                  require(hashlib.sha256(path.read_bytes()).hexdigest() == digest)
+              # This fresh diagnostic is read-only. Its private bodies never enter workflow output.
+              report = json.loads(command(['python3', '-I', str(bundle / 'tls-diagnose.py')], timeout=110))
+              require(isinstance(report, dict) and all(type(value) is bool for value in report.values()))
+              true_flags = (
+                  'overall_readonly', 'diagnostic_complete', 'stage_endpoint_seen', 'rate_limit_seen',
+                  'retry_after_elapsed', 'private_runab_directory_ok', 'tls_state_file_secure',
+                  'tls_state_valid', 'tls_state_pending', 'bootstrap_nginx_hash_matches',
+                  'nginx_disk_original_maintenance', 'renewal_configuration_hash_matches',
+                  'application_current_absent', 'api_unit_inactive', 'nginx_active', 'nginx_syntax_ok',
+                  'certificate_paths_safe', 'certificate_not_expiring', 'certificate_canonical_trusted',
+                  'certificate_alias_trusted', 'certificate_key_matches', 'fullchain_leaf_matches',
+                  'http_canonical_maintenance',
+              )
+              false_flags = ('production_endpoint_seen', 'retry_after_unknown', 'retry_after_short',
+                             'retry_after_long', 'tls_state_ready', 'timer_unit_present', 'renewal_timer_active')
+              require(all(report.get(name) is True for name in true_flags))
+              require(all(report.get(name) is False for name in false_flags))
+              inactive()
+              # Extra expiry margin; the pinned helper reuses the validated checkpoint without certonly.
+              command(['openssl', 'x509', '-in', '/etc/letsencrypt/live/run-a-b.com/cert.pem',
+                       '-noout', '-checkend', '3024000'])
+              gate_allowed = True
+              # Exactly one apply invocation; no retry loop and no altered rate-limit policy.
+              result = json.loads(command(['python3', '-I', str(bundle / 'prepare-tls.py'), 'apply',
+                                           '--template', str(bundle / 'nginx.conf.template')], timeout=1200))
+              require(result == {'tls_operation_ok': True})
+              # The explicitly requested installed preflight performs its own schema/env checks;
+              # this workflow never reads, imports, rewrites, or exports DB or integration payloads.
+              command(['python3', '-I', '/srv/runab/ops/bootstrap.py', 'preflight', '--domain', 'run-a-b.com'])
+              inactive()
+              print('{"resume_gate_allowed":true,"tls_resume_succeeded":true,"application_still_inactive":true}')
+          except BaseException:
+              print(json.dumps({'resume_gate_allowed': gate_allowed, 'tls_resume_succeeded': False}))
+              sys.exit(1)
+          PYTHON

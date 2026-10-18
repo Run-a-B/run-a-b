@@ -281,14 +281,15 @@ class PrepareTls:
             self.certbot_config(state)
             self.switch_nginx(MAINTENANCE.replace(b'server_name run-a-b.com;', b'server_name run-a-b.com www.run-a-b.com;'))
             self.probe()
-            self.certbot(state['image'], 'certonly', '--agree-tos', '--email', EMAIL,
-                         '--keep-until-expiring', '-d', DOMAIN, '-d', 'www.' + DOMAIN)
-            state['renewal_sha256'] = sha(self.read('/etc/letsencrypt/renewal/' + DOMAIN + '.conf'))
-            self.save_state(state)
+            if not state.get('renewal_sha256'):
+                self.certbot(state['image'], 'certonly', '--agree-tos', '--email', EMAIL,
+                             '--keep-until-expiring', '-d', DOMAIN, '-d', 'www.' + DOMAIN)
+                state['renewal_sha256'] = sha(self.read('/etc/letsencrypt/renewal/' + DOMAIN + '.conf'))
+                self.save_state(state)
             self.validate_certificate()
             self.switch_nginx(config)
             self.probe(https=True)
-            self.certbot(state['image'], 'renew', '--dry-run')
+            self.certbot(state['image'], 'renew', '--dry-run', '--no-random-sleep-on-renew')
             self.validate_certificate()
             payload = {**UNITS, HELPER: Path(__file__).read_bytes()}
             for name, data in payload.items():
@@ -326,7 +327,7 @@ class PrepareTls:
         require(state['status'] == 'ready')
         require(re.fullmatch(r'[0-9a-f]{64}', state.get('loaded_fullchain_sha256', '')))
         self.certificate_paths()
-        self.certbot(state['image'], 'renew', *(['--dry-run'] if dry_run else []))
+        self.certbot(state['image'], 'renew', *(['--dry-run', '--no-random-sleep-on-renew'] if dry_run else []))
         self.validate_certificate()
         disk_sha256 = sha((self.root / CERTS.lstrip('/') / 'fullchain.pem').read_bytes())
         # Checkpoint only validated Certbot changes before reload. Keep the last
