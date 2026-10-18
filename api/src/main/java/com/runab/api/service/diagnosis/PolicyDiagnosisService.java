@@ -93,15 +93,18 @@ public class PolicyDiagnosisService {
                 return evidence("region", "지역", business.region(), "전국", MatchStatus.PASS, cardSource());
             }
             if ("unknown".equals(type)) {
-                return cardData.fullyExtracted()
+                return cardData.fullyExtracted() || hasRegionEvidence(regionNode)
                         ? unknown("region", "지역", business.region())
-                        : metadataRegionEvidence(policy, business);
+                        : metadataRegionEvidence(policy, business, hardFailReasons);
             }
             if (regionNode != null) {
+                if (!regionNode.isArray()) {
+                    return unknown("region", "지역", business.region());
+                }
                 List<String> regions = textList(regionNode);
                 if (regions.isEmpty()) {
                     if (!cardData.fullyExtracted()) {
-                        return metadataRegionEvidence(policy, business);
+                        return metadataRegionEvidence(policy, business, hardFailReasons);
                     }
                     if (regionNode.isArray() && !regionNode.isEmpty()) {
                         return unknown("region", "지역", business.region());
@@ -111,19 +114,16 @@ public class PolicyDiagnosisService {
                     if (regions.contains("전국")) {
                         return evidence("region", "지역", business.region(), "전국", MatchStatus.PASS, cardSource());
                     }
+                    boolean allRecognized = regions.stream()
+                            .allMatch(region -> RegionHierarchy.provincesOf(region).size() == 1);
+                    if (!allRecognized) {
+                        return unknown("region", "지역", business.region());
+                    }
                     boolean match = regions.stream()
                             .anyMatch(region -> RegionHierarchy.sameProvince(business.region(), region));
                     if (match) {
                         return evidence("region", "지역", business.region(), String.join(", ", regions),
                                 MatchStatus.PASS, cardSource());
-                    }
-                    boolean allRecognized = regions.stream()
-                            .allMatch(region -> !RegionHierarchy.provincesOf(region).isEmpty());
-                    if (!allRecognized) {
-                        if (!cardData.fullyExtracted()) {
-                            return metadataRegionEvidence(policy, business);
-                        }
-                        return unknown("region", "지역", business.region());
                     }
                     hardFailReasons.add("지역 조건이 맞지 않아요.");
                     return evidence("region", "지역", business.region(), String.join(", ", regions),
@@ -132,20 +132,35 @@ public class PolicyDiagnosisService {
             }
             if (cardData.fullyExtracted()) return unknown("region", "지역", business.region());
         }
-        return metadataRegionEvidence(policy, business);
+        return metadataRegionEvidence(policy, business, hardFailReasons);
     }
 
     private PolicyDiagnosisResponse.Evidence metadataRegionEvidence(
-            Policy policy, DiagnosisInputNormalizer.NormalizedBusiness business) {
+            Policy policy, DiagnosisInputNormalizer.NormalizedBusiness business,
+            List<String> hardFailReasons) {
         String policyRegion = policy.getRegion();
         if (blank(policyRegion)) return unknown("region", "지역", business.region());
-        if ("전국".equals(policyRegion)) {
-            return evidence("region", "지역", business.region(), policyRegion, MatchStatus.PASS, metadataSource("지역"));
+        String normalizedPolicyRegion = policyRegion.trim();
+        if ("전국".equals(normalizedPolicyRegion)) {
+            return evidence("region", "지역", business.region(), normalizedPolicyRegion,
+                    MatchStatus.PASS, metadataSource("지역"));
         }
-        boolean match = RegionHierarchy.sameProvince(business.region(), policyRegion);
-        return match
-                ? evidence("region", "지역", business.region(), policyRegion, MatchStatus.PASS, metadataSource("지역"))
-                : unknown("region", "지역", business.region());
+        Set<String> userProvinces = RegionHierarchy.provincesOf(business.region());
+        Set<String> policyProvinces = RegionHierarchy.provincesOf(normalizedPolicyRegion);
+        if (userProvinces.size() != 1 || policyProvinces.size() != 1) {
+            return unknown("region", "지역", business.region());
+        }
+        if (userProvinces.equals(policyProvinces)) {
+            return evidence("region", "지역", business.region(), normalizedPolicyRegion,
+                    MatchStatus.PASS, metadataSource("지역"));
+        }
+        hardFailReasons.add("지역 조건이 맞지 않아요.");
+        return evidence("region", "지역", business.region(), normalizedPolicyRegion,
+                MatchStatus.FAIL, metadataSource("지역"));
+    }
+
+    private static boolean hasRegionEvidence(JsonNode regionNode) {
+        return regionNode != null && (!regionNode.isArray() || !textList(regionNode).isEmpty());
     }
 
     private PolicyDiagnosisResponse.Evidence industryEvidence(Policy policy, CardData cardData,

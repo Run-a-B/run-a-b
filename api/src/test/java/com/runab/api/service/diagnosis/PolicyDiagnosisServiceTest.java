@@ -11,6 +11,9 @@ import com.runab.api.service.matcher.MatchStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -109,18 +112,33 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
-    void hashtagDerivedPolicyRegionMismatchWithoutStructuredConditionIsUnknown() {
-        // PolicySyncService persists 서울특별시 from the first recognizable tag in "기술,서울,소상공인".
+    void explicitMetadataProvinceMismatchIsAHardFailWithoutStructuredConditions() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
-                "서울특별시", "전체", LocalDate.now().minusDays(1), LocalDate.now().plusDays(10))));
+                "부산광역시", "전체", LocalDate.now().minusDays(1), LocalDate.now().plusDays(10))));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.empty());
 
-        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInBusan());
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
-        assertThat(result.getVerdict()).isEqualTo("NEEDS_CONFIRMATION");
+        assertThat(result.getVerdict()).isEqualTo("NOT_ELIGIBLE");
+        assertThat(result.isHardFail()).isTrue();
+        assertThat(result.getHardFailReasons()).containsExactly("지역 조건이 맞지 않아요.");
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(evidence(result, "region").getSource()).isEqualTo("정책 목록의 지역 정보");
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "수도권", "강서구"})
+    void absentOrAmbiguousMetadataRegionRemainsUnknown(String policyRegion) {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
+                policyRegion, "전체", LocalDate.now().minusDays(1), LocalDate.now().plusDays(10))));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.empty());
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
         assertThat(result.isHardFail()).isFalse();
         assertThat(result.getHardFailReasons()).isEmpty();
-        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
     }
 
     @Test
@@ -224,7 +242,7 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
-    void partialCardTreatsMismatchingMetadataRegionAsUnknownPerCriterion() {
+    void partialCardWithoutRegionUsesExplicitMetadataMismatchAsAHardFail() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
                 "부산광역시", null, null, null)));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("partially_extracted", """
@@ -233,14 +251,15 @@ class PolicyDiagnosisServiceTest {
 
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
-        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(evidence(result, "region").getSource()).isEqualTo("정책 목록의 지역 정보");
         assertThat(evidence(result, "date").getSource()).isEqualTo("구조화된 공고 조건");
-        assertThat(result.isHardFail()).isFalse();
-        assertThat(result.getHardFailReasons()).isEmpty();
+        assertThat(result.isHardFail()).isTrue();
+        assertThat(result.getHardFailReasons()).containsExactly("지역 조건이 맞지 않아요.");
     }
 
     @Test
-    void partialCardUnrecognizedRegionFallsBackToMatchingMetadata() {
+    void partialCardAmbiguousRegionBlocksMatchingMetadataFallback() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy("전국", null, null, null)));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("partially_extracted", """
                 {"eligibility":{"regions":["수도권"],"region_condition_type":"specific"}}
@@ -248,8 +267,7 @@ class PolicyDiagnosisServiceTest {
 
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
-        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.PASS);
-        assertThat(evidence(result, "region").getSource()).isEqualTo("정책 목록의 지역 정보");
+        assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
         assertThat(result.isHardFail()).isFalse();
     }
 
@@ -478,12 +496,13 @@ class PolicyDiagnosisServiceTest {
         assertThat(evidence(result, "industry").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
     }
 
-    @Test
-    void unrecognizedStructuredRegionRemainsUnknownWithoutAHardFail() {
+    @ParameterizedTest
+    @ValueSource(strings = {"수도권", "강서구"})
+    void unresolvedStructuredRegionRemainsUnknownWithoutAHardFail(String policyRegion) {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
-                {"eligibility":{"regions":["수도권"],"region_condition_type":"specific"}}
-                """)));
+                {"eligibility":{"regions":["%s"],"region_condition_type":"specific"}}
+                """.formatted(policyRegion))));
 
         PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
 
@@ -646,10 +665,6 @@ class PolicyDiagnosisServiceTest {
                 .annualRevenueBand("5,000만원~1억원")
                 .employeeCountBand("1~4명")
                 .build();
-    }
-
-    private PolicyDiagnosisRequest operatingCafeInBusan() {
-        return operatingCafeInSeoul().toBuilder().region("부산광역시").build();
     }
 
     private PolicyDiagnosisResponse.Evidence evidence(PolicyDiagnosisResponse result, String key) {
