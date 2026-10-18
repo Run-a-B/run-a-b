@@ -1,0 +1,61 @@
+name: EC2 read-only preflight
+
+on:
+  push:
+    branches: [codex/ec2-preflight-20261019]
+    paths: ['.github/workflows/ec2-preflight.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ec2-read-only-preflight
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install SSH password client
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
+      - name: Verify pinned host and inspect without changing the server
+        env:
+          EC2_HOST: 43.201.103.134
+          EC2_USER: ec2-user
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          : "${SSHPASS:?EC2_PASSWORD is required}"
+          : "${EC2_KNOWN_HOSTS:?Pinned host key is required}"
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F "$EC2_HOST" -f "$HOME/.ssh/known_hosts" > /dev/null
+          sshpass -e ssh -T -o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o ConnectTimeout=15 \
+            -o NumberOfPasswordPrompts=1 -- "$EC2_USER@$EC2_HOST" 'bash -s' <<'REMOTE'
+          set -u
+          id -un
+          uname -m
+          cat /etc/os-release
+          free -m
+          df -h /
+          for tool in java python3 mysql mysqldump nginx docker; do command -v "$tool" || true; done
+          java -version 2>&1 || true
+          python3 --version || true
+          systemctl show runab-api -p ActiveState -p SubState -p FragmentPath -p WorkingDirectory -p User || true
+          systemctl is-active nginx mysqld mariadb docker || true
+          if sudo -n true 2>/dev/null; then echo 'NONINTERACTIVE_SUDO_AVAILABLE'; else echo 'NONINTERACTIVE_SUDO_UNAVAILABLE'; fi
+          ss -ltnH | awk '{print $4}'
+          for file in /etc/runab/api.env /home/ec2-user/run-a-b/.env; do
+            if test -r "$file"; then
+              printf 'Environment variable names in %s (values omitted):\n' "$file"
+              sed -n 's/^[[:space:]]*\([A-Z][A-Z0-9_]*\)=.*/\1/p' "$file"
+            fi
+          done
+          for path in /home/ec2-user/run-a-b/api/build/libs /home/ec2-user/run-a-b/apps/run-a-b-fe/dist /srv/runab/current; do
+            if test -e "$path"; then ls -ld "$path"; fi
+          done
+          REMOTE
