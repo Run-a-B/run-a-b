@@ -140,7 +140,8 @@ public class PolicyService {
         MatchStatus cardStatus = eligibilityMatcher.evaluateIndustryFilter(card, selectedIndustry);
         return switch (cardStatus) {
             case PASS -> true;
-            case UNKNOWN -> PolicyIndustryFallbackMatcher.matches(policy, selectedIndustry);
+            case UNKNOWN -> !eligibilityMatcher.hasIndustryConditionEvidence(card)
+                    && PolicyIndustryFallbackMatcher.matches(policy, selectedIndustry);
             case PARTIAL, FAIL, NOT_REQUIRED -> false;
         };
     }

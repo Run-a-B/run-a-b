@@ -79,7 +79,7 @@ class EligibilityMatcherTest {
                 "강남구",
                 "전체",
                 "베이커리와 제과점 사업자를 지원합니다.",
-                null,
+                LocalDate.now().minusDays(1),
                 LocalDate.now().plusDays(7));
 
         MatchResult result = matcher.match(user, null, policy);
@@ -221,6 +221,66 @@ class EligibilityMatcherTest {
     }
 
     @Test
+    void explicitUnknownConditionTypesRemainUnknownAndBlockMetadataFallback() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"eligibility":{
+                          "regions":["부산광역시"],"region_condition_type":"unknown",
+                          "industries":["제조업"],"industry_condition_type":"unknown"
+                        }}
+                        """),
+                policy("전국", "카페/음료", "카페 사업자를 지원합니다.", null, null));
+
+        assertThat(result.getUnknown()).contains("region", "industry");
+        assertThat(result.getPass()).doesNotContain("region", "industry");
+        assertThat(result.getFail()).doesNotContain("region", "industry");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    void missingConditionTypesStillUseNonBlankArrayEvidence() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"eligibility":{"regions":["부산광역시"],"industries":["제조업"]}}
+                        """),
+                policy("전국", "카페/음료", null, null, null));
+
+        assertThat(result.getFail()).contains("region", "industry");
+        assertThat(result.getHardFailReasons()).contains("region_mismatch");
+    }
+
+    @Test
+    void blankArrayEntriesAreDroppedAndDoNotBlockMetadataFallback() {
+        MatchResult mixed = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"eligibility":{
+                          "regions":["  "," 서울특별시 "],"region_condition_type":"specific",
+                          "industries":["", " 카페/음료 "],"industry_condition_type":"specific"
+                        }}
+                        """));
+        MatchResult blankOnly = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"eligibility":{"regions":["  "],"industries":[""]}}
+                        """),
+                policy("전국", "카페/음료", null, null, null));
+
+        assertThat(mixed.getPass()).contains("region", "industry");
+        assertThat(blankOnly.getPass()).contains("region", "industry");
+    }
+
+    @Test
+    void unresolvedNonBlankCardRegionBlocksStoredNationwideFallback() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"eligibility":{"regions":["수도권"]}}
+                        """),
+                policy("전국", "카페/음료", null, null, null));
+
+        assertThat(result.getUnknown()).contains("region");
+        assertThat(result.getPass()).doesNotContain("region");
+    }
+
+    @Test
     void explicitCardProvinceMismatch_isHardFailDespiteAmbiguousDistrict() {
         MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
                 card("""
@@ -308,6 +368,52 @@ class EligibilityMatcherTest {
 
         assertThat(result.getPartial()).contains("date");
         assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    void pastStartOnlyConsultsClosedStatus() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"closed","start":"%s"}}
+                        """.formatted(LocalDate.now().minusDays(10))));
+
+        assertThat(result.getFail()).contains("date");
+        assertThat(result.getHardFailReasons()).contains("application_period.status=closed");
+        assertThat(result.isHardFail()).isTrue();
+    }
+
+    @Test
+    void futureEndOnlyConsultsClosedOrUpcomingStatus() {
+        LocalDate futureEnd = LocalDate.now().plusDays(10);
+        MatchResult closed = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"closed","end":"%s"}}
+                        """.formatted(futureEnd)));
+        MatchResult upcoming = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"upcoming","end":"%s"}}
+                        """.formatted(futureEnd)));
+
+        assertThat(closed.getFail()).contains("date");
+        assertThat(closed.isHardFail()).isTrue();
+        assertThat(upcoming.getPartial()).contains("date");
+        assertThat(upcoming.isHardFail()).isFalse();
+    }
+
+    @Test
+    void partialNonDecisiveBoundsUseOpenStatusButDecisiveFutureStartWins() {
+        MatchResult pastStartOpen = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"open","start":"%s"}}
+                        """.formatted(LocalDate.now().minusDays(1))));
+        MatchResult futureStartClosed = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                card("""
+                        {"application_period":{"status":"closed","start":"%s"}}
+                        """.formatted(LocalDate.now().plusDays(1))));
+
+        assertThat(pastStartOpen.getPass()).contains("date");
+        assertThat(futureStartClosed.getPartial()).contains("date");
+        assertThat(futureStartClosed.isHardFail()).isFalse();
     }
 
     @Test

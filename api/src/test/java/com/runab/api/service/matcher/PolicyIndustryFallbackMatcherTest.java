@@ -1,12 +1,32 @@
 package com.runab.api.service.matcher;
 
 import com.runab.api.entity.Policy;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PolicyIndustryFallbackMatcherTest {
+
+    @Test
+    void selectedIndustryRequiresAffirmativeTargetingAndHonorsExplicitExclusion() {
+        Policy excluded = Policy.builder().externalId("PBLN_EXCLUDED").industry("전체")
+                .title("소상공인 경영 지원").targetGroup("카페 제외")
+                .description("제조업 사업자를 지원합니다.").build();
+        Policy incidental = Policy.builder().externalId("PBLN_INCIDENTAL").industry("전체")
+                .title("소상공인 경영 지원").targetGroup("소상공인")
+                .description("정책 설계 시 카페 매출 통계를 참고합니다.").build();
+        Policy affirmative = Policy.builder().externalId("PBLN_AFFIRMATIVE").industry("전체")
+                .title("카페 사업자 시설 개선 지원").targetGroup("소상공인").build();
+
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(excluded, "카페/음료"))
+                .isEqualTo(MatchStatus.FAIL);
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(incidental, "카페/음료"))
+                .isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(affirmative, "카페/음료"))
+                .isEqualTo(MatchStatus.PASS);
+    }
 
     @ParameterizedTest(name = "{0} - {1}")
     @CsvSource(delimiter = '|', textBlock = """

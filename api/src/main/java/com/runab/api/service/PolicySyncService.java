@@ -84,6 +84,10 @@ public class PolicySyncService {
             Optional<Policy> existing = policyRepository.findByExternalId(item.getPblancId());
             if (existing.isPresent()) {
                 Policy policy = existing.get();
+                if (region == null && hasNoRegionalEvidence(item.getHashtags(), item.getPblancNm())
+                        && isReliableLocalRegion(policy.getRegion())) {
+                    region = policy.getRegion();
+                }
                 if (originalPeriod == null || originalPeriod.isBlank()) {
                     startDate = policy.getApplicationStartDate();
                     endDate = policy.getApplicationEndDate();
@@ -151,10 +155,11 @@ public class PolicySyncService {
         return value.length() > maxLength ? value.substring(0, maxLength) : value;
     }
 
-    // 모든 지역 태그를 모아 판단한다. 전체 시/도 태그는 전국이며, 별도 정식 지역명은 더 구체적인 근거다.
+    // 지역 태그가 비었을 때도 제목 선두의 명시 범위를 놓치지 않는다.
+    // 전체 시/도 태그는 전국이며, 별도 정식 지역명은 더 구체적인 근거다.
     private String extractRegion(String hashtags, String title, String agency) {
         if (hashtags == null || hashtags.isBlank()) {
-            return "전국";
+            return resolveLeadingScope(title);
         }
         Set<String> regions = new HashSet<>();
         Set<String> formalRegions = new HashSet<>();
@@ -169,7 +174,7 @@ public class PolicySyncService {
                 regions.addAll(Set.of("전라남도", "광주광역시"));
             }
         }
-        if (regions.isEmpty()) return "전국";
+        if (regions.isEmpty()) return resolveLeadingScope(title);
         if (formalRegions.size() == 1) return formalRegions.iterator().next();
         if (formalRegions.size() > 1) return null;
         if (regions.size() == 1) return regions.iterator().next();
@@ -194,6 +199,34 @@ public class PolicySyncService {
             return regions.contains(region) ? region : null;
         }
         return null;
+    }
+
+    private String resolveLeadingScope(String title) {
+        Set<String> scopedRegions = regionsForScope(leadingBracketScope(title));
+        if (scopedRegions.size() == 1) return scopedRegions.iterator().next();
+        if (scopedRegions.size() > 1) {
+            Set<String> detailClues = findRegionClues(textAfterLeadingBracket(title), null);
+            detailClues.retainAll(scopedRegions);
+            return detailClues.size() == 1 ? detailClues.iterator().next() : null;
+        }
+        return null;
+    }
+
+    private boolean hasNoRegionalEvidence(String hashtags, String title) {
+        if (!regionsForScope(leadingBracketScope(title)).isEmpty()) return false;
+        if (hashtags == null || hashtags.isBlank()) return true;
+        for (String tag : hashtags.split(",")) {
+            String trimmed = tag.trim();
+            if (REGION_MAP.containsKey(trimmed) || REGION_MAP.containsValue(trimmed)
+                    || "전남광주".equals(trimmed)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isReliableLocalRegion(String region) {
+        return region != null && RegionHierarchy.provincesOf(region).size() == 1;
     }
 
     private String leadingBracketScope(String title) {

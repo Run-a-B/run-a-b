@@ -218,7 +218,7 @@ class PolicySyncServiceTest {
             "기술,전남광주|서구 기업 지원|NULL",
             "기술,서울|광양시 기업 지원|서울특별시",
             "기술,전라남도|기업 지원|전라남도",
-            "기술|기업 지원|전국"
+            "기술|기업 지원|NULL"
     }, delimiter = '|', nullValues = "NULL")
     void onlyResolvesCombinedRegionalTagsWithUnambiguousEvidence(String tags, String title, String region) throws Exception {
         Policy policy = sync(payload().put("hashTags", tags).put("pblancNm", title));
@@ -266,6 +266,37 @@ class PolicySyncServiceTest {
                 .without("hashTags"));
 
         assertThat(policy.getRegion()).isEqualTo(expectedRegion);
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {
+            "BLANK|[서울] 소상공인 지원|서울특별시",
+            "기술|[서울] 소상공인 지원|서울특별시",
+            "BLANK|소상공인 지원|NULL",
+            "기술|소상공인 지원|NULL",
+            "BLANK|[전남광주] 광양시 소상공인 지원|전라남도",
+            "기술|[전남광주] 소상공인 지원|NULL"
+    }, delimiter = '|', nullValues = "NULL")
+    void leadingScopePrecedesMissingOrUnrecognizedHashtags(String tags, String title,
+                                                            String expectedRegion) throws Exception {
+        String hashtags = "BLANK".equals(tags) ? " " : tags;
+        Policy policy = sync(payload().put("hashtags", hashtags).put("pblancNm", title).without("hashTags"));
+
+        assertThat(policy.getRegion()).isEqualTo(expectedRegion);
+    }
+
+    @Test
+    void transientMissingOrUnrecognizedHashtagsPreserveExistingLocalRegion() throws Exception {
+        Policy initial = sync(payload().put("hashTags", "서울").put("pblancNm", "서울 소상공인 지원"));
+        assertThat(initial.getRegion()).isEqualTo("서울특별시");
+
+        Policy blank = sync(payload().put("hashtags", " ").put("pblancNm", "소상공인 지원")
+                .without("hashTags"));
+        assertThat(blank.getRegion()).isEqualTo("서울특별시");
+
+        Policy unrecognized = sync(payload().put("hashtags", "기술,수출").put("pblancNm", "소상공인 지원")
+                .without("hashTags"));
+        assertThat(unrecognized.getRegion()).isEqualTo("서울특별시");
     }
 
     @Test

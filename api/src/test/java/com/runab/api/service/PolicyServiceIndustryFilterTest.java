@@ -103,6 +103,33 @@ class PolicyServiceIndustryFilterTest {
     }
 
     @Test
+    void explicitUnknownCardIndustryEvidenceBlocksPolicyTextFallback() {
+        Policy textMatches = policy(
+                "PBLN_CARD_UNKNOWN",
+                "외식업체 시설 개선 지원",
+                "음식점업 사업자를 지원합니다.");
+        PolicyCard uncertainCard = PolicyCard.builder()
+                .policyId(PolicyCard.toPolicyId("PBLN_CARD_UNKNOWN"))
+                .externalId("PBLN_CARD_UNKNOWN")
+                .fullJson("""
+                        {"eligibility":{
+                          "industries":["음식점업"],
+                          "industry_condition_type":"unknown"
+                        }}
+                        """)
+                .build();
+
+        when(policyRepository.findAll(any(Specification.class))).thenReturn(List.of(textMatches));
+        when(policyCardRepository.findByPolicyIdIn(anyCollection())).thenReturn(List.of(uncertainCard));
+
+        PolicyPageResponse response = policyService.getPolicies(
+                "전체 지역", "음식점업", "전체 카테고리", null,
+                "최신순", 0, 12, null);
+
+        assertThat(response.getPolicies()).isEmpty();
+    }
+
+    @Test
     @DisplayName("정책카드가 없어도 실제 정책 메타데이터에 따라 관련도가 달라진다")
     void scoresPoliciesFromTheirOwnMetadataWhenCardsAreMissing() {
         BusinessInfo business = BusinessInfo.builder()
