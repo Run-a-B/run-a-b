@@ -242,6 +242,17 @@ class EligibilityMatcherTest {
         assertThat(result.isHardFail()).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"제조업 제외", "제조업을 지원하지 않습니다.", "제조업 통계를 참고합니다.", "제조기업에 납품하는 사업자의 판로를 지원합니다."})
+    void exclusionOrIncidentalIndustryMention_remainsUnknown(String description) {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                null, policy("전국", "전체", description, null, null));
+
+        assertThat(result.getUnknown()).contains("industry");
+        assertThat(result.getFail()).doesNotContain("industry");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
     @Test
     void technologyTopicWithoutIndustryEvidence_remainsUnknown() {
         MatchResult result = matcher.match(user(true, "IT/소프트웨어", "서울특별시", null, null),

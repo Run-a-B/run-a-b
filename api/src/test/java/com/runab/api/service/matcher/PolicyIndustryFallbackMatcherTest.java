@@ -64,4 +64,41 @@ class PolicyIndustryFallbackMatcherTest {
 
         assertThat(PolicyIndustryFallbackMatcher.matches(policy, industry)).isFalse();
     }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            소상공인 경영 지원 | 소상공인 | 제조업 제외
+            소상공인 경영 지원 | 제조업 제외 | 운영 비용을 지원합니다.
+            소상공인 경영 지원 | 소상공인 | 지원대상: 제조업 제외
+            소상공인 경영 지원 | 소상공인 | 제조업을 지원하지 않습니다.
+            소상공인 경영 지원 | 제조업 대상 아님 | 운영 비용을 지원합니다.
+            소상공인 경영 지원 | 소상공인 | 제조업 통계를 참고합니다.
+            소상공인 경영 지원 | 소상공인 | 제조기업에 납품하는 사업자의 판로를 지원합니다.
+            제조업 사례를 참고한 경영 지원 | 소상공인 | 운영 비용을 지원합니다.
+            """)
+    void exclusionOrIncidentalMentionDoesNotEstablishTargetIndustry(
+            String title, String targetGroup, String description) {
+        Policy policy = Policy.builder().externalId("PBLN_TEST").industry("전체")
+                .title(title).targetGroup(targetGroup).description(description).build();
+
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(policy, "카페/음료"))
+                .isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(PolicyIndustryFallbackMatcher.matches(policy, "카페/음료")).isFalse();
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', textBlock = """
+            제조기업 생산성 향상 지원 | 소상공인 | 경영 비용을 지원합니다.
+            소상공인 경영 지원 | 제조업 사업자 | 경영 비용을 지원합니다.
+            소상공인 경영 지원 | 소상공인 | 지원대상: 제조업 사업자
+            소상공인 경영 지원 | 소상공인 | 관광업 전용 지원
+            소상공인 경영 지원 | 소상공인 | 운수업 사업자를 지원합니다.
+            """)
+    void affirmativeUnrelatedTargetIndustryRemainsFail(String title, String targetGroup, String description) {
+        Policy policy = Policy.builder().externalId("PBLN_TEST").industry("전체")
+                .title(title).targetGroup(targetGroup).description(description).build();
+
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(policy, "카페/음료"))
+                .isEqualTo(MatchStatus.FAIL);
+    }
 }

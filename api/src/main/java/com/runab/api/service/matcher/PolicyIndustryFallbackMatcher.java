@@ -5,6 +5,8 @@ import com.runab.api.entity.Policy;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 /**
  * PolicyCard 업종 정보가 없을 때만 쓰는 보수적인 텍스트 fallback.
@@ -31,6 +33,14 @@ public final class PolicyIndustryFallbackMatcher {
 
     private static final List<String> EXCLUSIVE_INDUSTRIES = List.of(
             "운수업", "숙박업", "바이오산업", "농식품업", "콘텐츠산업", "관광업");
+
+    private static final Pattern NON_TARGET_CONTEXT = Pattern.compile("제외|비대상|불가|아니|아님|않|무관|통계|동향|사례|참고");
+    private static final Pattern TARGET_PREFIX = Pattern.compile("(?:지원|신청|참여|모집)\\s*대상\\s*[:：]?\\s*$");
+    private static final Pattern TARGET_SUFFIX = Pattern.compile(
+            "^\\s*(?:전용|대상|(?:사업자|기업|업체)?(?:을|를|에게)\\s*지원|(?:사업자|기업|업체)\\s*지원)");
+    private static final Pattern TARGET_GROUP_SUFFIX = Pattern.compile("\\s*(?:사업자|기업|업체|소상공인|중소기업)?\\s*");
+    private static final Pattern NOMINAL_SUPPORT_SUFFIX = Pattern.compile(
+            "\\s+(?:[\\p{L}\\p{N}·/()-]+\\s+){0,4}지원(?:사업)?\\s*");
 
     private PolicyIndustryFallbackMatcher() {
     }
@@ -65,12 +75,33 @@ public final class PolicyIndustryFallbackMatcher {
                 .map(keyword -> keyword.toLowerCase(Locale.ROOT))
                 .anyMatch(text::contains);
         if (selectedMatches) return MatchStatus.PASS;
-        if (EXCLUSIVE_INDUSTRIES.stream().anyMatch(text::contains)
-                || KEYWORDS.values().stream().flatMap(List::stream)
-                .map(keyword -> keyword.toLowerCase(Locale.ROOT)).anyMatch(text::contains)) {
+        if (Stream.concat(EXCLUSIVE_INDUSTRIES.stream(), KEYWORDS.values().stream().flatMap(List::stream))
+                .map(keyword -> keyword.toLowerCase(Locale.ROOT))
+                .anyMatch(keyword -> hasAffirmativeTarget(policy.getTargetGroup(), keyword, true)
+                        || hasAffirmativeTarget(policy.getTitle(), keyword, false)
+                        || hasAffirmativeTarget(policy.getDescription(), keyword, false))) {
             return MatchStatus.FAIL;
         }
         return MatchStatus.UNKNOWN;
+    }
+
+    private static boolean hasAffirmativeTarget(String text, String keyword, boolean targetGroup) {
+        for (String part : value(text).toLowerCase(Locale.ROOT).split("[.!?;\\n,]")) {
+            String clause = part.trim();
+            int index = clause.indexOf(keyword);
+            if (index < 0 || NON_TARGET_CONTEXT.matcher(clause).find()) continue;
+
+            String before = clause.substring(0, index);
+            String after = clause.substring(index + keyword.length());
+            // 대상 필드의 업종명, 명시적 대상/전용 표현, 업종으로 시작하는 명사형 지원 제목만 부정 근거로 사용한다.
+            if ((targetGroup && TARGET_GROUP_SUFFIX.matcher(after).matches())
+                    || TARGET_PREFIX.matcher(before).find()
+                    || TARGET_SUFFIX.matcher(after).find()
+                    || (index == 0 && NOMINAL_SUPPORT_SUFFIX.matcher(after).matches())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String value(String value) {
