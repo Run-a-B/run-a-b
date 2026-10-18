@@ -74,6 +74,16 @@ def finalize(root=Path("/"), runner=run, mysql_uid=999):
     bootstrap.__file__ = BUNDLE + "/bootstrap.py"
     # Execute exactly the snapshotted, pinned source bytes, not a second file read.
     exec(compile(originals["bootstrap.py"], bootstrap.__file__, "exec"), bootstrap.__dict__)
+    original_expected_container = bootstrap.expected_container
+
+    def corrected_expected_container(digest):
+        expected = original_expected_container(digest)
+        # Correct exactly the known Docker inspect shape in the pinned old helper.
+        require(expected["HostConfig"]["RestartPolicy"] == {"Name": "unless-stopped"})
+        expected["HostConfig"]["RestartPolicy"] = {"Name": "unless-stopped", "MaximumRetryCount": 0}
+        return expected
+
+    bootstrap.expected_container = corrected_expected_container
     tool = bootstrap.Bootstrap(root, runner)
     tool.check_user()
     print(json.dumps({"account_verified": True}), flush=True)
