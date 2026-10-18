@@ -5,6 +5,8 @@ Run as root via `python3 -I tls-diagnose.py` or `python3 -I -` on the fixed host
 No issuance, renewal, reload, state changes, DB access, or ACME file creation.
 """
 import hashlib
+import datetime
+from email.utils import parsedate_to_datetime
 import json
 import os
 from pathlib import Path
@@ -24,16 +26,93 @@ PIN = re.compile(r'(?:docker\.io/)?certbot/certbot@sha256:[0-9a-f]{64}')
 SHA = re.compile(r'[0-9a-f]{64}')
 
 
-def classify_log(data):
+def classify_log(data, now=None):
     # The only allowed log-derived outputs. No lines, captures, values, or fragments escape.
     text = data.decode('utf-8', errors='replace').lower()
-    return {
+    result = {
         'dryrun_success_seen': 'all simulated renewals succeeded' in text,
         'dns_error_seen': any(p in text for p in ('urn:ietf:params:acme:error:dns', 'dns problem:')),
         'challenge_error_seen': any(p in text for p in ('some challenges have failed', 'challenge failed', 'urn:ietf:params:acme:error:unauthorized')),
         'rate_limit_seen': any(p in text for p in ('urn:ietf:params:acme:error:ratelimited', 'too many certificates', 'too many failed authorizations')),
         'network_error_seen': any(p in text for p in ('connectionerror', 'connecttimeout', 'readtimeout', 'timeout during connect', 'network is unreachable', 'temporary failure in name resolution')),
     }
+    result.update(classify_rate_event(data.decode('utf-8', errors='replace'), now))
+    return result
+
+
+def classify_rate_event(text, now=None):
+    # Only the newest structured rate-limit response owns its Retry-After.
+    # Short means still waiting <=1h, long >1h; unknown never allows a retry.
+    result = {name: False for name in ('stage_endpoint_seen', 'production_endpoint_seen',
+              'rate_registration_seen', 'rate_order_seen', 'rate_cert_seen',
+              'rate_authorization_seen', 'retry_after_short', 'retry_after_long',
+              'retry_after_elapsed')}
+    result['retry_after_unknown'] = True
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    responses = list(re.finditer(r'Received response:\r?\nHTTP ([45][0-9]{2})\r?\n', text, re.I))
+    for match in reversed(responses[-64:]):
+        fragment = text[match.end():match.end() + 65536].replace('\r\n', '\n')
+        headers, separator, body = fragment.partition('\n\n')
+        if not separator or len(headers) > 16384 or any(not re.fullmatch(r"[A-Za-z0-9!#$%&'*+.^_`|~-]+:.*", line) for line in headers.splitlines()):
+            if match.group(1) == '429':
+                return result
+            continue
+        try:
+            problem, _ = json.JSONDecoder().raw_decode(body.lstrip())
+            is_rate = isinstance(problem, dict) and problem.get('type', '').lower() == 'urn:ietf:params:acme:error:ratelimited'
+        except (ValueError, AttributeError):
+            is_rate = False
+        if not is_rate:
+            if match.group(1) == '429':
+                return result  # Latest unparseable limit cannot borrow older timing.
+            continue
+        requests = list(re.finditer(r'Sending (?:POST|GET|HEAD) request to https://(acme(?:-staging)?-v02\.api\.letsencrypt\.org)/', text[:match.start()], re.I))
+        if requests and requests[-1].start() > text.lower().rfind('received response:', 0, match.start()):
+            host = requests[-1].group(1).lower()
+            result['stage_endpoint_seen'] = host == 'acme-staging-v02.api.letsencrypt.org'
+            result['production_endpoint_seen'] = host == 'acme-v02.api.letsencrypt.org'
+        detail = problem.get('detail', '')
+        if not isinstance(detail, str):
+            return result
+        lower = detail.lower()
+        result['rate_registration_seen'] = 'too many new registrations' in lower
+        result['rate_order_seen'] = 'too many new orders' in lower or 'too many orders' in lower
+        result['rate_cert_seen'] = 'too many certificates' in lower
+        result['rate_authorization_seen'] = any(p in lower for p in ('too many failed authorizations', 'too many authorization failures', 'too many consecutive failed authorizations'))
+        times = []
+        parsed_headers = {}
+        for line in headers.splitlines():
+            name, colon, value = line.partition(':')
+            if colon:
+                parsed_headers.setdefault(name.strip().lower(), []).append(value.strip())
+        retry = parsed_headers.get('retry-after', [])
+        if len(retry) > 1:
+            return result
+        if retry:
+            try:
+                if re.fullmatch(r'[0-9]+', retry[0]):
+                    dates = parsed_headers.get('date', [])
+                    if len(dates) == 1:
+                        server_date = parsedate_to_datetime(dates[0])
+                        if server_date.tzinfo is not None:
+                            times.append(server_date + datetime.timedelta(seconds=int(retry[0])))
+                else:
+                    when = parsedate_to_datetime(retry[0])
+                    if when.tzinfo is not None:
+                        times.append(when)
+            except (ValueError, TypeError, OverflowError):
+                pass
+        for value in re.findall(r'retry after ([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}) UTC\b', detail, re.I):
+            try:
+                times.append(datetime.datetime.strptime(value, '%Y-%m-%d %H:%M:%S').replace(tzinfo=datetime.timezone.utc))
+            except ValueError:
+                pass
+        if times:
+            remaining = (max(times) - now).total_seconds()
+            result.update(retry_after_unknown=False, retry_after_short=0 < remaining <= 3600,
+                          retry_after_long=remaining > 3600, retry_after_elapsed=remaining <= 0)
+        return result
+    return result
 
 
 def command(args, *, timeout):

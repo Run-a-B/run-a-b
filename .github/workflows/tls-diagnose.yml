@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  EXPECTED_DIAGNOSTIC_SHA256: c10d3cd6a217bb01a8f299f34068017a2cd4cdbf43a77cb2693ce2aee90eb601
+  EXPECTED_DIAGNOSTIC_SHA256: f0b777fc2ce2cc1bfb6df11bdcdf950c4d6548fd997e44e9e9e6b7fa95464611
 
 jobs:
   diagnose-tls:
