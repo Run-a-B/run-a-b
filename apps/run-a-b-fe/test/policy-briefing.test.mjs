@@ -315,7 +315,10 @@ test("official notice preserves stored order, repeated clauses, whitespace and e
       executingAgency: "실제 수행 기관",
       inquiryContact: "공식 문의 02-1234-5678",
     }),
-    summary: { expandedApplicationMethod: "AI가 정리한 접수 절차" },
+    summary: {
+      expandedDescription: "확장된 사업 설명",
+      expandedApplicationMethod: "AI가 정리한 접수 절차",
+    },
   }));
 
   assert.ok(html.includes("  첫 문단\n☞ 같은 조건\n☞ 같은 조건\n\n&lt;script&gt;문자 그대로&lt;/script&gt;\n마지막 조항  "));
@@ -325,6 +328,8 @@ test("official notice preserves stored order, repeated clauses, whitespace and e
   assert.match(html, /원문 방문 접수\n두 번째 절차/);
   assert.match(html, /AI가 정리한 신청 방법/);
   assert.match(html, /AI가 정리한 접수 절차/);
+  assert.match(html, /AI가 정리한 사업 내용/);
+  assert.match(html, /확장된 사업 설명/);
   assert.match(html, /예산 소진 시까지/);
   assert.doesNotMatch(html, /2026\.01\.01/);
   assert.match(html, /수행 기관/);

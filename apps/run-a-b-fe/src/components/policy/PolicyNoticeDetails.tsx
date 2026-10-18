@@ -52,7 +52,7 @@ export function PolicyNoticeDetails({ detail, summary }: PolicyNoticeDetailsProp
         {expandedDescription && (
           <div className="min-w-0 rounded-xl border border-primary-100 bg-primary-50 px-5 py-4">
             <div className="mb-2 flex items-center gap-2">
-              <h3 className="text-sm font-bold text-primary-700">자동 정리된 사업 내용</h3>
+              <h3 className="text-sm font-bold text-primary-700">AI가 정리한 사업 내용</h3>
               <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-primary-600">
                 요약
               </span>
