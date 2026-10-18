@@ -1,5 +1,6 @@
 package com.runab.api.dto.policy;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.runab.api.entity.Policy;
 import lombok.Builder;
 import lombok.Getter;
@@ -27,6 +28,11 @@ public class PolicyListResponse {
     private String date;              // publishedDate → "yyyy.MM.dd"
     private Integer relevance;        // 사업정보 비교를 하지 않았으면 null
     private boolean isAIRecommended;  // 추천 도메인 전까지 고정값 false
+
+    @JsonProperty("isAIRecommended")
+    public boolean isAIRecommended() {
+        return isAIRecommended;
+    }
 
     public static PolicyListResponse from(Policy policy) {
         return from(policy, null, false);
