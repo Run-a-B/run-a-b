@@ -30,6 +30,9 @@ public class JwtTokenProvider {
     // 빈 생성 후 시크릿 키를 SecretKey 객체로 변환
     @PostConstruct
     protected void init() {
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException("JWT_SECRET must contain at least 32 random bytes");
+        }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 

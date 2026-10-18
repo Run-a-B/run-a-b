@@ -30,6 +30,11 @@ public enum ErrorCode {
     VERIFICATION_NOT_FOUND("VERIFICATION_NOT_FOUND", 404, "인증 요청을 찾을 수 없습니다"),
     VERIFICATION_FAILED("VERIFICATION_FAILED", 400, "인증 코드가 올바르지 않거나 만료되었습니다"),
     EMAIL_NOT_VERIFIED("EMAIL_NOT_VERIFIED", 400, "이메일 인증이 필요합니다"),
+    MAIL_NOT_CONFIGURED("MAIL_NOT_CONFIGURED", 503, "인증메일 서비스가 아직 설정되지 않았습니다. 관리자에게 문의해주세요"),
+    MAIL_DELIVERY_FAILED("MAIL_DELIVERY_FAILED", 503, "인증메일을 보내지 못했습니다. 잠시 후 다시 시도해주세요"),
+    RATE_LIMITED("RATE_LIMITED", 429, "요청이 너무 많습니다. 잠시 후 다시 시도해주세요"),
+    GOOGLE_NOT_CONFIGURED("GOOGLE_NOT_CONFIGURED", 503, "구글 로그인이 아직 설정되지 않았습니다"),
+    GOOGLE_ACCOUNT_CONFLICT("GOOGLE_ACCOUNT_CONFLICT", 409, "이미 다른 로그인 방식으로 가입한 이메일입니다. 기존 방식으로 로그인해주세요"),
 
 
     // 비즈니스일때
@@ -41,8 +46,14 @@ public enum ErrorCode {
     INVALID_BUSINESS_STATUS("INVALID_BUSINESS_STATUS", 400, "사업 상태값이 올바르지 않습니다"),
     POLICY_NOT_FOUND("POLICY_NOT_FOUND", 404, "해당 정책을 찾을 수 없습니다"),
     REPORT_NOT_FOUND("REPORT_NOT_FOUND", 404, "해당 리포트를 찾을 수 없습니다"),
+    REPORT_CONTEXT_CHANGED("REPORT_CONTEXT_CHANGED", 409, "리포트 생성 중 사업 정보 또는 정책 정보가 변경되었습니다. 다시 생성해주세요"),
     SUPPORT_NOT_FOUND("SUPPORT_NOT_FOUND", 404, "해당 지원사업을 찾을 수 없습니다"),
     DUPLICATE_REPORT("DUPLICATE_REPORT", 409, "이미 생성된 리포트입니다"),
+    AI_NOT_CONFIGURED("AI_NOT_CONFIGURED", 503, "AI 서비스가 아직 설정되지 않았습니다. 원문 정보를 확인해주세요"),
+    AI_CONFIGURATION_ERROR("AI_CONFIGURATION_ERROR", 503, "AI 서비스 설정을 확인해야 합니다. 관리자에게 문의해주세요"),
+    AI_INVALID_RESPONSE("AI_INVALID_RESPONSE", 502, "AI 분석 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요"),
+    AI_RATE_LIMITED("AI_RATE_LIMITED", 429, "AI 요청이 많습니다. 잠시 후 다시 시도해주세요"),
+    AI_QUOTA_EXHAUSTED("AI_QUOTA_EXHAUSTED", 503, "AI 서비스 이용 한도에 도달했습니다. 관리자에게 문의해주세요"),
     AI_SERVICE_UNAVAILABLE("AI_SERVICE_UNAVAILABLE", 503, "AI 서버가 응답하지 않습니다");
 
     private final String code;

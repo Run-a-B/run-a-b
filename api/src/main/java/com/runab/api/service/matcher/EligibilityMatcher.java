@@ -7,6 +7,9 @@ import com.runab.api.dto.recommend.MatchResult;
 import com.runab.api.entity.BusinessInfo;
 import com.runab.api.entity.Policy;
 import com.runab.api.entity.PolicyCard;
+import com.runab.api.service.BusinessFieldConverter;
+import com.runab.api.service.diagnosis.DiagnosisInputNormalizer;
+import com.runab.api.service.diagnosis.DiagnosisInputNormalizer.NumericBand;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -29,7 +32,7 @@ import java.util.Set;
 @Component
 public class EligibilityMatcher {
 
-    public static final String MATCHER_VERSION = "eligibility_matcher_v1";
+    public static final String MATCHER_VERSION = "eligibility_matcher_v2";
     public static final String SCORING_RULE_VERSION = "scoring_rule_v1";
 
     // eligibilityScore 항목별 배점 (합 100)
@@ -49,6 +52,8 @@ public class EligibilityMatcher {
     private static final Set<String> PREPARING_SYNONYMS = Set.of("준비중", "예비", "예비창업", "preparing");
 
     private final ObjectMapper objectMapper;
+    private final BusinessFieldConverter businessFields = new BusinessFieldConverter();
+    private final DiagnosisInputNormalizer inputNormalizer = new DiagnosisInputNormalizer();
 
     public EligibilityMatcher(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -90,6 +95,7 @@ public class EligibilityMatcher {
     public MatchResult match(BusinessInfo user, PolicyCard card, Policy policy) {
         JsonNode root = parse(card);
         JsonNode elig = root.path("eligibility");
+        boolean fullyExtracted = card != null && "extracted".equals(card.getExtractionStatus()) && root.isObject();
 
         // 상태별 항목 키 분류 버킷
         List<String> pass = new ArrayList<>();
@@ -121,32 +127,34 @@ public class EligibilityMatcher {
         scorer.add("industry", industryStatus, W_INDUSTRY, true);
 
         // ---- date (10) : 유효한 카드 날짜 → 누락된 경계의 정책 날짜 → 상태 문자열 ----
-        PolicyDateEvaluation date = evalDate(root, card, policy, hardFailReasons);
+        PolicyDateEvaluation date = evalDate(root, root.isObject() ? card : null, policy, hardFailReasons);
         scorer.add("date", date.status(), W_DATE, false, date.scoreFraction());
 
         // ---- business_stage (10) ----
-        scorer.add("business_stage", evalBusinessStage(elig, user.getBusinessStatus()), W_BUSINESS_STAGE, false);
+        scorer.add("business_stage", evalBusinessStage(elig, user.getBusinessStatus(), fullyExtracted), W_BUSINESS_STAGE, false);
 
         // ---- business_type (8) : user에 business_type 필드 없음 → UNKNOWN. TODO: 소상공인⊂중소기업 위계 ----
-        scorer.add("business_type", presenceOnly(list(elig, "business_types")), W_BUSINESS_TYPE, false);
+        scorer.add("business_type", noCondition(elig, "business_types", fullyExtracted), W_BUSINESS_TYPE, false);
 
         // ---- owner_type (8) : user 정보 없음 → UNKNOWN ----
-        scorer.add("owner_type", presenceOnly(list(elig, "owner_types")), W_OWNER_TYPE, false);
+        scorer.add("owner_type", noCondition(elig, "owner_types", fullyExtracted), W_OWNER_TYPE, false);
 
         // ---- revenue (8) ----
-        scorer.add("revenue", evalMax(longOrNull(elig, "max_revenue"),
-                user.getAnnualRevenue()), W_REVENUE, false);
+        scorer.add("revenue", evalMax(elig, "max_revenue", fullyExtracted,
+                user.getAnnualRevenue() == null ? null : inputNormalizer.revenueBand(
+                        businessFields.formatRevenue(user.getAnnualRevenue()))), W_REVENUE, false);
 
         // ---- employees (8) ----
-        scorer.add("employees", evalMax(longOrNull(elig, "max_employees"),
-                user.getEmployeeCount() == null ? null : user.getEmployeeCount().longValue()), W_EMPLOYEES, false);
+        scorer.add("employees", evalMax(elig, "max_employees", fullyExtracted,
+                user.getEmployeeCount() == null ? null : inputNormalizer.employeeBand(
+                        businessFields.formatEmployeeCount(user.getEmployeeCount()))), W_EMPLOYEES, false);
 
         // ---- business_months (4) : user 정보 없음 ----
-        scorer.add("business_months", presenceOnlyAny(elig, "min_business_months", "max_business_months"),
+        scorer.add("business_months", noConditions(elig, fullyExtracted, "min_business_months", "max_business_months"),
                 W_BUSINESS_MONTHS, false);
 
         // ---- age (4) : user 정보 없음 ----
-        scorer.add("age", presenceOnlyAny(elig, "min_age", "max_age"), W_AGE, false);
+        scorer.add("age", noConditions(elig, fullyExtracted, "min_age", "max_age"), W_AGE, false);
 
         // ---- required_flags (규칙5) : user 정보 없으면 UNKNOWN으로 표시 ----
         Map<String, String> requiredFlagCheck = new LinkedHashMap<>();
@@ -325,10 +333,10 @@ public class EligibilityMatcher {
 
     private record PolicyDateEvaluation(MatchStatus status, Double scoreFraction) {}
 
-    private MatchStatus evalBusinessStage(JsonNode elig, Boolean businessStatus) {
+    private MatchStatus evalBusinessStage(JsonNode elig, Boolean businessStatus, boolean fullyExtracted) {
         List<String> stages = list(elig, "business_stages");
         if (stages.isEmpty()) {
-            return MatchStatus.NOT_REQUIRED;
+            return noCondition(elig, "business_stages", fullyExtracted);
         }
         if (businessStatus == null) {
             return MatchStatus.UNKNOWN;
@@ -342,29 +350,31 @@ public class EligibilityMatcher {
         return MatchStatus.FAIL; // soft (hardFail 아님)
     }
 
-    // card 조건은 있으나 user 정보가 없는 항목: 조건 있으면 UNKNOWN, 없으면 NOT_REQUIRED
-    private MatchStatus presenceOnly(List<String> cardValues) {
-        return cardValues.isEmpty() ? MatchStatus.NOT_REQUIRED : MatchStatus.UNKNOWN;
+    // Only an explicit empty value on a complete extraction establishes that no condition applies.
+    private MatchStatus noCondition(JsonNode elig, String field, boolean fullyExtracted) {
+        JsonNode value = elig.path(field);
+        return fullyExtracted && (value.isNull() || (value.isArray() && value.isEmpty()))
+                ? MatchStatus.NOT_REQUIRED : MatchStatus.UNKNOWN;
     }
 
-    private MatchStatus presenceOnlyAny(JsonNode elig, String... fields) {
-        for (String f : fields) {
-            if (longOrNull(elig, f) != null) {
-                return MatchStatus.UNKNOWN;
-            }
+    private MatchStatus noConditions(JsonNode elig, boolean fullyExtracted, String... fields) {
+        if (!fullyExtracted) return MatchStatus.UNKNOWN;
+        for (String field : fields) {
+            if (!elig.path(field).isNull()) return MatchStatus.UNKNOWN;
         }
         return MatchStatus.NOT_REQUIRED;
     }
 
-    // max 조건 비교: card 한도 없으면 NOT_REQUIRED, user 값 없으면 UNKNOWN, 이하면 PASS 아니면 FAIL(soft)
-    private MatchStatus evalMax(Long cardMax, Long userValue) {
+    // Persisted amounts represent UI bands, not exact observations. Reuse diagnosis interval rules.
+    private MatchStatus evalMax(JsonNode elig, String field, boolean fullyExtracted, NumericBand userBand) {
+        Long cardMax = longOrNull(elig, field);
         if (cardMax == null) {
-            return MatchStatus.NOT_REQUIRED;
+            return elig.path(field).isNull() ? noCondition(elig, field, fullyExtracted) : MatchStatus.UNKNOWN;
         }
-        if (userValue == null) {
+        if (userBand == null) {
             return MatchStatus.UNKNOWN;
         }
-        return userValue <= cardMax ? MatchStatus.PASS : MatchStatus.FAIL;
+        return userBand.compareToMaximum(cardMax);
     }
 
     // goalScore: user main_business_goal이 아직 BusinessInfo에 없음 → MVP 중립값 50.
@@ -391,15 +401,18 @@ public class EligibilityMatcher {
     // ===== JSON 파싱 헬퍼 (절대 예외 던지지 않음) =====
 
     private JsonNode parse(PolicyCard card) {
-        if (card == null || card.getFullJson() == null || card.getFullJson().isBlank()) {
-            return JsonNodeFactory.instance.objectNode();
+        if (card == null || !("extracted".equals(card.getExtractionStatus())
+                || "partially_extracted".equals(card.getExtractionStatus()))
+                || card.getFullJson() == null || card.getFullJson().isBlank()) {
+            return JsonNodeFactory.instance.missingNode();
         }
         try {
-            return objectMapper.readTree(card.getFullJson());
+            JsonNode root = objectMapper.readTree(card.getFullJson());
+            return root != null && root.isObject() ? root : JsonNodeFactory.instance.missingNode();
         } catch (Exception e) {
             log.warn("[matcher] fullJson 파싱 실패 (policyId={}) → 전부 UNKNOWN 처리: {}",
                     card.getPolicyId(), e.getMessage());
-            return JsonNodeFactory.instance.objectNode();
+            return JsonNodeFactory.instance.missingNode();
         }
     }
 
@@ -407,15 +420,25 @@ public class EligibilityMatcher {
         List<String> result = new ArrayList<>();
         JsonNode arr = node.path(field);
         if (arr.isArray()) {
-            arr.forEach(n -> {
+            for (JsonNode n : arr) {
+                if (!n.isTextual()) return List.of();
                 String value = n.asText().trim();
                 if (!value.isBlank()) result.add(value);
-            });
+            }
         }
         return result;
     }
 
     private boolean hasConditionEvidence(JsonNode node, String valuesField, String typeField) {
+        JsonNode type = node.path(typeField);
+        if (!type.isMissingNode() && !type.isTextual()) return true;
+        JsonNode values = node.path(valuesField);
+        if (!values.isMissingNode()) {
+            if (!values.isArray()) return true;
+            for (JsonNode value : values) {
+                if (!value.isTextual()) return true;
+            }
+        }
         return !list(node, valuesField).isEmpty() || normalizedText(node, typeField) != null;
     }
 
@@ -427,12 +450,12 @@ public class EligibilityMatcher {
 
     private String text(JsonNode node, String field, String def) {
         JsonNode n = node.path(field);
-        return (n.isMissingNode() || n.isNull()) ? def : n.asText();
+        return n.isTextual() ? n.asText() : def;
     }
 
     private Long longOrNull(JsonNode node, String field) {
         JsonNode n = node.path(field);
-        return (n.isMissingNode() || n.isNull()) ? null : n.asLong();
+        return n.isIntegralNumber() && n.canConvertToLong() && n.longValue() >= 0 ? n.longValue() : null;
     }
 
     // status → 가중점수 환산 + 버킷 분류

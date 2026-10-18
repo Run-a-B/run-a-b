@@ -14,9 +14,6 @@ import com.runab.api.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestClient;
-
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -26,29 +23,30 @@ public class GoogleAuthService {
     private final UserRepository userRepository;
     private final BusinessInfoRepository businessInfoRepository;
     private final JwtTokenProvider jwtTokenProvider;
+    private final GoogleIdentityVerifier identityVerifier;
 
     @Transactional
     public LoginResponse googleLogin(GoogleLoginRequest request) {
-        // 구글 access_token으로 유저 정보 조회
-        Map<String, Object> userInfo = fetchGoogleUserInfo(request.getIdToken());
+        GoogleIdentityVerifier.VerifiedIdentity identity = identityVerifier.verify(request.getIdToken());
+        String email = EmailService.normalize(identity.email());
 
-        String email = (String) userInfo.get("email");
-        String name = (String) userInfo.get("name");
-        String providerId = (String) userInfo.get("sub");
-
-        if (email == null) {
-            throw new BusinessException(ErrorCode.GOOGLE_AUTH_FAILED);
+        // Google의 고정 식별자로 기존 계정을 찾는다. 이메일만으로 다른 로그인 계정에 연결하지 않는다.
+        User user = userRepository.findByProviderAndProviderId(AuthProvider.GOOGLE, identity.subject()).orElse(null);
+        if (user != null && user.isDeleted()) throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        User emailOwner = userRepository.findByEmail(email).orElse(null);
+        if (emailOwner != null) {
+            if (emailOwner.isDeleted()) throw new BusinessException(ErrorCode.UNAUTHORIZED);
+            if (user == null || !emailOwner.getId().equals(user.getId())) {
+                throw new BusinessException(ErrorCode.GOOGLE_ACCOUNT_CONFLICT);
+            }
         }
-
-        // 기존 회원이면 로그인, 없으면 자동 가입
-        User user = userRepository.findByEmail(email).orElse(null);
         if (user == null) {
             user = User.builder()
                     .email(email)
-                    .username(name != null ? name : email.split("@")[0])
+                    .username(displayName(identity.name(), email))
                     .password(null)
                     .provider(AuthProvider.GOOGLE)
-                    .providerId(providerId)
+                    .providerId(identity.subject())
                     .age(null)
                     .build();
             user = userRepository.save(user);
@@ -63,17 +61,8 @@ public class GoogleAuthService {
                 .build();
     }
 
-    // 구글 access_token → userinfo 조회
-    private Map<String, Object> fetchGoogleUserInfo(String accessToken) {
-        try {
-            RestClient restClient = RestClient.create();
-            return restClient.get()
-                    .uri("https://www.googleapis.com/oauth2/v3/userinfo")
-                    .header("Authorization", "Bearer " + accessToken)
-                    .retrieve()
-                    .body(Map.class);
-        } catch (Exception e) {
-            throw new BusinessException(ErrorCode.GOOGLE_AUTH_FAILED);
-        }
+    private static String displayName(String name, String email) {
+        String candidate = name == null || name.isBlank() ? email.split("@", 2)[0] : name.strip();
+        return candidate.substring(0, candidate.offsetByCodePoints(0, Math.min(20, candidate.codePointCount(0, candidate.length()))));
     }
 }

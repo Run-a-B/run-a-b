@@ -25,7 +25,7 @@ const policy = {
   date: "상시",
 };
 
-test("grid and list diagnosis actions include the policy title without changing visible copy", async (t) => {
+test("grid and list cards expose policy links and distinct named diagnosis actions", async (t) => {
   const vite = await createServer({ root: process.cwd(), appType: "custom", logLevel: "silent" });
   t.after(() => vite.close());
   const { PolicyCard, PolicyListItem } = await vite.ssrLoadModule("/src/pages/Policies.tsx");
@@ -34,8 +34,25 @@ test("grid and list diagnosis actions include the policy title without changing 
   const list = await render(React.createElement(MemoryRouter, null, React.createElement(PolicyListItem, { policy, visited: false, relevance: 84 })));
 
   for (const html of [grid, list]) {
+    assert.match(html, /<a\b[^>]*href="\/policies\/17"[^>]*>소상공인 성장 지원<\/a>/);
     assert.match(html, /aria-label="소상공인 성장 지원 60초 진단"/);
     assert.match(html, />60초 진단<\/button>/);
     assert.match(html, /min-h-11/);
+  }
+});
+
+test("grid and list missing-score labels follow the user's login state", async (t) => {
+  const vite = await createServer({ root: process.cwd(), appType: "custom", logLevel: "silent" });
+  t.after(() => vite.close());
+  const { PolicyCard, PolicyListItem } = await vite.ssrLoadModule("/src/pages/Policies.tsx");
+
+  for (const Component of [PolicyCard, PolicyListItem]) {
+    const signedIn = await render(React.createElement(MemoryRouter, null,
+      React.createElement(Component, { policy, visited: false, relevance: null, authenticated: true })));
+    const signedOut = await render(React.createElement(MemoryRouter, null,
+      React.createElement(Component, { policy, visited: false, relevance: null, authenticated: false })));
+    assert.match(signedIn, /분석 정보 없음/);
+    assert.doesNotMatch(signedIn, /로그인 후 분석|사업 정보 등록/);
+    assert.match(signedOut, /로그인 후 분석/);
   }
 });

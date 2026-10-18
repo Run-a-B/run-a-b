@@ -24,6 +24,7 @@ public class AiGatewayClient {
 
     private final RestClient restClient;
     private final String apiKey;
+    private final boolean configured;
 
     public AiGatewayClient(
             @Value("${ai.gateway.base-url}") String baseUrl,
@@ -31,6 +32,8 @@ public class AiGatewayClient {
             @Value("${ai.gateway.timeout-seconds:180}") int timeoutSeconds
     ) {
         this.apiKey = apiKey;
+        this.configured = baseUrl != null && !baseUrl.isBlank() && !baseUrl.contains("unused.invalid")
+                && apiKey != null && !apiKey.isBlank() && !"unused".equals(apiKey);
 
         // 추론이 느려서(시연용 Transformers 직접 로드) 타임아웃을 넉넉히 잡는다.
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -42,11 +45,12 @@ public class AiGatewayClient {
                 .requestFactory(factory)
                 .build();
 
-        log.info("[AiGateway] 초기화 완료 - baseUrl={}, timeout={}s", baseUrl, timeoutSeconds);
+        log.info("[AiGateway] 초기화 완료 - configured={}", configured);
     }
 
     /** 조립된 요청을 AI Gateway로 전송하고 원본 응답(JsonNode)을 반환 */
     public JsonNode recommend(AiRecommendRequest request) {
+        if (!configured) throw new BusinessException(ErrorCode.AI_NOT_CONFIGURED);
         try {
             log.info("[AiGateway] 추천 요청 전송 - requestId={}, 후보 {}건",
                     request.getRequestId(), request.getCandidatePolicies().size());
@@ -63,8 +67,7 @@ public class AiGatewayClient {
             return response;
 
         } catch (Exception e) {
-            log.error("[AiGateway] 추천 요청 실패 - requestId={}, error={}",
-                    request.getRequestId(), e.getMessage());
+            log.error("[AiGateway] 추천 요청 실패 - type={}", e.getClass().getSimpleName());
             throw new BusinessException(ErrorCode.AI_SERVICE_UNAVAILABLE);
         }
     }

@@ -210,6 +210,29 @@ public class PolicyDiagnosisService {
         if (cardData.usable()) {
             JsonNode applicationPeriod = field(cardData.root(), "application_period");
             if (applicationPeriod != null && !applicationPeriod.isNull()) {
+                LocalDate cardStart = structuredDate(applicationPeriod, "start");
+                LocalDate cardEnd = structuredDate(applicationPeriod, "end");
+                LocalDate start = cardStart != null ? cardStart : policy.getApplicationStartDate();
+                LocalDate end = cardEnd != null ? cardEnd : policy.getApplicationEndDate();
+                if (start == null && end == null && !blank(policy.getOriginalApplicationPeriod())) {
+                    return originalPeriodEvidence(policy.getOriginalApplicationPeriod());
+                }
+                LocalDate today = LocalDate.now();
+                String period = formatPeriod(start, end);
+                // Actual boundaries take precedence over extraction-time status flags.
+                if (end != null && end.isBefore(today)) {
+                    hardFailReasons.add("신청 기간이 종료되었어요.");
+                    return evidence("date", "신청 기간", "오늘", period, MatchStatus.FAIL,
+                            cardEnd != null ? cardSource() : metadataSource("신청 기간"));
+                }
+                if (start != null && start.isAfter(today)) {
+                    return evidence("date", "신청 기간", "오늘", period, MatchStatus.PARTIAL,
+                            cardStart != null ? cardSource() : metadataSource("신청 기간"));
+                }
+                if (start != null && end != null) {
+                    return evidence("date", "신청 기간", "오늘", period, MatchStatus.PASS,
+                            cardStart != null || cardEnd != null ? cardSource() : metadataSource("신청 기간"));
+                }
                 String status = text(applicationPeriod, "status");
                 if ("closed".equals(status)) {
                     hardFailReasons.add("신청 기간이 종료되었어요.");
@@ -219,9 +242,6 @@ public class PolicyDiagnosisService {
                     return evidence("date", "신청 기간", "오늘", "접수 중", MatchStatus.PASS, cardSource());
                 }
                 if ("upcoming".equals(status) || "scheduled".equals(status)) {
-                    return evidence("date", "신청 기간", "오늘", "접수 예정", MatchStatus.PARTIAL, cardSource());
-                }
-                if (!"unknown".equals(status) && hasFutureStructuredStart(applicationPeriod)) {
                     return evidence("date", "신청 기간", "오늘", "접수 예정", MatchStatus.PARTIAL, cardSource());
                 }
             }
@@ -244,7 +264,18 @@ public class PolicyDiagnosisService {
         if (start != null || end != null) {
             return evidence("date", "신청 기간", "오늘", period, MatchStatus.PASS, metadataSource("신청 기간"));
         }
+        if (!blank(policy.getOriginalApplicationPeriod())) {
+            return originalPeriodEvidence(policy.getOriginalApplicationPeriod());
+        }
         return unknown("date", "신청 기간", "오늘");
+    }
+
+    private PolicyDiagnosisResponse.Evidence originalPeriodEvidence(String period) {
+        return PolicyDiagnosisResponse.Evidence.builder()
+                .key("date").label("신청 기간").userValue("오늘").policyValue(period.trim())
+                .status(MatchStatus.UNKNOWN).source("원문 신청 기간")
+                .reason("원문 신청 기간은 확인했지만 현재 접수 가능 여부는 담당 기관에 확인해 주세요.")
+                .build();
     }
 
     private PolicyDiagnosisResponse.Evidence stageEvidence(CardData cardData,
@@ -338,9 +369,12 @@ public class PolicyDiagnosisService {
     }
 
     private PolicyDiagnosisResponse.PolicyInfo policyInfo(Policy policy) {
+        String period = blank(policy.getOriginalApplicationPeriod())
+                ? formatPeriod(policy.getApplicationStartDate(), policy.getApplicationEndDate())
+                : policy.getOriginalApplicationPeriod().trim();
         return PolicyDiagnosisResponse.PolicyInfo.builder().id(policy.getId()).title(policy.getTitle())
                 .category(policy.getCategory()).agency(policy.getAgency())
-                .applicationPeriod(formatPeriod(policy.getApplicationStartDate(), policy.getApplicationEndDate()))
+                .applicationPeriod(period)
                 .detailUrl(policy.getDetailUrl()).build();
     }
 
@@ -427,13 +461,13 @@ public class PolicyDiagnosisService {
 
     private static String formatEmployeeMaximum(long value) { return String.format("%,d명", value); }
 
-    private static boolean hasFutureStructuredStart(JsonNode applicationPeriod) {
-        String start = text(applicationPeriod, "start");
-        if (blank(start)) return false;
+    private static LocalDate structuredDate(JsonNode applicationPeriod, String key) {
+        String value = text(applicationPeriod, key);
+        if (blank(value)) return null;
         try {
-            return LocalDate.parse(start).isAfter(LocalDate.now());
+            return LocalDate.parse(value);
         } catch (RuntimeException ignored) {
-            return false;
+            return null;
         }
     }
 

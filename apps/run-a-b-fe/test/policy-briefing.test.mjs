@@ -52,7 +52,8 @@ test("renders explicit unknowns and stored source quality", async (t) => {
 
   assert.match(html, /지원 대상/);
   assert.match(html, /서울 소상공인/);
-  assert.match(html, /지원 금액·방식 정보가 아직 수집되지 않았어요/);
+  assert.match(html, /지원 금액·방식은 아직 별도로 정리되지 않았어요/);
+  assert.match(html, /아래 원문 공고에서 확인해 주세요/);
   assert.match(html, /기간 정보 없음 — 원문 공고 확인/);
   assert.match(html, /출처/);
   assert.match(html, /기업마당/);
@@ -169,6 +170,38 @@ test("summary panel uses stored facts when summary requests fail", async (t) => 
   assert.match(html, /저장된 사업 목적/);
   assert.match(html, /저장된 정책 설명/);
   assert.doesNotMatch(html, />완료</);
+});
+
+test("extractive AI summary keeps paragraph breaks and explains the original-notice basis", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const html = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(),
+    summary: {
+      summaryLines: ["지원 대상: 소상공인\n제외 대상: 휴업 중인 사업자"],
+      highlights: [{ icon: "check", label: "지원 대상 원문 발췌", content: "소상공인\n제외 대상: 휴업 중인 사업자" }],
+    },
+    summaryState: "done",
+  }));
+
+  assert.match(html, /class="[^"]*whitespace-pre-line[^"]*">지원 대상: 소상공인\n제외 대상: 휴업 중인 사업자/);
+  assert.match(html, /class="[^"]*whitespace-pre-line[^"]*">소상공인\n제외 대상: 휴업 중인 사업자/);
+  assert.match(html, /AI가 선택한 원문 발췌예요/);
+  assert.match(html, /최종 신청 조건은 원문 공고를 확인해 주세요/);
+});
+
+test("summary panel gives guests a login action and configuration errors an honest reason", async (t) => {
+  const { PolicySummaryPanel } = await loadPolicyDetailPanels(t);
+  const guest = await render(React.createElement(MemoryRouter, null, React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(), summary: null, summaryState: "login",
+  })));
+  assert.match(guest, /로그인 후 AI 요약 보기/);
+  assert.match(guest, /href="\/login"/);
+  const unconfigured = await render(React.createElement(PolicySummaryPanel, {
+    detail: policyDetail(), summary: null, summaryState: "error",
+    summaryError: "AI 서비스가 아직 연결되지 않았어요. 원문 공고를 확인해 주세요.",
+  }));
+  assert.match(unconfigured, /AI 서비스가 아직 연결되지 않았어요/);
+  assert.match(unconfigured, /저장된 정책 설명/);
 });
 
 test("summary panel treats a done empty response as unavailable", async (t) => {

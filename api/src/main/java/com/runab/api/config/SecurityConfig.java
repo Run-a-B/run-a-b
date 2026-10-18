@@ -23,6 +23,8 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    @org.springframework.beans.factory.annotation.Value("${app.trusted-proxy-ips:}")
+    private String trustedProxyIps;
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception{
@@ -49,6 +51,7 @@ public class SecurityConfig {
                         // 공개 엔드포인트: 인증 없이 접근 가능
                         .requestMatchers(
                                 "/api/v1/auth/signup",
+                                "/api/v1/auth/signup/complete",
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/email/send",
                                 "/api/v1/auth/email/verify",
@@ -57,11 +60,11 @@ public class SecurityConfig {
                         ).permitAll() //누가 접근 가능한지를 봄
 
                         // 정책 목록/상세 조회는 비로그인도 가능 (인증 불필요)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/policies/*/summary").hasRole("ACCESS")
                         .requestMatchers(HttpMethod.GET, "/api/v1/policies/**").permitAll()
 
-                        // bizinfo 동기화: 관리자성 작업이나 발표 데모 편의상 일단 permitAll
-                        // TODO: 추후 ADMIN 권한으로 제한 필요
-                        .requestMatchers(HttpMethod.POST, "/api/v1/policies/sync").permitAll()
+                        // 관리자 인증/작업 큐가 마련되기 전에는 외부에서 데이터 변경을 실행할 수 없다.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/policies/sync").denyAll()
 
                         .requestMatchers(HttpMethod.POST, "/api/v1/policies/*/diagnosis").permitAll()
 
@@ -72,8 +75,21 @@ public class SecurityConfig {
                         .anyRequest().hasRole("ACCESS") // ACCESS 토큰 보유자만
                 )
 
+                .exceptionHandling(errors -> errors
+                        .authenticationEntryPoint((request, response, error) -> {
+                            response.setStatus(401);
+                            response.setContentType("application/json;charset=UTF-8");
+                            response.getWriter().write("{\"success\":false,\"message\":\"로그인이 필요합니다\",\"error\":{\"code\":\"UNAUTHORIZED\",\"status\":401}}");
+                        })
+                        .accessDeniedHandler((request, response, error) -> {
+                            response.setStatus(403);
+                            response.setContentType("application/json;charset=UTF-8");
+                            response.getWriter().write("{\"success\":false,\"message\":\"접근 권한이 없습니다\",\"error\":{\"code\":\"FORBIDDEN\",\"status\":403}}");
+                        }))
+
                 // JWT 필터를 기본 인증 필터 앞에 끼워넣기ㅎ
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(new RequestRateLimitFilter(trustedProxyIps), JwtAuthenticationFilter.class);
 
         return http.build();
     }

@@ -40,7 +40,7 @@ test("missing support scale is an explicit unknown brief item", () => {
     "지원 대상,지원 내용,신청 기간",
   );
   assert.equal(items[0].value, "원문에서 지원 대상을 확인해 주세요.");
-  assert.equal(items[1].value, "지원 금액·방식 정보가 아직 수집되지 않았어요.");
+  assert.equal(items[1].value, "지원 금액·방식은 아직 별도로 정리되지 않았어요. 아래 원문 공고에서 확인해 주세요.");
   assert.equal(items[1].available, false);
 });
 test("brief preserves target support period order and values", () => {
@@ -54,6 +54,37 @@ test("brief preserves target support period order and values", () => {
     ).map((i) => i.value),
     ["소상공인", "최대 500만원", "2026.09.01 ~ 09.30"],
   );
+});
+test("brief and notice use the original application period and method", () => {
+  const detail = policy({
+    applicationPeriod: "2026.09.01 ~ 09.30",
+    originalApplicationPeriod: " 예산 소진시까지 ",
+    applicationMethod: "온라인 접수",
+    originalApplicationMethod: " 담당 기관에 이메일 접수 ",
+  });
+  assert.deepEqual(buildPolicyBrief(detail)[2], {
+    label: "신청 기간", value: "예산 소진시까지", available: true,
+  });
+  assert.equal(buildPolicyNotice(detail).applicationPeriod, "예산 소진시까지");
+  assert.equal(buildPolicyNotice(detail).applicationMethod, "담당 기관에 이메일 접수");
+});
+test("quality counts available original notice fields without inventing extracted conditions", () => {
+  const quality = buildPolicyQuality(policy({
+    originalApplicationPeriod: "예산 소진시까지",
+    originalApplicationMethod: "방문 접수",
+    originalNoticeText: "수집된 원문 사업 내용",
+  }));
+  assert.equal(quality.availableCount, 3);
+  assert.deepEqual(quality.missingLabels, ["지원 대상", "지원 내용", "공고 번호", "담당 부서"]);
+});
+test("blank original fields do not hide available structured values", () => {
+  const detail = policy({
+    applicationPeriod: "2026.09.01 ~ 09.30", originalApplicationPeriod: " \t",
+    applicationMethod: "온라인 접수", originalApplicationMethod: " ",
+  });
+  assert.equal(buildPolicyBrief(detail)[2].value, "2026.09.01 ~ 09.30");
+  assert.equal(buildPolicyNotice(detail).applicationMethod, "온라인 접수");
+  assert.equal(buildPolicyQuality(detail).availableCount, 2);
 });
 test("quality audits seven stored fields in fixed order", () => {
   assert.deepEqual(
@@ -150,7 +181,7 @@ test("brief treats whitespace-only values as missing", () => {
     items.map((item) => [item.value, item.available]),
     [
       ["원문에서 지원 대상을 확인해 주세요.", false],
-      ["지원 금액·방식 정보가 아직 수집되지 않았어요.", false],
+      ["지원 금액·방식은 아직 별도로 정리되지 않았어요. 아래 원문 공고에서 확인해 주세요.", false],
       ["기간 정보 없음 — 원문 공고 확인", false],
     ],
   );
@@ -202,6 +233,26 @@ test("missing relevance is unavailable instead of a fake zero percent", () => {
     value: null,
     width: "0%",
   });
+});
+
+test("missing relevance for a signed-in user does not ask them to log in or assume a missing business profile", () => {
+  assert.deepEqual(relevancePresentation(null, true), {
+    available: false,
+    label: "분석 정보 없음",
+    value: null,
+    width: "0%",
+  });
+  assert.equal(relevancePresentation(null, false).label, "로그인 후 분석");
+  assert.equal(relevancePresentation(64, true).label, "관련도 64%");
+});
+
+test("missing structured support points to existing raw notice without inventing extracted benefits", () => {
+  const items = buildPolicyBrief(policy({
+    supportScale: null,
+    originalNoticeText: "선정 기업에 시설 개선비 최대 500만원을 지원합니다.",
+  }));
+  assert.equal(items[1].available, false);
+  assert.equal(items[1].value, "지원 금액·방식은 아직 별도로 정리되지 않았어요. 아래 원문 공고에서 확인해 주세요.");
 });
 
 test("numeric relevance keeps its visible percentage", () => {

@@ -76,51 +76,48 @@ public class UserService {
     // ===== 4) 내 사업 정보 저장 (upsert: 없으면 생성, 있으면 수정) =====
     @Transactional
     public BusinessInfoResponse updateMyBusinessInfo(Long userId, BusinessInfoUpdateRequest request) {
-        Long revenue = request.getAnnualRevenue() != null
-                ? converter.parseRevenue(request.getAnnualRevenue()) : null;
-        Integer employees = request.getEmployeeCount() != null
-                ? converter.parseEmployeeCount(request.getEmployeeCount()) : null;
+        BusinessInfo info = businessInfoRepository.findByUserId(userId).orElse(null);
+        // PATCH에서 생략한 값은 유지하되, 명시한 빈 값은 검증 없이 기존 값으로 대체하지 않는다.
+        Boolean businessStatus = request.getBusinessStatus() != null ? request.getBusinessStatus()
+                : info == null ? null : info.getBusinessStatus();
+        String jobCategory = request.getJobCategory() != null ? request.getJobCategory()
+                : info == null ? null : info.getJobCategory();
+        String region = request.getRegion() != null ? request.getRegion()
+                : info == null ? null : info.getRegion();
 
-        // 이메일 가입은 signup 2단계(POST /auth/signup/business)에서 BusinessInfo가 미리 생성되지만,
-        // 구글 로그인 가입은 그 단계를 안 거쳐 row가 없어 최초 저장 시 404가 났음(BUSINESS_INFO_NOT_FOUND).
-        // → 없으면 새로 생성(upsert)한다.
-        BusinessInfo info = businessInfoRepository.findByUserId(userId)
-                .orElseGet(() -> createBusinessInfo(userId, request));
-
-        // 생성/수정 공통: 값 반영 (null인 필드는 update() 내부에서 무시, businessStatus=false면 매출/직원수 null)
-        info.update(
-                request.getBusinessStatus(),
-                request.getJobCategory(),
-                request.getRegion(),
-                revenue,
-                employees
-        );
-
-        // 변경 감지로 자동 UPDATE/INSERT
-        String revenueText = converter.formatRevenue(info.getAnnualRevenue());
-        String employeeText = converter.formatEmployeeCount(info.getEmployeeCount());
-        return BusinessInfoResponse.from(info, revenueText, employeeText);
-    }
-
-    // 최초 저장 시 BusinessInfo 신규 생성. businessStatus/jobCategory/region은 엔티티상 nullable=false라 필수값 검증한다.
-    private BusinessInfo createBusinessInfo(Long userId, BusinessInfoUpdateRequest request) {
-        if (request.getBusinessStatus() == null) {
+        if (businessStatus == null) {
             throw new BusinessException(ErrorCode.INVALID_BUSINESS_STATUS);
         }
-        if (request.getJobCategory() == null || request.getJobCategory().isBlank()) {
+        if (jobCategory == null || jobCategory.isBlank() || jobCategory.length() > 50) {
             throw new BusinessException(ErrorCode.INVALID_JOB_CATEGORY);
         }
-        if (request.getRegion() == null || request.getRegion().isBlank()) {
+        if (region == null || region.isBlank() || region.length() > 50) {
             throw new BusinessException(ErrorCode.INVALID_REGION);
         }
-        User user = findUser(userId);
-        // 매출/직원수는 아래 공통 update()에서 채우므로 여기선 필수값만 세팅해 저장
-        return businessInfoRepository.save(BusinessInfo.builder()
-                .user(user)
-                .businessStatus(request.getBusinessStatus())
-                .jobCategory(request.getJobCategory())
-                .region(request.getRegion())
-                .build());
+
+        Long revenue = null;
+        Integer employees = null;
+        if (businessStatus) {
+            revenue = request.getAnnualRevenue() != null ? converter.parseRevenue(request.getAnnualRevenue())
+                    : info == null ? null : info.getAnnualRevenue();
+            employees = request.getEmployeeCount() != null ? converter.parseEmployeeCount(request.getEmployeeCount())
+                    : info == null ? null : info.getEmployeeCount();
+            if (revenue == null || employees == null) {
+                throw new BusinessException(ErrorCode.BUSINESS_FIELD_REQUIRED);
+            }
+        }
+
+        // 유효한 최종 상태가 확인된 후에만 기존 행을 변경하거나 신규 행을 저장한다.
+        if (info == null) {
+            info = businessInfoRepository.save(BusinessInfo.builder()
+                    .user(findUser(userId)).businessStatus(businessStatus)
+                    .jobCategory(jobCategory).region(region)
+                    .annualRevenue(revenue).employeeCount(employees).build());
+        } else {
+            info.update(businessStatus, jobCategory, region, revenue, employees);
+        }
+        return BusinessInfoResponse.from(info, converter.formatRevenue(info.getAnnualRevenue()),
+                converter.formatEmployeeCount(info.getEmployeeCount()));
     }
 
     // ===== 5) 회원 탈퇴 (soft delete) =====

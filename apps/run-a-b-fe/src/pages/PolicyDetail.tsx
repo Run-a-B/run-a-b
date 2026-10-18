@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { getSavedReport } from "@/data/reports";
+import { generatePolicyReport } from "@/features/reports/generation";
 import { markPolicyVisited } from "@/data/visited";
 import {
   firstSafeExternalUrl,
+  summaryFailureMessage,
   type PolicyDetailData,
 } from "@/features/policy/presentation";
 import {
@@ -16,6 +18,7 @@ import {
 import { PolicyBriefing } from "@/components/policy/PolicyBriefing";
 import { DiagnosisEntryCard } from "@/components/policy/DiagnosisEntryCard";
 import { PolicyNoticeDetails } from "@/components/policy/PolicyNoticeDetails";
+import { useAuth } from "@/contexts/AuthContext";
 
 const HIGHLIGHT_ICONS: Record<string, React.ReactNode> = {
   money: (
@@ -91,10 +94,11 @@ const AI_DEFAULTS = {
 interface PolicySummaryPanelProps {
   detail: PolicyDetailData;
   summary: PolicySummaryData | null;
-  summaryState: "loading" | "done" | "error";
+  summaryState: "loading" | "done" | "error" | "login";
+  summaryError?: string | null;
 }
 
-export function PolicySummaryPanel({ detail, summary, summaryState }: PolicySummaryPanelProps) {
+export function PolicySummaryPanel({ detail, summary, summaryState, summaryError }: PolicySummaryPanelProps) {
   const summaryLines = summary?.summaryLines?.filter(hasText) ?? [];
   const summaryHighlights = summary?.highlights?.filter(
     (highlight) => hasText(highlight.label) || hasText(highlight.content),
@@ -136,6 +140,7 @@ export function PolicySummaryPanel({ detail, summary, summaryState }: PolicySumm
       </div>
 
       <div className="px-5 py-4 flex flex-col gap-4">
+        {summaryState === "login" && <Link to="/login" className="min-h-11 flex items-center justify-center rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white">로그인 후 AI 요약 보기</Link>}
         {summaryState === "loading" && (
           <div className="flex flex-col gap-2 animate-pulse">
             <div className="h-3.5 bg-white rounded w-full" />
@@ -147,6 +152,7 @@ export function PolicySummaryPanel({ detail, summary, summaryState }: PolicySumm
 
         {showUnavailable && (
           <div className="flex flex-col gap-3">
+            {summaryError && <p role="status" className="text-sm text-gray-600 leading-7">{summaryError}</p>}
             <p className="text-sm text-gray-500 leading-7">자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요.</p>
             {(detail.purposeText || detail.description) && (
               <div className="flex flex-col gap-2">
@@ -165,6 +171,10 @@ export function PolicySummaryPanel({ detail, summary, summaryState }: PolicySumm
           <p className="text-sm text-gray-500 leading-7">자동 정리된 상세 정보를 본문에 반영했어요.</p>
         )}
 
+        {summaryState === "done" && hasSummaryContent && (
+          <p className="text-xs text-gray-500 leading-6">AI가 선택한 원문 발췌예요. 최종 신청 조건은 원문 공고를 확인해 주세요.</p>
+        )}
+
         {summaryState === "done" && hasPanelContent && (
           <>
             {summaryLines.length > 0 && (
@@ -172,7 +182,7 @@ export function PolicySummaryPanel({ detail, summary, summaryState }: PolicySumm
                 {summaryLines.map((line, i) => (
                   <li key={i} className="flex gap-2 text-sm text-gray-600 leading-6">
                     <span className="text-primary-500 font-bold shrink-0">{i + 1}.</span>
-                    <span>{line}</span>
+                    <span className="min-w-0 whitespace-pre-line [overflow-wrap:anywhere]">{line}</span>
                   </li>
                 ))}
               </ul>
@@ -182,9 +192,9 @@ export function PolicySummaryPanel({ detail, summary, summaryState }: PolicySumm
                 {summaryHighlights.map((h, i) => (
                   <div key={i} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
                     <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
-                      <p className="text-sm text-gray-500 leading-6">{h.content}</p>
+                      <p className="text-sm text-gray-500 leading-6 whitespace-pre-line [overflow-wrap:anywhere]">{h.content}</p>
                     </div>
                   </div>
                 ))}
@@ -239,6 +249,8 @@ export function PolicyApplicationMethodSection({ detail, summary }: PolicyApplic
 }
 
 export default function PolicyDetail() {
+  const { user } = useAuth();
+  const authenticated = Boolean(user && localStorage.getItem("access_token"));
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const policyId = Number(id);
@@ -246,11 +258,18 @@ export default function PolicyDetail() {
   const [loadedDetail, setLoadedDetail] = useState<LoadedPolicyDetail | null>(null);
   const [detailLoadState, setDetailLoadState] = useState<PolicyDetailLoadState>({ tag: "loading", policyId });
   const [reportState, setReportState] = useState<"idle" | "loading" | "done">("idle");
+  const reportGeneration = useRef<{ active: boolean } | null>(null);
   const [summary, setSummary] = useState<PolicySummaryData | null>(null);
-  const [summaryState, setSummaryState] = useState<"loading" | "done" | "error">("loading");
+  const [summaryState, setSummaryState] = useState<"loading" | "done" | "error" | "login">(authenticated ? "loading" : "login");
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const detailBelongsToRoute = isPolicyDetailForRoute(loadedDetail, policyId);
   const apiDetail = detailBelongsToRoute ? loadedDetail?.detail ?? null : null;
   const detailViewState = policyDetailViewState(detailLoadState, loadedDetail, policyId);
+
+  useEffect(() => () => {
+    // 생성 요청은 서버에서 완료하되, 떠난 화면의 응답으로 이동하거나 경고하지 않는다.
+    if (reportGeneration.current) reportGeneration.current.active = false;
+  }, [policyId, authenticated]);
 
   useEffect(() => {
     let active = true;
@@ -279,6 +298,7 @@ export default function PolicyDetail() {
     let active = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 리포트 상태도 현재 정책 경로에 귀속한다.
     setReportState("idle");
+    if (!authenticated) return;
     getSavedReport(policyId)
       .then((found) => {
         if (active && found) setReportState("done");
@@ -287,13 +307,18 @@ export default function PolicyDetail() {
     return () => {
       active = false;
     };
-  }, [policyId]);
+  }, [policyId, authenticated]);
 
   // AI 요약 조회 (최초 1회 백엔드에서 생성 후 캐싱 → 재방문 시 빠름). 실패해도 페이지는 정상.
   useEffect(() => {
     let active = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 시 이전 정책 요약을 표시하지 않는다.
     setSummary(null);
+    setSummaryError(null);
+    if (!authenticated) {
+      setSummaryState("login");
+      return;
+    }
     setSummaryState("loading");
     api.get(`/api/v1/policies/${policyId}/summary`)
       .then((res) => {
@@ -301,27 +326,31 @@ export default function PolicyDetail() {
         setSummary(res.data.data);
         setSummaryState("done");
       })
-      .catch(() => {
-        if (active) setSummaryState("error");
+      .catch((error) => {
+        if (active) {
+          setSummaryState("error");
+          setSummaryError(summaryFailureMessage(error.response?.data?.error?.code, error.response?.status));
+        }
       });
     return () => {
       active = false;
     };
-  }, [policyId]);
+  }, [policyId, authenticated]);
 
   function handleGenerateReport() {
-    if (!apiDetail) return;
+    if (!authenticated) { navigate("/login"); return; }
+    if (!apiDetail || reportGeneration.current?.active) return;
+    const request = { active: true };
+    reportGeneration.current = request;
     setReportState("loading");
     // 생성 요청이 백엔드에서 user_id 스코프로 DB에 저장(upsert)까지 처리한다. 프론트는 결과 페이지로 이동만.
-    api.post(`/api/v1/policies/${apiDetail.id}/report`)
-      .then(() => {
-        navigate(`/reports/${apiDetail.id}`);
-      })
-      .catch((err) => {
-        console.error(err);
-        alert(err.response?.data?.message || "리포트 생성에 실패했어요");
+    void generatePolicyReport(api, apiDetail.id, () => request.active,
+      generatedPolicyId => navigate(`/reports/${generatedPolicyId}`),
+      message => {
+        alert(message);
         setReportState("idle");
-      });
+      },
+    ).finally(() => { request.active = false; });
   }
 
   if (detailViewState === "loading") {
@@ -452,7 +481,7 @@ export default function PolicyDetail() {
 
         {/* Right: AI panels */}
         <aside className="flex w-full flex-col gap-4 xl:sticky xl:top-6 xl:w-110 xl:shrink-0">
-          <PolicySummaryPanel detail={apiDetail} summary={summary} summaryState={summaryState} />
+          <PolicySummaryPanel detail={apiDetail} summary={summary} summaryState={summaryState} summaryError={summaryError} />
 
           <DiagnosisEntryCard policyId={policyId} />
 
@@ -490,7 +519,7 @@ export default function PolicyDetail() {
                   onClick={handleGenerateReport}
                   className="w-full mt-1 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold py-3 rounded-xl transition-colors"
                 >
-                  AI 리포트 생성하기
+                  {authenticated ? "AI 리포트 생성하기" : "로그인 후 AI 리포트 생성하기"}
                 </button>
               </div>
             )}

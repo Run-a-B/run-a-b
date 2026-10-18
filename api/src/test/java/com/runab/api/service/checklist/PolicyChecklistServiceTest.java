@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
+import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -46,6 +47,41 @@ class PolicyChecklistServiceTest {
         assertThat(result.getApplicationChecklist())
                 .extracting(PolicyChecklistResponse.ChecklistItem::getDescription)
                 .allMatch(description -> description.contains("일반적으로 준비하면 좋은 서류"));
+    }
+
+    @Test
+    void preservesOpenEndedApplicationPeriodFromOriginalNotice() {
+        Policy policy = policyWithoutDates();
+        ReflectionTestUtils.setField(policy, "originalApplicationPeriod", "상시 접수 (예산 소진 시까지)");
+        given(policyRepository.findById(1L)).willReturn(Optional.of(policy));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.empty());
+
+        assertThat(service.getChecklist(1L).getApplicationPeriod()).isEqualTo("상시 접수 (예산 소진 시까지)");
+    }
+
+    @Test
+    void preservesEarlyClosureConditionEvenWhenParsedDatesExist() {
+        Policy policy = policyWithoutDates();
+        ReflectionTestUtils.setField(policy, "originalApplicationPeriod", "2026.01.01 ~ 2026.12.31 (예산 소진 시 조기 마감)");
+        ReflectionTestUtils.setField(policy, "applicationStartDate", LocalDate.of(2026, 1, 1));
+        ReflectionTestUtils.setField(policy, "applicationEndDate", LocalDate.of(2026, 12, 31));
+        given(policyRepository.findById(1L)).willReturn(Optional.of(policy));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.empty());
+
+        assertThat(service.getChecklist(1L).getApplicationPeriod())
+                .isEqualTo("2026.01.01 ~ 2026.12.31 (예산 소진 시 조기 마감)");
+    }
+
+    @Test
+    void usesParsedDatesWhenOriginalPeriodIsBlank() {
+        Policy policy = policyWithoutDates();
+        ReflectionTestUtils.setField(policy, "originalApplicationPeriod", "  ");
+        ReflectionTestUtils.setField(policy, "applicationStartDate", LocalDate.of(2026, 1, 1));
+        ReflectionTestUtils.setField(policy, "applicationEndDate", LocalDate.of(2026, 12, 31));
+        given(policyRepository.findById(1L)).willReturn(Optional.of(policy));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.empty());
+
+        assertThat(service.getChecklist(1L).getApplicationPeriod()).isEqualTo("2026.01.01 ~ 2026.12.31");
     }
 
     @Test

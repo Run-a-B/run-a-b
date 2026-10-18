@@ -143,11 +143,12 @@ function uniquePresent(values: Array<string | null | undefined>): string[] {
 
 export function relevancePresentation(
   relevance: number | null | undefined,
+  authenticated = false,
 ): RelevancePresentation {
   if (relevance === null || relevance === undefined || !Number.isFinite(relevance)) {
     return {
       available: false,
-      label: "로그인 후 분석",
+      label: authenticated ? "분석 정보 없음" : "로그인 후 분석",
       value: null,
       width: "0%",
     };
@@ -191,8 +192,8 @@ export function buildPolicyNotice(policy: PolicyDetailData): PolicyNotice {
     overview: uniquePresent([policy.purposeText, ...descriptionOverview]),
     keyPoints: uniquePresent(keyPoints),
     targetGroup: firstPresent(policy.targetGroup),
-    applicationPeriod: firstPresent(policy.applicationPeriod),
-    applicationMethod: firstPresent(policy.applicationMethod),
+    applicationPeriod: firstPresent(policy.originalApplicationPeriod, policy.applicationPeriod),
+    applicationMethod: firstPresent(policy.originalApplicationMethod, policy.applicationMethod),
   };
 }
 
@@ -205,7 +206,7 @@ function firstPresent(
 export function buildPolicyBrief(policy: PolicyDetailData): BriefItem[] {
   const target = firstPresent(policy.targetGroup);
   const support = firstPresent(policy.supportScale);
-  const period = firstPresent(policy.applicationPeriod);
+  const period = firstPresent(policy.originalApplicationPeriod, policy.applicationPeriod);
   return [
     {
       label: "지원 대상",
@@ -214,7 +215,7 @@ export function buildPolicyBrief(policy: PolicyDetailData): BriefItem[] {
     },
     {
       label: "지원 내용",
-      value: support ?? "지원 금액·방식 정보가 아직 수집되지 않았어요.",
+      value: support ?? "지원 금액·방식은 아직 별도로 정리되지 않았어요. 아래 원문 공고에서 확인해 주세요.",
       available: support !== null,
     },
     {
@@ -228,9 +229,9 @@ export function buildPolicyQuality(detail: PolicyDetailData) {
   const facts = [
     detail.targetGroup,
     detail.supportScale,
-    detail.applicationPeriod,
-    firstPresent(detail.purposeText, detail.description),
-    detail.applicationMethod,
+    firstPresent(detail.originalApplicationPeriod, detail.applicationPeriod),
+    firstPresent(detail.originalNoticeText, detail.purposeText, detail.description),
+    firstPresent(detail.originalApplicationMethod, detail.applicationMethod),
     detail.announcementNo,
     detail.department,
   ];
@@ -248,4 +249,17 @@ export function buildPolicyQuality(detail: PolicyDetailData) {
   const level =
     availableCount === 7 ? "rich" : availableCount >= 3 ? "partial" : "basic";
   return { availableCount, totalCount: 7, missingLabels, level };
+}
+export function summaryFailureMessage(code?: string, status?: number): string {
+  if (code === "AI_QUOTA_EXHAUSTED") {
+    return "AI 서비스 이용 한도에 도달했어요. 관리자에게 문의해 주세요. 원문 공고는 계속 확인할 수 있어요.";
+  }
+  if (code === "AI_CONFIGURATION_ERROR") {
+    return "AI 서비스 설정을 확인해야 해요. 관리자에게 문의해 주세요. 원문 공고는 계속 확인할 수 있어요.";
+  }
+  if (code === "AI_NOT_CONFIGURED") {
+    return "AI 서비스가 아직 연결되지 않았어요. 원문 공고를 확인해 주세요.";
+  }
+  if (status === 429) return "요약 요청이 많아요. 잠시 후 다시 방문해 주세요.";
+  return "AI 요약을 잠시 이용할 수 없어요. 원문 공고를 확인해 주세요.";
 }

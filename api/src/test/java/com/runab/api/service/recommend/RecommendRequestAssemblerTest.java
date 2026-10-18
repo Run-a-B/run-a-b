@@ -64,6 +64,8 @@ class RecommendRequestAssemblerTest {
                 "industries": ["음식점업"], "industry_condition_type": "specific",
                 "business_types": ["중소기업"],
                 "max_revenue": 1000000000, "max_employees": 50,
+                "min_business_months": null, "max_business_months": null,
+                "min_age": null, "max_age": null,
                 "business_stages": ["운영중"], "owner_types": [],
                 "required_flags": [], "excluded_targets": []
               },
@@ -94,9 +96,10 @@ class RecommendRequestAssemblerTest {
         // user_business_info 변환/unknown 채움
         assertThat(json).contains("\"business_stage\" : \"운영중\"", "\"main_business_goal\" : \"unknown\"");
         // candidate에 match(camelCase) 포함 + 점수
-        // NOT_REQUIRED는 분모에서 제외. 판단 배점 84 중 79.2점 → 94.285...를 반올림해 94
-        assertThat(json).contains("\"match\"", "\"matcherVersion\" : \"eligibility_matcher_v1\"",
-                "\"eligibilityScore\" : 94");
+        // NOT_REQUIRED는 분모에서 제외. 5억원 이상 밴드는 매출 상한과 겹쳐 PARTIAL.
+        // 판단 배점 84 중 75.2점 → 89.523...를 반올림해 90.
+        assertThat(json).contains("\"match\"", "\"matcherVersion\" : \"eligibility_matcher_v2\"",
+                "\"eligibilityScore\" : 90", "\"partial\" : [ \"revenue\" ]");
         // request_id 포맷
         assertThat(request.getRequestId()).startsWith("req_");
         assertThat(request.getCandidatePolicies()).hasSize(1);

@@ -29,6 +29,9 @@ public class PolicySummary {
     @Column(name = "policy_id", unique = true, nullable = false)
     private Long policyId;
 
+    @Column(name = "source_fingerprint", length = 64)
+    private String sourceFingerprint;
+
     // AI 3줄 요약 (JSON 문자열: ["...","...","..."])
     @Column(name = "summary_lines_json", columnDefinition = "JSON")
     private String summaryLinesJson;
@@ -55,12 +58,13 @@ public class PolicySummary {
 
     @Builder
     public PolicySummary(Long policyId, String summaryLinesJson, String highlightsJson,
-                         String expandedDescription, String expandedApplicationMethod) {
+                         String expandedDescription, String expandedApplicationMethod, String sourceFingerprint) {
         this.policyId = policyId;
         this.summaryLinesJson = summaryLinesJson;
         this.highlightsJson = highlightsJson;
         this.expandedDescription = expandedDescription;
         this.expandedApplicationMethod = expandedApplicationMethod;
+        this.sourceFingerprint = sourceFingerprint;
     }
 
     // 재생성 시 갱신용 비즈니스 메서드 (setter 금지 원칙). updatedAt은 @PreUpdate가 처리.
@@ -70,6 +74,10 @@ public class PolicySummary {
         this.highlightsJson = highlightsJson;
         this.expandedDescription = expandedDescription;
         this.expandedApplicationMethod = expandedApplicationMethod;
+    }
+
+    public void updateSourceFingerprint(String fingerprint) {
+        this.sourceFingerprint = fingerprint;
     }
 
     @PrePersist

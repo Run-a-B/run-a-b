@@ -62,6 +62,12 @@ public class PolicyService {
             String region, String industry, String category, String query,
             String sort, int page, int size, Long userId) {
 
+        // JPA offsets are int-bounded; the response also converts the page back to a one-based int.
+        if (page < 0 || page == Integer.MAX_VALUE || size < 1 || size > 100
+                || (long) page * size > Integer.MAX_VALUE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+
         // 업종 필터는 policy_card를 우선하고, 카드 판정이 UNKNOWN일 때만 정책 본문의 명확한 업종 표현으로 보완한다.
         boolean industryFilter = industry != null && !industry.isBlank() && !industry.equals("전체 업종");
 

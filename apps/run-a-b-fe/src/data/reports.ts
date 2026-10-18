@@ -23,7 +23,7 @@ export interface SavedReport {
   savedAt: string;
   impactLabel: string;
   impactStyle: string;
-  direction?: "positive" | "negative";
+  direction?: "positive" | "negative" | "neutral";
   summary: string;
   details: string[];
   relatedIds: RelatedPolicy[];

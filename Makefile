@@ -6,7 +6,7 @@ FRONTEND_DIR := $(ROOT_DIR)/apps/run-a-b-fe
 API_DIR := $(ROOT_DIR)/api
 GRADLE_HOME := $(API_DIR)/.gradle
 
-.PHONY: setup env frontend-install frontend-deps backend-build db-up db-down dev check
+.PHONY: setup env frontend-install frontend-deps backend-build db-up db-down dev check ops-check
 
 setup: env frontend-install db-up backend-build
 
@@ -46,7 +46,10 @@ dev: env db-up frontend-deps
 	if [ $$status -eq 0 ]; then status=1; fi; \
 	exit $$status
 
-check: frontend-deps
+ops-check:
+	python3 -m unittest discover -s "$(ROOT_DIR)/ops/ec2" -p 'test_*.py'
+
+check: frontend-deps ops-check
 	cd "$(API_DIR)" && GRADLE_USER_HOME="$(GRADLE_HOME)" ./gradlew test
 	cd "$(FRONTEND_DIR)" && npm test
 	cd "$(FRONTEND_DIR)" && npm run lint

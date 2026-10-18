@@ -38,6 +38,7 @@ class PolicyDiagnosisSecurityTest {
     private MockMvc mockMvc;
 
     @MockitoBean private JwtTokenProvider jwtTokenProvider;
+    @MockitoBean private com.runab.api.repository.UserRepository userRepository;
     @MockitoBean private PolicyService policyService;
     @MockitoBean private PolicySyncService policySyncService;
     @MockitoBean private PolicyReportService policyReportService;
@@ -61,7 +62,7 @@ class PolicyDiagnosisSecurityTest {
         verify(policyDiagnosisService).diagnose(eq(42L), any(PolicyDiagnosisRequest.class));
 
         mockMvc.perform(post("/api/v1/policies/42/report"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

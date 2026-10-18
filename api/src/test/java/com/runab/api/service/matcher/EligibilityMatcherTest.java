@@ -33,11 +33,123 @@ class EligibilityMatcherTest {
     }
 
     private PolicyCard card(String fullJson) {
+        return card("extracted", fullJson);
+    }
+
+    private PolicyCard card(String extractionStatus, String fullJson) {
         return PolicyCard.builder()
                 .policyId("bizinfo_support_program:PBLN_TEST")
                 .externalId("PBLN_TEST")
+                .extractionStatus(extractionStatus)
                 .fullJson(fullJson)
                 .build();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"failed", "unknown", "", "pending"})
+    void unusableExtractionCannotContributeConditionsOrColumnStatus(String status) {
+        PolicyCard card = PolicyCard.builder().extractionStatus(status).applicationStatus("closed")
+                .fullJson("""
+                        {"application_period":{"status":"closed"},"eligibility":{
+                          "regions":["부산광역시"],"industries":["제조업"],
+                          "business_stages":["준비중"],"max_revenue":0,"max_employees":0}}
+                        """).build();
+        MatchResult result = matcher.match(user(true, "음식점업", "서울특별시", 200_000_000L, 2), card);
+
+        assertThat(result.getUnknown()).containsExactlyInAnyOrder("region", "industry", "date",
+                "business_stage", "business_type", "owner_type", "revenue", "employees", "business_months", "age");
+        assertThat(result.getFail()).isEmpty();
+        assertThat(result.getNotRequired()).isEmpty();
+        assertThat(result.isHardFail()).isFalse();
+        assertThat(matcher.evaluateIndustryFilter(card, "제조업")).isEqualTo(MatchStatus.UNKNOWN);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "[]", "123", "{broken", ""})
+    void invalidRootAndMissingStatusCannotClaimNoConditions(String json) {
+        BusinessInfo business = user(true, null, null, null, null);
+        for (PolicyCard input : new PolicyCard[] {null, card(json), card(null, "{\"eligibility\":{}}")}) {
+            MatchResult result = matcher.match(business, input);
+            assertThat(result.getNotRequired()).isEmpty();
+            assertThat(result.getUnknown()).hasSize(10);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"extracted", "partially_extracted"})
+    void missingFieldsRemainUnknownEvenOnUsableCards(String status) {
+        MatchResult result = matcher.match(user(true, null, null, null, null), card(status, "{\"eligibility\":{}}"));
+        assertThat(result.getUnknown()).hasSize(10);
+        assertThat(result.getNotRequired()).isEmpty();
+    }
+
+    @Test
+    void onlyFullyExtractedExplicitEmptyConditionsAreNotRequired() {
+        String json = """
+                {"eligibility":{"business_stages":[],"business_types":[],"owner_types":null,
+                  "max_revenue":null,"max_employees":null,"min_business_months":null,
+                  "max_business_months":null,"min_age":null,"max_age":null}}
+                """;
+        BusinessInfo business = user(true, null, null, null, null);
+        assertThat(matcher.match(business, card(json)).getNotRequired()).containsExactlyInAnyOrder(
+                "business_stage", "business_type", "owner_type", "revenue", "employees", "business_months", "age");
+        assertThat(matcher.match(business, card("partially_extracted", json)).getNotRequired()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"not-a-number\"", "\"0\"", "true", "{}", "[]", "0.5", "9223372036854775808", "-1"})
+    void malformedNumericLimitsRemainUnknownInsteadOfBecomingZero(String value) {
+        MatchResult result = matcher.match(user(true, null, null, 200_000_000L, 2),
+                card("{\"eligibility\":{\"max_revenue\":" + value + ",\"max_employees\":" + value + "}}"));
+        assertThat(result.getUnknown()).contains("revenue", "employees");
+        assertThat(result.getFail()).doesNotContain("revenue", "employees");
+        assertThat(result.getNotRequired()).doesNotContain("revenue", "employees");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"운영중\"", "{}", "[true]", "[\"\"]", "[\"운영중\",12]"})
+    void malformedStageListsRemainUnknown(String value) {
+        MatchResult result = matcher.match(user(true, null, null, null, null),
+                card("{\"eligibility\":{\"business_stages\":" + value + "}}"));
+        assertThat(result.getUnknown()).contains("business_stage");
+        assertThat(result.getNotRequired()).doesNotContain("business_stage");
+        assertThat(result.getPass()).doesNotContain("business_stage");
+        assertThat(result.getFail()).doesNotContain("business_stage");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "\"부산광역시\"", "{}", "[true]", "[\"부산광역시\",12]"})
+    void malformedScopeCannotBeReplacedWithMatchingMetadata(String value) {
+        PolicyCard input = card("{\"eligibility\":{\"regions\":" + value + ",\"industries\":" + value + "}}");
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null), input,
+                policy("전국", "카페/음료", null, null, null));
+        assertThat(result.getUnknown()).contains("region", "industry");
+        assertThat(result.getPass()).doesNotContain("region", "industry");
+        assertThat(result.isHardFail()).isFalse();
+        assertThat(matcher.hasIndustryConditionEvidence(input)).isTrue();
+    }
+
+    @Test
+    void partialExtractionRetainsValidFactsWithoutWaivingMissingConditions() {
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", 200_000_000L, 2),
+                card("partially_extracted", """
+                        {"application_period":{"status":"open"},"eligibility":{
+                          "regions":["서울특별시"],"industries":["음식점업"],
+                          "business_stages":["운영중"],"max_revenue":300000000,"max_employees":4}}
+                        """));
+        assertThat(result.getPass()).contains("region", "industry", "date", "business_stage", "revenue", "employees");
+        assertThat(result.getUnknown()).contains("business_type", "owner_type", "business_months", "age");
+        assertThat(result.getNotRequired()).isEmpty();
+    }
+
+    @Test
+    void emptyArraysCannotWaiveNumericAgeAndBusinessMonthBounds() {
+        MatchResult result = matcher.match(user(true, null, null, null, null), card("""
+                {"eligibility":{"min_age":[],"max_age":[],
+                  "min_business_months":[],"max_business_months":[]}}
+                """));
+        assertThat(result.getUnknown()).contains("age", "business_months");
+        assertThat(result.getNotRequired()).doesNotContain("age", "business_months");
     }
 
     private Policy policy(String region, String industry, String description,
@@ -51,6 +163,68 @@ class EligibilityMatcherTest {
                 .applicationStartDate(startDate)
                 .applicationEndDate(endDate)
                 .build();
+    }
+
+    @Test
+    void storedRevenueMidpointRemainsABandAcrossThePolicyMaximum() {
+        MatchResult overlap = matcher.match(user(true, null, null, 200_000_000L, null),
+                card("{\"eligibility\":{\"max_revenue\":250000000}}"));
+        MatchResult below = matcher.match(user(true, null, null, 200_000_000L, null),
+                card("{\"eligibility\":{\"max_revenue\":300000000}}"));
+        MatchResult above = matcher.match(user(true, null, null, 200_000_000L, null),
+                card("{\"eligibility\":{\"max_revenue\":99999999}}"));
+
+        assertThat(overlap.getPartial()).contains("revenue");
+        assertThat(below.getPass()).contains("revenue");
+        assertThat(above.getFail()).contains("revenue");
+        assertThat(overlap.isHardFail()).isFalse();
+    }
+
+    @Test
+    void twoStoredEmployeesRepresentTheWholeOneToFourBand() {
+        MatchResult overlap = matcher.match(user(true, null, null, null, 2),
+                card("{\"eligibility\":{\"max_employees\":3}}"));
+        MatchResult below = matcher.match(user(true, null, null, null, 2),
+                card("{\"eligibility\":{\"max_employees\":4}}"));
+        MatchResult above = matcher.match(user(true, null, null, null, 2),
+                card("{\"eligibility\":{\"max_employees\":0}}"));
+
+        assertThat(overlap.getPartial()).contains("employees");
+        assertThat(below.getPass()).contains("employees");
+        assertThat(above.getFail()).contains("employees");
+    }
+
+    @Test
+    void highestRevenueAndEmployeeBucketsKeepTheirOpenUpperBound() {
+        MatchResult result = matcher.match(user(true, null, null, 500_000_000L, 50),
+                card("{\"eligibility\":{\"max_revenue\":1000000000,\"max_employees\":40}}"));
+
+        assertThat(result.getPartial()).contains("revenue", "employees");
+        assertThat(result.getPass()).doesNotContain("revenue", "employees");
+        assertThat(result.getFail()).doesNotContain("revenue", "employees");
+    }
+
+    @Test
+    void zeroEmployeesAreAnExactBandAndUnknownLegacyNumbersUseTheDisplayedBand() {
+        MatchResult zero = matcher.match(user(true, null, null, null, 0),
+                card("{\"eligibility\":{\"max_employees\":0}}"));
+        MatchResult legacy = matcher.match(user(true, null, null, 210_000_000L, 31),
+                card("{\"eligibility\":{\"max_revenue\":250000000,\"max_employees\":40}}"));
+
+        assertThat(zero.getPass()).contains("employees");
+        assertThat(legacy.getPartial()).contains("revenue", "employees");
+    }
+
+    @Test
+    void missingUserAmountsRemainUnknownAndExplicitNullMaximumIsNotRequired() {
+        BusinessInfo missing = user(true, null, null, null, null);
+        MatchResult required = matcher.match(missing,
+                card("{\"eligibility\":{\"max_revenue\":250000000,\"max_employees\":4}}"));
+        MatchResult unrestricted = matcher.match(missing,
+                card("{\"eligibility\":{\"max_revenue\":null,\"max_employees\":null}}"));
+
+        assertThat(required.getUnknown()).contains("revenue", "employees");
+        assertThat(unrestricted.getNotRequired()).contains("revenue", "employees");
     }
 
     @Test
@@ -170,14 +344,15 @@ class EligibilityMatcherTest {
     }
 
     @Test
-    @DisplayName("정책 메타데이터도 비어 있으면 기존 UNKNOWN 기준점을 유지한다")
+    @DisplayName("정책 메타데이터도 비어 있으면 모든 조건을 UNKNOWN으로 유지한다")
     void missingCardAndMetadata_remainsUnknown() {
         BusinessInfo user = user(null, null, null, null, null);
 
         MatchResult result = matcher.match(user, null, policy(null, null, null, null, null));
 
         assertThat(result.getUnknown()).contains("region", "industry", "date");
-        assertThat(result.getScore()).isEqualTo(37);
+        assertThat(result.getUnknown()).hasSize(10);
+        assertThat(result.getScore()).isEqualTo(40);
     }
 
     @Test
@@ -235,6 +410,22 @@ class EligibilityMatcherTest {
         assertThat(result.getPass()).doesNotContain("region", "industry");
         assertThat(result.getFail()).doesNotContain("region", "industry");
         assertThat(result.isHardFail()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"true", "{}", "[]", "123", "null"})
+    void malformedConditionTypesRemainUnknownAndBlockMetadataFallback(String type) {
+        PolicyCard input = card("""
+                {"eligibility":{"regions":[],"region_condition_type":%s,
+                  "industries":[],"industry_condition_type":%s}}
+                """.formatted(type, type));
+        MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),
+                input, policy("전국", "카페/음료", "카페 사업자를 지원합니다.", null, null));
+
+        assertThat(result.getUnknown()).contains("region", "industry");
+        assertThat(result.getPass()).doesNotContain("region", "industry");
+        assertThat(matcher.evaluateIndustryFilter(input, "카페/음료")).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(matcher.hasIndustryConditionEvidence(input)).isTrue();
     }
 
     @Test
@@ -355,9 +546,10 @@ class EligibilityMatcherTest {
         assertThat(fundResult.getPass()).contains("industry");
         assertThat(zeroMarketResult.getPass()).contains("industry");
         assertThat(consultingResult.getPass()).contains("industry");
-        assertThat(fundResult.getScore()).isEqualTo(85);
-        assertThat(zeroMarketResult.getScore()).isEqualTo(77);
-        assertThat(consultingResult.getScore()).isEqualTo(77);
+        // The seven unsupported eligibility fields retain uncertainty instead of being excluded.
+        assertThat(fundResult.getScore()).isEqualTo(64);
+        assertThat(zeroMarketResult.getScore()).isEqualTo(60);
+        assertThat(consultingResult.getScore()).isEqualTo(60);
     }
 
     @Test
@@ -501,6 +693,8 @@ class EligibilityMatcherTest {
                 .policyId("bizinfo_support_program:PBLN_SCHEDULED")
                 .externalId("PBLN_SCHEDULED")
                 .applicationStatus("scheduled")
+                .extractionStatus("extracted")
+                .fullJson("{}")
                 .build();
 
         MatchResult upcomingStatus = matcher.match(user, card("""
@@ -520,23 +714,18 @@ class EligibilityMatcherTest {
     }
 
     @Test
-    @DisplayName("자격요건 데이터가 전혀 없어도 예외 없이 UNKNOWN/NOT_REQUIRED로 동작한다")
+    @DisplayName("자격요건 데이터가 전혀 없으면 모든 조건을 UNKNOWN으로 유지한다")
     void noEligibilityData_allUnknown() {
         BusinessInfo user = user(null, null, null, null, null);
         MatchResult result = matcher.match(user, card(null)); // fullJson null
 
         assertThat(result).isNotNull();
         assertThat(result.isHardFail()).isFalse();
-        // region/industry/date는 판단 불가 → UNKNOWN
-        assertThat(result.getUnknown()).contains("region", "industry", "date");
-        // 조건 자체가 없는 항목 → NOT_REQUIRED
-        assertThat(result.getNotRequired()).contains("business_stage", "revenue", "employees", "age");
-        // [2026.07.01 정규화 반영] NOT_REQUIRED 항목은 점수 계산에서 제외. 판단 대상은 region/industry/date뿐.
-        //   판단 가능 배점 = 20+20+10 = 50, 획득 = region 20*0.3 + industry 20*0.3 + date 10*0.4 = 6+6+4 = 16
-        //   eligibilityScore = round(16/50*100) = 32  (이전엔 NOT_REQUIRED 만점 포함이라 66이었음)
-        assertThat(result.getEligibilityScore()).isEqualTo(32);
-        // score = round(32*0.7 + 50*0.2 + 50*0.1) = 37  (이전 61 → 베이스라인 인플레 제거로 하락)
-        assertThat(result.getScore()).isEqualTo(37);
+        assertThat(result.getUnknown()).hasSize(10);
+        assertThat(result.getNotRequired()).isEmpty();
+        // 40 important points at 0.3 + 60 other points at 0.4 = 36.
+        assertThat(result.getEligibilityScore()).isEqualTo(36);
+        assertThat(result.getScore()).isEqualTo(40);
     }
 
     @Test
@@ -551,12 +740,14 @@ class EligibilityMatcherTest {
                 "business_stages": ["운영중"],
                 "business_types": [], "owner_types": [],
                 "max_revenue": 1000000000, "max_employees": 50,
+                "min_business_months": null, "max_business_months": null,
+                "min_age": null, "max_age": null,
                 "required_flags": []
               },
               "attachment_analysis": { "status": "documents_found" }
             }
             """;
-        BusinessInfo user = user(true, "음식점업", "서울특별시", 500000000L, 10);
+        BusinessInfo user = user(true, "음식점업", "서울특별시", 200000000L, 10);
         MatchResult result = matcher.match(user, card(json));
 
         assertThat(result.isHardFail()).isFalse();
@@ -588,10 +779,8 @@ class EligibilityMatcherTest {
         assertThat(result.getPass()).contains("region"); // 지역은 일치
         // industries=[]+unknown → PASS 금지, UNKNOWN (규칙4)
         assertThat(result.getUnknown()).contains("industry");
-        // [2026.07.01 정규화 반영] 판단 대상 = region/industry/date (배점 50).
-        //   획득 = region 20*1.0(PASS) + industry 20*0.3(UNKNOWN) + date 10*0.0(FAIL) = 26
-        //   eligibilityScore = round(26/50*100) = 52  (이전 76 → NOT_REQUIRED 만점 제외로 하락)
-        assertThat(result.getEligibilityScore()).isEqualTo(52);
+        // The other 50 points remain unknown (0.4) because their conditions are missing.
+        assertThat(result.getEligibilityScore()).isEqualTo(46);
     }
 
     @Test

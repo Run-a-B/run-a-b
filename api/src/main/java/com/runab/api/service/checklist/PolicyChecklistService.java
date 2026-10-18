@@ -125,6 +125,9 @@ public class PolicyChecklistService {
     }
 
     private String formatPeriod(Policy policy) {
+        if (policy.getOriginalApplicationPeriod() != null && !policy.getOriginalApplicationPeriod().isBlank()) {
+            return policy.getOriginalApplicationPeriod().trim();
+        }
         String start = policy.getApplicationStartDate() != null ? policy.getApplicationStartDate().format(DATE_FORMATTER) : "";
         String end = policy.getApplicationEndDate() != null ? policy.getApplicationEndDate().format(DATE_FORMATTER) : "";
         if (start.isEmpty() && end.isEmpty()) return "기간 정보 없음 — 원문 공고 확인";

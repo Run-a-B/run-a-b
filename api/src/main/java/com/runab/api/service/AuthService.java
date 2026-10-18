@@ -29,38 +29,41 @@ public class AuthService {
     // ===== 1) 회원가입 1단계 =====
     @Transactional
     public SignupResponse signup(SignupRequest request) {
+        User savedUser = createUser(request);
+        return SignupResponse.builder().tempToken(jwtTokenProvider.createTempToken(savedUser.getId())).build();
+    }
+
+    @Transactional
+    public LoginResponse signupComplete(SignupCompleteRequest request) {
+        User user = createUser(request.account());
+        return signupBusiness(user.getId(), request.business());
+    }
+
+    private User createUser(SignupRequest request) {
+        String email = EmailService.normalize(request.getEmail());
         // 1-1) 비밀번호 일치 확인
         if (!request.getPassword().equals(request.getPasswordConfirm())) {
             throw new BusinessException(ErrorCode.PASSWORD_MISMATCH);
         }
 
         // 1-2) 이메일 중복 체크
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
 
         // 1-2.5) 이메일 인증 여부 확인
-        if (!emailService.isVerified(request.getEmail())) {
-            throw new BusinessException(ErrorCode.EMAIL_NOT_VERIFIED);
-        }
+        emailService.consumeVerification(email, request.getVerificationToken());
 
         // 1-3) 비밀번호 해싱 후 User 저장
         User user = User.builder()
-                .email(request.getEmail())
+                .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .username(request.getName())
                 .age(request.getAge())
                 .provider(AuthProvider.LOCAL)
                 .providerId(null)
                 .build();
-        User savedUser = userRepository.save(user);
-
-        // 1-4) TEMP 토큰 발급 (2단계 진행 자격)
-        String tempToken = jwtTokenProvider.createTempToken(savedUser.getId());
-
-        return SignupResponse.builder()
-                .tempToken(tempToken)
-                .build();
+        return userRepository.save(user);
     }
 
     // ===== 2) 회원가입 2단계 (사업 정보 등록) =====
@@ -69,6 +72,10 @@ public class AuthService {
         // 2-1) 사용자 조회
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        if (user.isDeleted()) throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        if (businessInfoRepository.findByUserId(userId).isPresent()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
 
         // 2-2) 비즈니스 규칙 검증 (사업 중인데 매출/직원수 없으면 에러)
         boolean operating = Boolean.TRUE.equals(request.getBusinessStatus());
@@ -107,11 +114,11 @@ public class AuthService {
     // ===== 3) 로그인 =====
     public LoginResponse login(LoginRequest request) {
         // 3-1) 이메일로 사용자 찾기
-        User user = userRepository.findByEmailAndDeletedFalse(request.getEmail())
+        User user = userRepository.findByEmailAndDeletedFalse(EmailService.normalize(request.getEmail()))
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
         // 3-2) 비밀번호 검증
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        if (user.getPassword() == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new BusinessException(ErrorCode.WRONG_PASSWORD);
         }
 

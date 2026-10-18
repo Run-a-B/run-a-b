@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Dropdown from "@/components/common/Dropdown";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { type Policy } from "@/data/policies";
 import { getVisitedPolicies } from "@/data/visited";
 import { relevancePresentation } from "@/features/policy/presentation";
+import { loadPolicyList, type PolicyListState } from "@/features/policy/listLoader";
+import { useAuth } from "@/contexts/AuthContext";
 
 const REGIONS = [
   "전체 지역", "서울특별시", "부산광역시", "대구광역시", "인천광역시",
@@ -29,10 +31,10 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const PER_PAGE = 12;
 
-export function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number | null }) {
+export function PolicyCard({ policy, visited, relevance, authenticated = false }: { policy: Policy; visited: boolean; relevance: number | null; authenticated?: boolean }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
-  const relevanceView = relevancePresentation(relevance);
+  const relevanceView = relevancePresentation(relevance, authenticated);
 
   return (
     <div
@@ -64,7 +66,9 @@ export function PolicyCard({ policy, visited, relevance }: { policy: Policy; vis
         )}
       </div>
 
-      <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-2">{policy.title}</h3>
+      <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-2">
+        <Link to={`/policies/${policy.id}`} onClick={event => event.stopPropagation()} className="focus-visible:outline-primary-600">{policy.title}</Link>
+      </h3>
       <p className="text-xs text-gray-500 leading-relaxed line-clamp-2 flex-1">{policy.description}</p>
 
       <div className="flex items-end justify-between pt-1">
@@ -100,10 +104,10 @@ export function PolicyCard({ policy, visited, relevance }: { policy: Policy; vis
   );
 }
 
-export function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number | null }) {
+export function PolicyListItem({ policy, visited, relevance, authenticated = false }: { policy: Policy; visited: boolean; relevance: number | null; authenticated?: boolean }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
-  const relevanceView = relevancePresentation(relevance);
+  const relevanceView = relevancePresentation(relevance, authenticated);
 
   return (
     <div
@@ -134,7 +138,9 @@ export function PolicyListItem({ policy, visited, relevance }: { policy: Policy;
           )}
           <span className="text-xs text-gray-400 ml-auto shrink-0">{policy.date}</span>
         </div>
-        <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-1">{policy.title}</h3>
+        <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-1">
+          <Link to={`/policies/${policy.id}`} onClick={event => event.stopPropagation()} className="focus-visible:outline-primary-600">{policy.title}</Link>
+        </h3>
         <p className="text-xs text-gray-500 leading-relaxed line-clamp-1">{policy.description}</p>
       </div>
 
@@ -226,6 +232,7 @@ function LoadingSkeleton({ viewMode }: { viewMode: "grid" | "list" }) {
 }
 
 export default function Policies() {
+  const { user } = useAuth();
   const [region, setRegion] = useState("전체 지역");
   const [industry, setIndustry] = useState("전체 업종");
   const [category, setCategory] = useState("전체 카테고리");
@@ -235,12 +242,19 @@ export default function Policies() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [visitedIds, setVisitedIds] = useState<Set<number>>(() => getVisitedPolicies());
 
-  const [policies, setPolicies] = useState<Policy[]>([]);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalElements, setTotalElements] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [retry, setRetry] = useState(0);
+  const [result, setResult] = useState<{ key: string; state: PolicyListState }>({ key: "", state: { tag: "loading" } });
+  const params = useMemo(() => {
+    const value = new URLSearchParams({ region, industry, category, sort, page: String(page), size: String(PER_PAGE) });
+    if (query) value.set("query", query);
+    return value.toString();
+  }, [region, industry, category, query, sort, page]);
+  const requestKey = `${params}|${retry}`;
+  const state: PolicyListState = result.key === requestKey ? result.state : { tag: "loading" };
+  const loading = state.tag === "loading";
+  const policies = state.tag === "success" ? state.data.policies : [];
+  const totalPages = state.tag === "success" ? state.data.totalPages : 0;
+  const totalElements = state.tag === "success" ? state.data.totalElements : 0;
 
   useEffect(() => {
     const onFocus = () => setVisitedIds(getVisitedPolicies());
@@ -248,36 +262,13 @@ export default function Policies() {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const fetchPolicies = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        region,
-        industry,
-        category,
-        sort,
-        page: String(page),
-        size: String(PER_PAGE),
-      });
-      if (query) params.set("query", query);
-      const res = await api.get(`/api/v1/policies?${params}`);
-      const data = res.data.data;
-      setPolicies(data.policies);
-      setTotalPages(data.totalPages);
-      setTotalElements(data.totalElements);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, [region, industry, category, query, sort, page]);
-
   useEffect(() => {
-    clearTimeout(debounceRef.current);
-    const delay = query ? 400 : 0;
-    debounceRef.current = setTimeout(fetchPolicies, delay);
-    return () => clearTimeout(debounceRef.current);
-  }, [fetchPolicies, query]);
+    let active = true;
+    const timer = setTimeout(() => {
+      void loadPolicyList(api, params, () => active, next => setResult({ key: requestKey, state: next }));
+    }, query ? 400 : 0);
+    return () => { active = false; clearTimeout(timer); };
+  }, [params, query, requestKey]);
 
   function handleFilter(setter: (v: string) => void) {
     return (v: string) => { setter(v); setPage(1); };
@@ -346,7 +337,8 @@ export default function Policies() {
         <div className="flex items-start justify-between mb-6">
           <div>
             <p className="text-sm text-gray-500">
-              총 <span className="font-semibold text-gray-900">{totalElements.toLocaleString()}개</span>의 정책이 있어요
+              {state.tag === "success" ? <>총 <span className="font-semibold text-gray-900">{totalElements.toLocaleString()}개</span>의 정책이 있어요</>
+                : loading ? "정책을 불러오고 있어요" : "정책을 불러오지 못했어요"}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -378,6 +370,13 @@ export default function Policies() {
 
         {loading ? (
           <LoadingSkeleton viewMode={viewMode} />
+        ) : state.tag === "error" ? (
+          <div role="alert" className="flex flex-col items-center justify-center gap-4 py-20 text-gray-500">
+            <p className="text-sm">정책을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</p>
+            <button type="button" onClick={() => setRetry(value => value + 1)} className="rounded-full bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700">
+              다시 시도
+            </button>
+          </div>
         ) : policies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3">
@@ -391,13 +390,13 @@ export default function Policies() {
             {viewMode === "grid" ? (
               <div className="grid grid-cols-3 gap-4">
                 {policies.map(policy => (
-                  <PolicyCard key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} />
+                  <PolicyCard key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} authenticated={Boolean(user)} />
                 ))}
               </div>
             ) : (
               <div className="flex flex-col gap-3">
                 {policies.map(policy => (
-                  <PolicyListItem key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} />
+                  <PolicyListItem key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} authenticated={Boolean(user)} />
                 ))}
               </div>
             )}

@@ -100,7 +100,19 @@ npm run build
 
 백엔드 테스트는 H2 메모리 데이터베이스를 사용하므로 MySQL을 켜지 않아도 실행됩니다.
 
-`npm audit` 기준으로 high 취약점은 제거했습니다. React Router v6 관련 moderate 취약점 2건은 v7 메이저 업그레이드가 필요하므로 자동 `--force` 수정은 적용하지 않았습니다.
+의존성 취약점은 `npm audit`로 별도 확인하세요. 현재 React Router v6 관련 advisory는 v7 메이저 업그레이드와 회귀 검증이 필요하므로 자동 `--force` 수정은 적용하지 않습니다.
+
+## 운영 환경 준비
+
+운영 서비스 환경에 `SPRING_PROFILES_ACTIVE=prod`와 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `JWT_SECRET`를 필수로 주입하세요. 로컬 `.env`는 `make dev`에서 읽으며, 운영 JAR가 자동으로 읽지 않습니다. JWT 키는 32바이트 이상의 무작위 비밀값을 사용하고 DB는 최소 권한 계정과 사설망으로 접근하세요.
+
+`prod` 프로필은 스키마를 변경하지 않고 `validate`하므로 배포 전에 검토한 마이그레이션을 적용해야 합니다. 현재 저장소에는 운영용 마이그레이션과 백업/복원 자동화가 없습니다. 기존 DB 복제본의 스키마 검증과 별도 DB로의 백업 복원 확인을 먼저 수행하세요. Compose의 MySQL은 로컬 개발용이며 `127.0.0.1:3307`에만 게시됩니다. 이 변경은 컨테이너를 다시 만들 때 적용됩니다.
+
+프론트엔드는 production build에서 같은 origin의 `/api/`를 호출합니다. 웹서버에 `/api/`의 백엔드 프록시와 SPA deep link fallback, TLS를 구성하세요. Google 로그인은 빌드 시 `VITE_GOOGLE_CLIENT_ID`와 백엔드 `GOOGLE_CLIENT_ID`를 같은 앱으로 맞춰야 합니다. 이메일은 `MAIL_USERNAME`/`MAIL_APP_PASSWORD`, AI는 `OPENAI_API_KEY`/`OPENAI_MODEL`, 정책 수집은 `BIZINFO_API_KEY`를 설정하고 기능별 실제 호출을 검증하세요.
+
+GitHub Actions는 PR에서 백엔드 테스트·빌드와 프론트 테스트·lint·빌드를 검사하고 main push에서 해당 검사 통과 후 배포합니다. 배포용 GitHub secrets는 `EC2_HOST`, `EC2_USER`, `EC2_PASSWORD`, `EC2_KNOWN_HOSTS`, `VITE_GOOGLE_CLIENT_ID`입니다. `EC2_KNOWN_HOSTS`에는 `EC2_HOST`와 일치하는 SSH known_hosts 항목을 넣고 AWS 콘솔 등 별도로 신뢰할 수 있는 경로에서 서버 공개키 지문을 대조하세요. 배포 시 네트워크에서 받은 키를 검증 없이 등록하지 마세요. 호스트 키가 없거나 변경되면 배포가 중단되므로 계획된 키 교체 시 지문을 다시 검증한 뒤 secret을 갱신해야 합니다. 배포 사전 검사는 필수 자격 증명과 고정 호스트 항목의 존재를 확인하며 실제 접속은 `StrictHostKeyChecking=yes`로 검증합니다.
+
+저장소 branch protection의 필수 검사 지정은 별도로 설정해야 합니다. 운영 systemd unit/Nginx 설정, 원자적 배포/rollback, 정기 수집·추출기, 장애 알림도 별도로 준비해야 합니다. 배포 워크플로는 운영 프로필/비밀값을 서버에 자동 설정하지 않습니다.
 
 ## 데이터베이스 관리
 

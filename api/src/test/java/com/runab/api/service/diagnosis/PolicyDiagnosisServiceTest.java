@@ -90,6 +90,130 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
+    void originalOpenEndedPeriodIsVisibleWithoutClaimingApplicationsAreOpen() {
+        Policy policy = policy("전국", "전체", null, null);
+        ReflectionTestUtils.setField(policy, "originalApplicationPeriod", " 예산 소진시까지 ");
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.empty());
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(result.getPolicy().getApplicationPeriod()).isEqualTo("예산 소진시까지");
+        assertThat(evidence(result, "date").getPolicyValue()).isEqualTo("예산 소진시까지");
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(evidence(result, "date").getSource()).isEqualTo("원문 신청 기간");
+        assertThat(evidence(result, "date").getReason()).contains("담당 기관", "확인");
+        assertThat(result.getUnknownConditions()).contains("신청 기간");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"open", "closed", "upcoming", "scheduled", "unknown"})
+    void statusOnlyCardCannotResolveAnOpenEndedOriginalApplicationPeriod(String status) {
+        Policy policy = policy("전국", "전체", null, null);
+        ReflectionTestUtils.setField(policy, "originalApplicationPeriod", "예산 소진시까지");
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"%s","start":"invalid-date"},"eligibility":{}}
+                """.formatted(status))));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
+        assertThat(evidence(result, "date").getPolicyValue()).isEqualTo("예산 소진시까지");
+        assertThat(evidence(result, "date").getSource()).isEqualTo("원문 신청 기간");
+        assertThat(evidence(result, "date").getReason()).contains("담당 기관", "확인");
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    void originalPeriodRemainsVisibleWhileActualDeadlineStillDeterminesClosure() {
+        Policy policy = policy("전국", "전체", LocalDate.now().minusDays(20), LocalDate.now().minusDays(1));
+        ReflectionTestUtils.setField(policy, "originalApplicationPeriod", "연중 모집 (예산 소진 시 조기 마감)");
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.empty());
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(result.getPolicy().getApplicationPeriod()).isEqualTo("연중 모집 (예산 소진 시 조기 마감)");
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(result.isHardFail()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"open", "upcoming", "scheduled"})
+    void expiredStructuredDeadlineOverridesStaleStatus(String status) {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
+                "전국", null, LocalDate.now().minusDays(5), LocalDate.now().plusDays(20))));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"%s","end":"%s"},"eligibility":{}}
+                """.formatted(status, LocalDate.now().minusDays(1)))));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(evidence(result, "date").getSource()).isEqualTo("구조화된 공고 조건");
+        assertThat(result.isHardFail()).isTrue();
+        assertThat(result.getHardFailReasons()).containsExactly("신청 기간이 종료되었어요.");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"open", "upcoming", "scheduled"})
+    void expiredMetadataDeadlineOverridesStaleStatus(String status) {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
+                "전국", null, LocalDate.now().minusDays(5), LocalDate.now().minusDays(1))));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"%s","end":"invalid-date"},"eligibility":{}}
+                """.formatted(status))));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.FAIL);
+        assertThat(evidence(result, "date").getSource()).isEqualTo("정책 목록의 신청 기간 정보");
+        assertThat(result.isHardFail()).isTrue();
+    }
+
+    @Test
+    void futureStructuredStartOverridesStaleOpenStatus() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"open","start":"%s"},"eligibility":{}}
+                """.formatted(LocalDate.now().plusDays(1)))));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.PARTIAL);
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
+    void futureMetadataStartOverridesStaleOpenStatus() {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
+                null, null, LocalDate.now().plusDays(1), null)));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"open"},"eligibility":{}}
+                """)));
+
+        assertThat(evidence(service.diagnose(42L, operatingCafeInSeoul()), "date").getStatus())
+                .isEqualTo(MatchStatus.PARTIAL);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"closed", "upcoming", "unknown"})
+    void currentStructuredWindowIncludingTodayOverridesStaleStatus(String status) {
+        given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
+                null, null, LocalDate.now().plusDays(10), LocalDate.now().plusDays(20))));
+        given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
+                {"application_period":{"status":"%s","start":"%s","end":"%s"},"eligibility":{}}
+                """.formatted(status, LocalDate.now().minusDays(1), LocalDate.now()))));
+
+        PolicyDiagnosisResponse result = service.diagnose(42L, operatingCafeInSeoul());
+
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.PASS);
+        assertThat(result.isHardFail()).isFalse();
+    }
+
+    @Test
     void futureMetadataStartIsPartialRatherThanClosed() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(
                 "전국", null, LocalDate.now().plusDays(1), LocalDate.now().plusDays(10))));
@@ -418,7 +542,7 @@ class PolicyDiagnosisServiceTest {
     }
 
     @Test
-    void structuredUnknownSentinelsRemainUnknownAndHoldTheVerdict() {
+    void unknownStructuredFlagsDoNotOverrideKnownFutureStart() {
         given(policyRepository.findById(42L)).willReturn(Optional.of(policy(null, null, null, null)));
         given(policyCardRepository.findByPolicyId(anyString())).willReturn(Optional.of(card("extracted", """
                 {
@@ -434,8 +558,8 @@ class PolicyDiagnosisServiceTest {
 
         assertThat(evidence(result, "region").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
         assertThat(evidence(result, "industry").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
-        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.UNKNOWN);
-        assertThat(result.getVerdict()).isEqualTo("ON_HOLD");
+        assertThat(evidence(result, "date").getStatus()).isEqualTo(MatchStatus.PARTIAL);
+        assertThat(result.getVerdict()).isEqualTo("NEEDS_CONFIRMATION");
         assertThat(result.getConfidence()).isEqualTo("LOW");
     }
 

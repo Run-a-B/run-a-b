@@ -13,6 +13,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.jpa.domain.Specification;
@@ -109,6 +111,7 @@ class PolicyServiceIndustryFilterTest {
                 "외식업체 시설 개선 지원",
                 "음식점업 사업자를 지원합니다.");
         PolicyCard uncertainCard = PolicyCard.builder()
+                .extractionStatus("extracted")
                 .policyId(PolicyCard.toPolicyId("PBLN_CARD_UNKNOWN"))
                 .externalId("PBLN_CARD_UNKNOWN")
                 .fullJson("""
@@ -125,6 +128,25 @@ class PolicyServiceIndustryFilterTest {
         PolicyPageResponse response = policyService.getPolicies(
                 "전체 지역", "음식점업", "전체 카테고리", null,
                 "최신순", 0, 12, null);
+
+        assertThat(response.getPolicies()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"true", "{}", "[]", "123", "null"})
+    void malformedIndustryTypeBlocksPolicyTextFallback(String type) {
+        Policy textMatches = policy("PBLN_MALFORMED", "외식업체 지원", "음식점업 사업자를 지원합니다.");
+        PolicyCard uncertainCard = PolicyCard.builder()
+                .extractionStatus("extracted")
+                .policyId(PolicyCard.toPolicyId("PBLN_MALFORMED"))
+                .externalId("PBLN_MALFORMED")
+                .fullJson("{\"eligibility\":{\"industries\":[],\"industry_condition_type\":" + type + "}}")
+                .build();
+        when(policyRepository.findAll(any(Specification.class))).thenReturn(List.of(textMatches));
+        when(policyCardRepository.findByPolicyIdIn(anyCollection())).thenReturn(List.of(uncertainCard));
+
+        PolicyPageResponse response = policyService.getPolicies(
+                "전체 지역", "음식점업", "전체 카테고리", null, "최신순", 0, 12, null);
 
         assertThat(response.getPolicies()).isEmpty();
     }
@@ -180,6 +202,7 @@ class PolicyServiceIndustryFilterTest {
         Policy hardFailure = policy("PBLN_HARD_FAIL", "마감된 카페 지원", null);
         Policy uncertain = policy("PBLN_UNCERTAIN", "조건 확인 필요", null);
         PolicyCard closedCard = PolicyCard.builder()
+                .extractionStatus("extracted")
                 .policyId(PolicyCard.toPolicyId("PBLN_HARD_FAIL"))
                 .externalId("PBLN_HARD_FAIL")
                 .fullJson("""

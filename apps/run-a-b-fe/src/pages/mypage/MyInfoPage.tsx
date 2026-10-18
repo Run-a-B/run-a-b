@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { isValidPassword } from "@/features/auth/signup";
 import axios from "axios";
 
 const EyeIcon = () => (
@@ -36,8 +37,6 @@ const EyeOffIcon = () => (
         <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
 );
-
-const PASSWORD_REGEX = /^[A-Za-z0-9!@$*]{6,}$/;
 
 interface UserUpdatePayload {
     name: string;
@@ -83,7 +82,7 @@ function MyInfoSkeleton() {
 }
 
 export default function MyInfoPage() {
-    const { user, login } = useAuth();
+    const { user, login, logout } = useAuth();
     const navigate = useNavigate();
     const [name, setName] = useState(user?.name ?? "");
     const [age, setAge] = useState(user?.age ? String(user.age) : "");
@@ -122,8 +121,8 @@ export default function MyInfoPage() {
     const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
 
     const pwError =
-        pw.next.length > 0 && !PASSWORD_REGEX.test(pw.next)
-            ? "영어·숫자·특수문자(I@$*) 6자 이상이어야 해요"
+        pw.next.length > 0 && !isValidPassword(pw.next)
+            ? "영어·숫자·특수문자(!@$*) 6~20자여야 해요"
             : "";
     const pwMatchError =
         pw.confirm.length > 0 && pw.next !== pw.confirm
@@ -131,7 +130,7 @@ export default function MyInfoPage() {
             : "";
 
     async function handleSave() {
-        if (!user) return;
+        if (!user || pwError || (pw.next && pw.next !== pw.confirm)) return;
         try {
             const body: UserUpdatePayload = {
                 name,
@@ -173,8 +172,7 @@ export default function MyInfoPage() {
 
         try {
             await api.delete("/api/v1/users/me");
-            // 토큰 제거 후 로그인 페이지로
-            localStorage.removeItem("access_token");
+            logout();
             alert("계정이 삭제되었어요. 그동안 이용해 주셔서 감사합니다. ^^ ");
             navigate("/login");
         } catch (err: unknown) {
@@ -426,7 +424,7 @@ export default function MyInfoPage() {
                                     </p>
                                 ) : (
                                     <p className="text-xs text-gray-400 mt-1.5">
-                                        영어·숫자·특수문자(I@$*) 6자 이상
+                                        영어·숫자·특수문자(!@$*) 6~20자
                                     </p>
                                 )}
                             </div>

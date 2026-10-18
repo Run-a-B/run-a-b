@@ -1,19 +1,11 @@
-import { useState } from "react";
+import { useReducer, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { REVENUE_OPTIONS } from "@/features/business/options";
+import { INDUSTRY_OPTIONS, REGION_OPTIONS, REVENUE_OPTIONS } from "@/features/business/options";
 import api from "@/lib/api";
 import { useEffect } from "react";
 import axios from "axios";
+import { businessEditorReducer, initialBusinessEditor, toBusinessUpdateRequest, type BusinessDraft } from "@/features/business/editor";
 
-const INDUSTRY_OPTIONS = [
-  "음식점업 (한식·양식·중식 등)", "카페/음료", "의류/패션", "뷰티/미용",
-  "교육/학원", "IT/소프트웨어", "제조업", "도소매업", "기타",
-];
-const REGION_OPTIONS = [
-  "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시",
-  "대전광역시", "울산광역시", "세종특별자치시", "경기도", "강원도",
-  "충청북도", "충청남도", "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도",
-];
 export const MY_BUSINESS_REVENUE_OPTIONS = REVENUE_OPTIONS;
 const EMPLOYEE_OPTIONS = ["없음 (나 혼자)", "1~4명", "5~9명", "10~29명", "30명 이상"];
 
@@ -42,6 +34,7 @@ function SelectField({ value, onChange, placeholder, options, disabled }: {
         }`}
       >
         <option value="" disabled>{placeholder}</option>
+        {value && !options.includes(value) && <option value={value}>{value}</option>}
         {options.map(o => <option key={o} value={o}>{o}</option>)}
       </select>
       <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
@@ -102,40 +95,38 @@ function MyBusinessSkeleton() {
 
 export default function MyBusinessPage() {
   const { user, login } = useAuth();
-  const [status, setStatus] = useState("사업 중");
-  const [industry, setIndustry] = useState(user?.industry ?? "");
-  const [region, setRegion] = useState(user?.region ?? "");
-  const [revenue, setRevenue] = useState("");
-  const [employees, setEmployees] = useState("");
+  const [editor, dispatch] = useReducer(businessEditorReducer, initialBusinessEditor);
+  const { loadFailed, saving } = editor;
+  const { status, industry, region, revenue, employees } = editor.draft;
+  const updateField = (field: keyof BusinessDraft) => (value: string) => dispatch({ type: "edit", field, value });
+  const setStatus = updateField("status");
+  const setIndustry = updateField("industry");
+  const setRegion = updateField("region");
+  const setRevenue = updateField("revenue");
+  const setEmployees = updateField("employees");
   const [loading, setLoading] = useState(true);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
+    let active = true;
     api.get("/api/v1/users/me/business")
       .then(res => {
-        const b = res.data.data;
-        setStatus(b.businessStatus ? "사업 중" : "사업 준비 중");
-        setIndustry(b.jobCategory ?? "");
-        setRegion(b.region ?? "");
-        setRevenue(b.annualRevenue ?? "");
-        setEmployees(b.employeeCount ?? "");
+        if (active) dispatch({ type: "loaded", business: res.data.data });
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+      .catch(error => { if (active) dispatch({ type: "load-failed", error }); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [loadAttempt]);
 
   const isRunning = status === "사업 중";
 
   async function handleSave() {
-    if (!user) return;
+    if (!user || !editor.saved || saving || loadFailed) return;
+    dispatch({ type: "save-started" });
     try {
-      const res = await api.patch("/api/v1/users/me/business", {
-        businessStatus: status === "사업 중",
-        jobCategory: industry,
-        region: region,
-        annualRevenue: revenue || null,
-        employeeCount: employees || null,
-      });
+      const res = await api.patch("/api/v1/users/me/business", toBusinessUpdateRequest(editor.draft));
       const b = res.data.data;
+      dispatch({ type: "loaded", business: b });
       login({ ...user, industry: b.jobCategory, region: b.region });
       alert("사업 정보가 저장되었어요");
     } catch (err: unknown) {
@@ -143,17 +134,25 @@ export default function MyBusinessPage() {
         ? err.response?.data?.message
         : undefined;
       alert(message || "저장에 실패했어요");
+    } finally {
+      dispatch({ type: "save-finished" });
     }
   }
 
   function handleCancel() {
-    setIndustry(user?.industry ?? "");
-    setRegion(user?.region ?? "");
-    setRevenue("");
-    setEmployees("");
+    dispatch({ type: "cancel" });
   }
 
   if (loading) return <MyBusinessSkeleton />;
+  if (loadFailed) return (
+    <div role="alert" className="max-w-xl w-full rounded-xl border border-gray-200 p-6">
+      <h2 className="text-xl font-bold text-gray-900">내 사업 정보를 불러오지 못했어요</h2>
+      <p className="mt-2 text-sm text-gray-500">잠시 후 다시 시도해 주세요.</p>
+      <button type="button" onClick={() => { setLoading(true); setLoadAttempt(value => value + 1); }} className="mt-4 rounded-full bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white">
+        다시 시도
+      </button>
+    </div>
+  );
 
   return (
     <div className="max-w-xl w-full">
@@ -199,6 +198,7 @@ export default function MyBusinessPage() {
                 key={s}
                 type="button"
                 onClick={() => setStatus(s)}
+                disabled={saving}
                 className={`py-3 text-sm font-semibold transition-colors ${
                   status === s
                     ? "bg-white text-primary-600 border-2 border-primary-500 rounded-xl -m-px z-10"
@@ -228,13 +228,13 @@ export default function MyBusinessPage() {
             <label className="text-sm font-medium text-gray-700">
               직군 (업종) <span className="text-red-500">*</span>
             </label>
-            <SelectField value={industry} onChange={setIndustry} placeholder="업종을 선택해 주세요" options={INDUSTRY_OPTIONS} />
+            <SelectField value={industry} onChange={setIndustry} placeholder="업종을 선택해 주세요" options={INDUSTRY_OPTIONS} disabled={saving} />
           </div>
           <div>
             <label className="text-sm font-medium text-gray-700">
               지역 <span className="text-red-500">*</span>
             </label>
-            <SelectField value={region} onChange={setRegion} placeholder="지역을 선택해 주세요" options={REGION_OPTIONS} />
+            <SelectField value={region} onChange={setRegion} placeholder="지역을 선택해 주세요" options={REGION_OPTIONS} disabled={saving} />
           </div>
         </div>
       </section>
@@ -268,42 +268,41 @@ export default function MyBusinessPage() {
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
               연 매출 <span className="text-xs text-gray-400 font-normal">(선택)</span>
             </label>
-            <SelectField value={revenue} onChange={setRevenue} placeholder="연 매출 범위를 선택해 주세요" options={MY_BUSINESS_REVENUE_OPTIONS} disabled={!isRunning} />
+            <SelectField value={revenue} onChange={setRevenue} placeholder="연 매출 범위를 선택해 주세요" options={MY_BUSINESS_REVENUE_OPTIONS} disabled={!isRunning || saving} />
           </div>
           <div>
             <label className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
               직원 수 (본인 제외) <span className="text-xs text-gray-400 font-normal">(선택)</span>
             </label>
-            <SelectField value={employees} onChange={setEmployees} placeholder="직원 수를 선택해 주세요" options={EMPLOYEE_OPTIONS} disabled={!isRunning} />
+            <SelectField value={employees} onChange={setEmployees} placeholder="직원 수를 선택해 주세요" options={EMPLOYEE_OPTIONS} disabled={!isRunning || saving} />
           </div>
         </div>
       </section>
 
       {/* 저장 / 취소 */}
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={handleCancel} className="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2 transition-colors">
+        <button onClick={handleCancel} disabled={saving} className="text-sm font-medium text-gray-500 hover:text-gray-700 px-4 py-2 transition-colors">
           취소
         </button>
         <button
           onClick={handleSave}
-          disabled={!industry || !region}
+          disabled={!industry || !region || !editor.saved || saving}
           className="bg-primary-600 text-white text-sm font-semibold px-6 py-2.5 rounded-full hover:bg-primary-700 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
         >
           저장하기
         </button>
       </div>
 
-      {/* 활용 현황 */}
+      {/* 활용 안내 */}
       <section className="border border-gray-200 rounded-xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
-          <span className="font-semibold text-gray-800 text-sm">내 사업 정보 활용 현황</span>
+          <span className="font-semibold text-gray-800 text-sm">내 사업 정보 활용 안내</span>
         </div>
         <div className="divide-y divide-gray-100">
           {[
-            { label: "생성된 AI 리포트", value: "4건" },
-            { label: "정책 관련도 분석", value: "12건" },
-            { label: "추천된 지원사업", value: "8건" },
-            { label: "마지막 정보 업데이트", value: "2026.01.10" },
+            { label: "정책 관련도 분석", value: "업종·지역 등 사업 조건 반영" },
+            { label: "60초 정책 진단", value: "저장한 사업 정보로 조건 확인" },
+            { label: "AI 리포트", value: "내 사업에 미치는 영향 분석" },
           ].map(({ label, value }) => (
             <div key={label} className="flex items-center justify-between px-5 py-3.5">
               <span className="text-sm text-gray-600">{label}</span>

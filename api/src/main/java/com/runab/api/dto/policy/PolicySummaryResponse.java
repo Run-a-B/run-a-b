@@ -2,6 +2,8 @@ package com.runab.api.dto.policy;
 
 import lombok.Builder;
 import lombok.Getter;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 
 import java.util.List;
 
@@ -22,9 +24,13 @@ public class PolicySummaryResponse {
 
     @Getter
     @Builder
+    @JsonDeserialize(builder = Highlight.HighlightBuilder.class)
     public static class Highlight {
         private String icon;    // money | check | calendar (프론트 HIGHLIGHT_ICONS 키)
         private String label;   // 짧은 라벨
         private String content; // 한 문장 설명
+
+        @JsonPOJOBuilder(withPrefix = "")
+        public static class HighlightBuilder {}
     }
 }
