@@ -1,8 +1,10 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
+from unittest.mock import patch
 
 MODULE = Path(__file__).with_name("bootstrap.py")
 
@@ -15,7 +17,7 @@ class BootstrapTest(unittest.TestCase):
         self.commands = []
         self.container = None
         self.digest = "mysql@sha256:" + "a" * 64
-        self.fail = None
+        self.fail_command = None
         self.nginx_active = False
         self.tables = "business_info\nemail_verification\npolicy\npolicy_card\npolicy_summary\nreport\nusers\n"
         self.account = ""
@@ -29,7 +31,7 @@ class BootstrapTest(unittest.TestCase):
 
     def runner(self, command, *, input=None, allow_failure=False):
         self.commands.append((command, input))
-        if self.fail and self.fail in command:
+        if self.fail_command and self.fail_command in command:
             raise RuntimeError("controlled dependency failure")
         if command[:3] == ["docker", "container", "inspect"]:
             return json.dumps([self.container]) if self.container else ""
@@ -51,7 +53,7 @@ class BootstrapTest(unittest.TestCase):
                 "HostConfig": {"Memory": int(values("--memory")[0][:-1]) * 1024**2,
                                "MemorySwap": int(values("--memory-swap")[0][:-1]) * 1024**2,
                                "PidsLimit": int(values("--pids-limit")[0]),
-                               "RestartPolicy": {"Name": values("--restart")[0]},
+                               "RestartPolicy": {"Name": values("--restart")[0], "MaximumRetryCount": 0},
                                "PortBindings": {"3306/tcp": [{"HostIp": ip, "HostPort": port}]},
                                "LogConfig": {"Type": values("--log-driver")[0],
                                              "Config": dict(value.split("=", 1) for value in values("--log-opt"))}},
@@ -127,12 +129,19 @@ class BootstrapTest(unittest.TestCase):
         with self.assertRaises(Exception):
             tool.apply("run-a-b.com")
 
+    def test_replay_rejects_nonzero_restart_retry_limit(self):
+        tool = self.bootstrap()
+        tool.apply("run-a-b.com")
+        self.container["HostConfig"]["RestartPolicy"]["MaximumRetryCount"] = 1
+        with self.assertRaises(RuntimeError):
+            tool.apply("run-a-b.com")
+
     def test_low_disk_and_install_failure_never_report_completion(self):
         module = self.module()
         with self.assertRaises(Exception):
             module.Bootstrap(self.root, self.runner, free_bytes=1024**3).apply("run-a-b.com")
         self.assertEqual([], self.commands)
-        self.fail = "dnf"
+        self.fail_command = "dnf"
         with self.assertRaises(Exception):
             self.bootstrap().apply("run-a-b.com")
         self.assertFalse((self.root / "etc/runab/bootstrap.json").exists())
@@ -168,10 +177,10 @@ class BootstrapTest(unittest.TestCase):
         tool = self.bootstrap()
         tool.apply("run-a-b.com")
         self.install_https_fixture()
-        self.fail = "openssl"
+        self.fail_command = "openssl"
         with self.assertRaises(RuntimeError):
             tool.preflight("run-a-b.com")
-        self.fail = None
+        self.fail_command = None
         self.tables = "policy\nusers\n"
         with self.assertRaises(RuntimeError):
             tool.preflight("run-a-b.com")
@@ -219,6 +228,133 @@ class BootstrapTest(unittest.TestCase):
         self.account = "runab:x:0:0::/root:/bin/bash"
         with self.assertRaises(RuntimeError):
             tool.apply("run-a-b.com")
+
+    def test_apply_waits_for_final_networked_server_before_adjusting_application_grants(self):
+        module = self.module()
+        final_server = False
+
+        def finish_initialization(seconds):
+            nonlocal final_server
+            final_server = True
+
+        def startup_runner(args, *, input=None, allow_failure=False):
+            if args[:2] == ["docker", "exec"]:
+                # Official entrypoint's temporary init server accepts socket
+                # queries after setting root's password but before creating users.
+                if "--protocol=TCP" in args and not final_server:
+                    raise RuntimeError("temporary initialization server has networking disabled")
+                if input and "REVOKE " in input and not final_server:
+                    raise RuntimeError("application user/grants do not exist yet")
+            return self.runner(args, input=input, allow_failure=allow_failure)
+
+        tool = module.Bootstrap(self.root, startup_runner, free_bytes=6 * 1024**3)
+        with patch.object(module.time, "sleep", side_effect=finish_initialization):
+            tool.apply("run-a-b.com")
+
+        self.assertTrue(final_server)
+        self.assertTrue((self.root / "etc/runab/bootstrap.json").is_file())
+
+    def test_empty_successful_tcp_ping_allows_root_socket_auth_and_grants(self):
+        module = self.module()
+        operations = []
+
+        def transport_runner(args, *, input=None, allow_failure=False):
+            if "mysqladmin" in args:
+                self.assertFalse(allow_failure)
+                self.assertEqual(["--no-defaults", "--protocol=TCP", "--host=127.0.0.1", "--port=3306",
+                                  "--connect-timeout=3", "--user=runab_readiness", "--skip-password", "ping"],
+                                 args[args.index("mysqladmin") + 1:])
+                operations.append("network_ready")
+                # Access denied proves the server is listening; mysqladmin exits
+                # successfully but stdout is empty. Authentication is separate.
+                return ""
+            if "mysql" in args:
+                if "--protocol=TCP" in args:
+                    raise RuntimeError("root@localhost cannot authenticate over TCP")
+                self.assertIn("--protocol=SOCKET", args)
+                operations.append("socket_grants" if input and "REVOKE " in input else "socket_authenticated")
+            return self.runner(args, input=input, allow_failure=allow_failure)
+
+        tool = module.Bootstrap(self.root, transport_runner, free_bytes=6 * 1024**3)
+        with patch.object(module.time, "monotonic", side_effect=[0, 181]):
+            tool.apply("run-a-b.com")
+
+        self.assertEqual(["network_ready", "socket_authenticated", "socket_grants"], operations)
+        self.assertTrue((self.root / "etc/runab/bootstrap.json").is_file())
+
+    def test_network_unavailable_never_authenticates_or_adjusts_grants(self):
+        module = self.module()
+        sql_calls = []
+
+        def unavailable_runner(args, *, input=None, allow_failure=False):
+            if "mysqladmin" in args:
+                raise RuntimeError("temporary socket-only server has no TCP listener")
+            if "mysql" in args:
+                sql_calls.append(input)
+            return self.runner(args, input=input, allow_failure=allow_failure)
+
+        tool = module.Bootstrap(self.root, unavailable_runner, free_bytes=6 * 1024**3)
+        with patch.object(module.time, "monotonic", side_effect=[0, 181]):
+            with self.assertRaises(RuntimeError):
+                tool.apply("run-a-b.com")
+        self.assertEqual([], sql_calls)
+        self.assertFalse(self.nginx_active)
+        self.assertFalse((self.root / "etc/runab/bootstrap.json").exists())
+
+    def test_network_ready_with_invalid_socket_credentials_never_adjusts_grants(self):
+        module = self.module()
+        operations = []
+
+        def unauthorized_runner(args, *, input=None, allow_failure=False):
+            if "mysqladmin" in args:
+                operations.append("network_ready")
+                return ""
+            if "mysql" in args:
+                operations.append("socket_authentication_failed")
+                raise RuntimeError("invalid root socket credentials")
+            return self.runner(args, input=input, allow_failure=allow_failure)
+
+        tool = module.Bootstrap(self.root, unauthorized_runner, free_bytes=6 * 1024**3)
+        with patch.object(module.time, "monotonic", side_effect=[0, 181]):
+            with self.assertRaises(RuntimeError):
+                tool.apply("run-a-b.com")
+        self.assertEqual(["network_ready", "socket_authentication_failed"], operations)
+        self.assertFalse(self.nginx_active)
+        self.assertFalse((self.root / "etc/runab/bootstrap.json").exists())
+
+    def apply_with_database_grant_fixture(self, existing_grant):
+        # Model the real 8.4 boundary observed in the disposable SQL probe: the
+        # image creates an escaped database-pattern grant; missing grants make a
+        # plain REVOKE fail, and unescaped '_' would widen a subsequent GRANT.
+        state = {"grant_present": existing_grant, "crud_only": False}
+
+        def grant_runner(args, *, input=None, allow_failure=False):
+            if "mysql" in args and input and "REVOKE " in input:
+                statements = input.splitlines()
+                self.assertEqual(2, len(statements))
+                revoke = re.fullmatch(r"REVOKE (IF EXISTS )?ALL PRIVILEGES ON `([^`]+)`\.\* FROM 'runab_app'@'%';", statements[0])
+                self.assertIsNotNone(revoke)
+                if revoke[2] != r"runab\_db" or (not state["grant_present"] and not revoke[1]):
+                    raise RuntimeError("MySQL 1141: no matching database-pattern grant")
+                state["grant_present"] = False
+                grant = re.fullmatch(r"GRANT SELECT, INSERT, UPDATE, DELETE ON `([^`]+)`\.\* TO 'runab_app'@'%';", statements[1])
+                self.assertIsNotNone(grant)
+                if grant[1] != r"runab\_db":
+                    raise RuntimeError("unescaped wildcard would grant access to similarly named databases")
+                state.update(grant_present=True, crud_only=True)
+            return self.runner(args, input=input, allow_failure=allow_failure)
+
+        tool = self.module().Bootstrap(self.root, grant_runner, free_bytes=6 * 1024**3)
+        tool.apply("run-a-b.com")
+        self.assertEqual({"grant_present": True, "crud_only": True}, state)
+        self.assertTrue(self.nginx_active)
+        self.assertTrue((self.root / "etc/runab/bootstrap.json").is_file())
+
+    def test_apply_matches_image_escaped_database_pattern_without_wildcard_grants(self):
+        self.apply_with_database_grant_fixture(existing_grant=True)
+
+    def test_apply_privileges_complete_after_a_previous_revoke_left_no_grant(self):
+        self.apply_with_database_grant_fixture(existing_grant=False)
 
 
 if __name__ == "__main__":

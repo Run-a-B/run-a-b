@@ -53,7 +53,7 @@ def command(args, *, input=None, allow_failure=False):
 def expected_container(digest):
     return {"Config": {"Image": digest, "Labels": {LABEL: "1"}, "Cmd": MYSQL_OPTIONS},
             "HostConfig": {"Memory": 512 * 1024**2, "MemorySwap": 512 * 1024**2,
-                           "PidsLimit": 128, "RestartPolicy": {"Name": "unless-stopped"},
+                           "PidsLimit": 128, "RestartPolicy": {"Name": "unless-stopped", "MaximumRetryCount": 0},
                            "PortBindings": {"3306/tcp": [{"HostIp": "127.0.0.1", "HostPort": "3307"}]},
                            "LogConfig": {"Type": "local", "Config": {"max-size": "10m", "max-file": "3"}}}}
 
@@ -111,13 +111,22 @@ class Bootstrap:
                            ("/etc/runab/mysql", "/run/runab-secrets", False)}, "unexpected MySQL mounts")
 
     def sql(self, sql):
+        # Keep root administration local even when skip-name-resolve prevents
+        # root@localhost from authenticating through loopback TCP.
         return self.run(["docker", "exec", "-i", "--user", "0", "runab-mysql", "mysql",
-                         "--defaults-extra-file=/run/runab-secrets/root-client.cnf", "--batch", "--skip-column-names"], input=sql)
+                         "--defaults-extra-file=/run/runab-secrets/root-client.cnf", "--protocol=SOCKET",
+                         "--connect-timeout=3", "--batch", "--skip-column-names"], input=sql)
 
     def wait_database(self):
         deadline = time.monotonic() + 180
         while True:
             try:
+                # The temporary initialization server disables TCP. mysqladmin
+                # ping exits zero for an access denial once the final server is
+                # reachable; stdout may be empty and is not an auth check.
+                self.run(["docker", "exec", "-i", "--user", "0", "runab-mysql", "mysqladmin",
+                          "--no-defaults", "--protocol=TCP", "--host=127.0.0.1", "--port=3306",
+                          "--connect-timeout=3", "--user=runab_readiness", "--skip-password", "ping"])
                 if self.sql("SELECT 1;\n").strip() == "1":
                     return
             except RuntimeError:
@@ -200,8 +209,8 @@ class Bootstrap:
                   "--env", "MYSQL_PASSWORD_FILE=/run/runab-secrets/app-password", digest, *MYSQL_OPTIONS])
         self.wait_database()
         # Application uses DML only; reviewed schema is installed separately by root.
-        self.sql("REVOKE ALL PRIVILEGES ON `runab_db`.* FROM 'runab_app'@'%';\n"
-                 "GRANT SELECT, INSERT, UPDATE, DELETE ON `runab_db`.* TO 'runab_app'@'%';\n")
+        self.sql("REVOKE IF EXISTS ALL PRIVILEGES ON `runab\\_db`.* FROM 'runab_app'@'%';\n"
+                 "GRANT SELECT, INSERT, UPDATE, DELETE ON `runab\\_db`.* TO 'runab_app'@'%';\n")
         self.run(["nginx", "-t"])
         self.run(["systemctl", "daemon-reload"])
         self.run(["systemctl", "enable", "--now", "nginx"])
