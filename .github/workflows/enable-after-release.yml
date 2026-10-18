@@ -1,0 +1,153 @@
+name: Enable boot startup after reviewed successful release
+
+on:
+  push:
+    branches: [codex/ec2-preflight-20261019]
+    paths: ['.github/workflows/enable-after-release.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  # Replace only after the corresponding main Release to EC2 run has succeeded.
+  EXPECTED_RELEASE_ID: 741d1dfbb57339c0282af97813115552743153c9-39148837164-1
+  REVIEWED_MAIN_SHA: 741d1dfbb57339c0282af97813115552743153c9
+
+jobs:
+  verify-success:
+    if: github.ref == 'refs/heads/codex/ec2-preflight-20261019' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify reviewed main and completed release before entering deployment concurrency
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ env.EXPECTED_RELEASE_ID }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          'use strict';
+          const reject = () => { throw new Error('rejected'); };
+          async function get(endpoint) {
+            const response = await fetch('https://api.github.com/repos/Run-a-B/run-a-b/' + endpoint, {
+              headers: { Authorization: 'Bearer ' + process.env.GH_TOKEN,
+                Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' },
+              redirect: 'error', signal: AbortSignal.timeout(15000)
+            });
+            if (!response.ok) reject();
+            return response.json();
+          }
+          (async () => {
+            if (process.env.GITHUB_REF !== 'refs/heads/codex/ec2-preflight-20261019'
+                || process.env.GITHUB_EVENT_NAME !== 'push') reject();
+            const id = process.env.RELEASE_ID;
+            if (id !== process.env.EXPECTED_RELEASE_ID) reject();
+            const match = /^([0-9a-f]{40})-([0-9]+)-([0-9]+)$/.exec(id);
+            if (!match || match[1] !== process.env.REVIEWED_MAIN_SHA) reject();
+            const [main, workflow, run] = await Promise.all([
+              get('branches/main'), get('actions/workflows/release.yml'),
+              get('actions/runs/' + match[2] + '/attempts/' + match[3])
+            ]);
+            if (main.commit.sha !== match[1] || workflow.path !== '.github/workflows/release.yml'
+                || run.workflow_id !== workflow.id || run.head_sha !== match[1] || run.head_branch !== 'main'
+                || String(run.id) !== match[2] || String(run.run_attempt) !== match[3]
+                || run.status !== 'completed' || run.conclusion !== 'success'
+                || !['push', 'workflow_dispatch'].includes(run.event)) reject();
+            process.stdout.write('{"release_success_verified":true}\n');
+          })().catch(() => { process.stderr.write('ERROR: release verification rejected\n'); process.exitCode = 1; });
+          NODE
+
+  enable-boot:
+    needs: verify-success
+    if: github.ref == 'refs/heads/codex/ec2-preflight-20261019' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: runab-production
+      cancel-in-progress: false
+    steps:
+      - name: Install SSH password client
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
+      - name: Validate active release and enable boot startup without restarting
+        env:
+          RELEASE_ID: ${{ env.EXPECTED_RELEASE_ID }}
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_EVENT_NAME" == push ]] || exit 1
+          [[ "$RELEASE_ID" == "$EXPECTED_RELEASE_ID" ]] || exit 1
+          [[ "$RELEASE_ID" =~ ^[0-9a-f]{40}-[0-9]+-[0-9]+$ ]] || exit 1
+          [[ "$RELEASE_ID" == "$REVIEWED_MAIN_SHA"-* ]] || exit 1
+          : "${SSHPASS:?EC2 password is required}"
+          : "${EC2_KNOWN_HOSTS:?Pinned EC2 host key is required}"
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F 43.201.103.134 -f "$HOME/.ssh/known_hosts" > /dev/null
+          ssh_options=(-o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o ConnectTimeout=15
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            sudo -n python3 -I - "$RELEASE_ID" <<'PYTHON'
+          import fcntl
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import stat
+          import subprocess
+          import sys
+          import urllib.request
+
+          def require(condition):
+              if not condition:
+                  raise RuntimeError('rejected')
+
+          def command(arguments):
+              result = subprocess.run(arguments, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45)
+              require(result.returncode == 0)
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+
+          try:
+              release = sys.argv[1]
+              require(os.geteuid() == 0 and bool(re.fullmatch(r'741d1dfbb57339c0282af97813115552743153c9-[0-9]+-[0-9]+', release)))
+              root = Path('/srv/runab')
+              target = root / 'releases' / release
+              for directory in (root, root / 'releases', target, target / 'dist'):
+                  info = directory.lstat()
+                  require(stat.S_ISDIR(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022)
+              descriptor = os.open(root / '.deploy.lock', os.O_RDWR | os.O_NOFOLLOW)
+              with os.fdopen(descriptor, 'r+') as lock:
+                  info = os.fstat(lock.fileno())
+                  require(stat.S_ISREG(info.st_mode) and info.st_uid == 0)
+                  fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                  current = root / 'current'
+                  require(current.is_symlink() and current.lstat().st_uid == 0 and current.resolve(strict=True) == target)
+                  for name in ('api.jar', 'dist/index.html'):
+                      info = (target / name).lstat()
+                      require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_size > 0 and not info.st_mode & 0o222)
+                  command(['systemctl', 'is-active', '--quiet', 'runab-api'])
+                  command(['python3', '-I', '/srv/runab/ops/bootstrap.py', 'preflight', '--domain', 'run-a-b.com'])
+                  command(['nginx', '-t'])
+                  opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+                  with opener.open('http://127.0.0.1:8080/api/v1/policies?page=1&size=1', timeout=10) as response:
+                      body = response.read(1024 * 1024 + 1)
+                      require(response.status == 200 and len(body) <= 1024 * 1024)
+                      payload = json.loads(body)
+                      require(payload.get('success') is True and isinstance(payload.get('data', {}).get('policies'), list)
+                              and bool(payload['data']['policies']))
+                  require(current.resolve(strict=True) == target)
+                  command(['systemctl', 'is-active', '--quiet', 'runab-api'])
+                  command(['systemctl', 'enable', 'runab-api'])
+                  command(['systemctl', 'is-enabled', '--quiet', 'runab-api'])
+              print('{"reviewed_release_active":true,"boot_startup_enabled":true}')
+          except BaseException:
+              print('ERROR: boot enable checks failed', file=sys.stderr)
+              sys.exit(1)
+          PYTHON
