@@ -1,0 +1,89 @@
+name: Prepare reviewed EC2 production prerequisites
+
+on:
+  push:
+    branches: [codex/ec2-preflight-20261019]
+    paths: ['.github/workflows/ec2-prepare.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runab-production
+  cancel-in-progress: false
+
+jobs:
+  prepare-without-application-activation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install SSH password client
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
+      - name: Verify fixed helpers and encrypted transport
+        env:
+          RUNAB_PREP_KEY: ${{ secrets.RUNAB_PREP_20261019_KEY }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
+          echo '5f18a18f6a81d680abe82ef64d141dfee80d4a8bcf4565417af9fe7ae40575a6  ops/ec2/decrypt-preparation.cjs' | sha256sum --check --status
+          echo 'c489a3af8a3638d73f131f890d684bc4ef3ab3e7f4c91e99753c9f1e93eb500c  ops/ec2/prepare-database.py' | sha256sum --check --status
+          echo 'f7214d3ad1a766026af76e7d9d851d9030edcb395eb8fb78e4910738393dda77  ops/ec2/prepare-tls.py' | sha256sum --check --status
+          echo 'e291af5501f5fa456d91dbcafdeda632bc66451fbe07d5dfcffcb8bbb7a1b610  ops/ec2/nginx.conf.template' | sha256sum --check --status
+          echo '25330a620f8debecf82bd7cf60fcceaeb5bf3a0512db6308ab3ab9b2d93735de  api/db/bootstrap/schema.sql' | sha256sum --check --status
+          umask 077
+          private_dir="$RUNNER_TEMP/runab-preparation-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -m 700 -- "$private_dir"
+          node ops/ec2/decrypt-preparation.cjs ops/ec2/setup-payload.enc.json "$private_dir"
+      - name: Prepare database integrations and HTTPS without starting application
+        env:
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
+          : "${SSHPASS:?EC2_PASSWORD is required}"
+          : "${EC2_KNOWN_HOSTS:?Pinned host key is required}"
+          private_dir="$RUNNER_TEMP/runab-preparation-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          upload="/tmp/runab-preparation-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F 43.201.103.134 -f "$HOME/.ssh/known_hosts" > /dev/null
+          ssh_options=(-o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o ConnectTimeout=15
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 "umask 077; mkdir -m 700 -- '$upload'"
+          sshpass -e scp "${ssh_options[@]}" -- ops/ec2/prepare-database.py ops/ec2/prepare-tls.py \
+            ops/ec2/nginx.conf.template api/db/bootstrap/schema.sql "$private_dir/policy.sql.gz" \
+            "ec2-user@43.201.103.134:$upload/"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "sudo -n python3 -I '$upload/prepare-database.py' prepare --schema '$upload/schema.sql' --seed '$upload/policy.sql.gz'"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "sudo -n python3 -I '$upload/prepare-database.py' configure-integrations" < "$private_dir/integrations.json"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "sudo -n python3 -I '$upload/prepare-database.py' verify --schema '$upload/schema.sql' --seed '$upload/policy.sql.gz'"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 \
+            "sudo -n python3 -I '$upload/prepare-tls.py' apply --template '$upload/nginx.conf.template'"
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 bash -s <<'REMOTE'
+          set -euo pipefail
+          sudo -n python3 -I /srv/runab/ops/bootstrap.py preflight --domain run-a-b.com > /dev/null
+          [[ "$(systemctl show --property=ActiveState --value runab-api)" == inactive ]]
+          test ! -e /srv/runab/current
+          printf '{"production_prerequisites_ready":true,"application_still_inactive":true}\n'
+          REMOTE
+      - name: Remove runner plaintext payload
+        if: always()
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
+          private_dir="$RUNNER_TEMP/runab-preparation-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          rm -f -- "$private_dir/integrations.json" "$private_dir/policy.sql.gz"
+          rmdir -- "$private_dir" 2>/dev/null || true
