@@ -19,6 +19,16 @@ export interface PolicyDetailData {
   agency: string | null;
   sourceSystem: string | null;
   extractionStatus?: string | null;
+  originalNoticeText?: string | null;
+  originalApplicationMethod?: string | null;
+  originalApplicationPeriod?: string | null;
+  executingAgency?: string | null;
+  inquiryContact?: string | null;
+  sourceAttachments?: {
+    name: string | null;
+    url: string | null;
+    role: "attachment" | "notice";
+  }[] | null;
   tags?: string[];
   targetConditions?: string[];
   supportItems?: { category: string; amount: string; method: string }[];

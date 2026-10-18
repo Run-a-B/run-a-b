@@ -281,15 +281,98 @@ test("application method section skips an unsafe primary URL for a safe fallback
   assert.doesNotMatch(html, /javascript:/);
 });
 
-test("application method section prefers expanded method over stored method", async (t) => {
+test("application method section keeps the original method beside the labeled AI method", async (t) => {
   const { PolicyApplicationMethodSection } = await loadPolicyDetailPanels(t);
   const html = await render(React.createElement(PolicyApplicationMethodSection, {
-    detail: policyDetail(),
+    detail: policyDetail({ originalApplicationMethod: "원본 신청 방법\n담당 부서 방문" }),
     summary: { summaryLines: [], highlights: [], expandedApplicationMethod: "정리된 신청 방법" },
   }));
 
   assert.match(html, /정리된 신청 방법/);
+  assert.match(html, /원본 신청 방법\n담당 부서 방문/);
+  assert.match(html, /AI가 정리한 신청 방법/);
   assert.doesNotMatch(html, /저장된 신청 방법/);
+});
+
+async function loadPolicyNoticeDetails(t) {
+  const vite = await createServer({
+    root: process.cwd(), appType: "custom", logLevel: "silent",
+    server: { middlewareMode: true }, optimizeDeps: { noDiscovery: true },
+    ssr: { optimizeDeps: { noDiscovery: true } },
+  });
+  t.after(() => vite.close());
+  return vite.ssrLoadModule("/src/components/policy/PolicyNoticeDetails.tsx");
+}
+
+test("official notice preserves stored order, repeated clauses, whitespace and escaped text", async (t) => {
+  const { PolicyNoticeDetails } = await loadPolicyNoticeDetails(t);
+  const html = await render(React.createElement(PolicyNoticeDetails, {
+    detail: policyDetail({
+      originalNoticeText: "  첫 문단\n☞ 같은 조건\n☞ 같은 조건\n\n<script>문자 그대로</script>\n마지막 조항  ",
+      originalApplicationMethod: "원문 방문 접수\n두 번째 절차",
+      originalApplicationPeriod: "예산 소진 시까지",
+      applicationPeriod: "2026.01.01 ~ 2026.12.31",
+      executingAgency: "실제 수행 기관",
+      inquiryContact: "공식 문의 02-1234-5678",
+    }),
+    summary: { expandedApplicationMethod: "AI가 정리한 접수 절차" },
+  }));
+
+  assert.ok(html.includes("  첫 문단\n☞ 같은 조건\n☞ 같은 조건\n\n&lt;script&gt;문자 그대로&lt;/script&gt;\n마지막 조항  "));
+  assert.match(html, /whitespace-pre-wrap/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /저장된 정책 설명|저장된 사업 목적|사업 개요|공고문 핵심 항목/);
+  assert.match(html, /원문 방문 접수\n두 번째 절차/);
+  assert.match(html, /AI가 정리한 신청 방법/);
+  assert.match(html, /AI가 정리한 접수 절차/);
+  assert.match(html, /예산 소진 시까지/);
+  assert.doesNotMatch(html, /2026\.01\.01/);
+  assert.match(html, /수행 기관/);
+  assert.match(html, /실제 수행 기관/);
+  assert.match(html, /공식 문의 02-1234-5678/);
+});
+
+test("official files keep role order and only safe HTTP links become anchors", async (t) => {
+  const { PolicyNoticeDetails } = await loadPolicyNoticeDetails(t);
+  const html = await render(React.createElement(PolicyNoticeDetails, {
+    detail: policyDetail({
+      detailUrl: "javascript:alert(1)", applicationUrl: "data:text/html,unsafe",
+      sourceAttachments: [
+        { name: "신청서.hwp", url: "https://example.com/apply.hwp", role: "attachment" },
+        { name: "위험한 공고문.pdf", url: "javascript:alert(2)", role: "notice" },
+        { name: null, url: "https://example.com/" + "long".repeat(100), role: "notice" },
+        { name: "이름만 있는 파일", url: null, role: "attachment" },
+      ],
+    }),
+    summary: null,
+  }));
+
+  assert.match(html, /첨부파일/);
+  assert.match(html, /공고문 파일/);
+  assert.ok(html.indexOf("신청서.hwp") < html.indexOf("위험한 공고문.pdf"));
+  assert.match(html, /href="https:\/\/example\.com\/apply\.hwp"/);
+  assert.match(html, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(html, /위험한 공고문.pdf/);
+  assert.match(html, /이름만 있는 파일/);
+  assert.match(html, /\[overflow-wrap:anywhere\]/);
+  assert.doesNotMatch(html, /href="(?:javascript:|data:)/);
+});
+
+test("blank or missing original notice retains the legacy presentation and period fallback", async (t) => {
+  const { PolicyNoticeDetails } = await loadPolicyNoticeDetails(t);
+  for (const originalNoticeText of [undefined, null, " \n\t"]) {
+    const html = await render(React.createElement(PolicyNoticeDetails, {
+      detail: policyDetail({ originalNoticeText, originalApplicationPeriod: " ", applicationPeriod: "기존 신청 기간" }),
+      summary: { expandedApplicationMethod: "AI 접수 안내" },
+    }));
+    assert.match(html, /사업 개요/);
+    assert.match(html, /저장된 사업 목적/);
+    assert.match(html, /저장된 정책 설명/);
+    assert.match(html, /기존 신청 기간/);
+    assert.match(html, /저장된 신청 방법/);
+    assert.match(html, /AI 접수 안내/);
+    assert.match(html, /AI가 정리한 신청 방법/);
+  }
 });
 
 test("application method section uses the stored method when no expanded method exists", async (t) => {

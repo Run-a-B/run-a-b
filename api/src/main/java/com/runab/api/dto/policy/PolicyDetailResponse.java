@@ -6,10 +6,11 @@ import lombok.Getter;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 정책 상세 응답 (상세용).
- * 이번 단계에서는 단일 컬럼 필드만 반환한다. (배열형 필드는 다음 단계에서 확장)
  */
 @Getter
 @Builder
@@ -36,6 +37,15 @@ public class PolicyDetailResponse {
     private String agency;
     private String sourceSystem;
     private String extractionStatus;
+    private String originalNoticeText;
+    private String originalApplicationMethod;
+    private String originalApplicationPeriod;
+    private String executingAgency;
+    private String inquiryContact;
+    @Builder.Default
+    private List<SourceAttachment> sourceAttachments = List.of();
+
+    public record SourceAttachment(String name, String url, String role) {}
 
     public static PolicyDetailResponse from(Policy policy) {
         return from(policy, null);
@@ -65,7 +75,28 @@ public class PolicyDetailResponse {
                 .agency(policy.getAgency())
                 .sourceSystem(policy.getSourceSystem())
                 .extractionStatus(extractionStatus)
+                .originalNoticeText(policy.getOriginalNoticeText())
+                .originalApplicationMethod(policy.getOriginalApplicationMethod())
+                .originalApplicationPeriod(policy.getOriginalApplicationPeriod())
+                .executingAgency(policy.getExecutingAgency())
+                .inquiryContact(policy.getInquiryContact())
+                .sourceAttachments(sourceAttachments(policy))
                 .build();
+    }
+
+    private static List<SourceAttachment> sourceAttachments(Policy policy) {
+        List<SourceAttachment> attachments = new ArrayList<>();
+        addAttachment(attachments, policy.getAttachmentName(), policy.getAttachmentUrl(), "attachment");
+        addAttachment(attachments, policy.getNoticeFileName(), policy.getNoticeFileUrl(), "notice");
+        return List.copyOf(attachments);
+    }
+
+    private static void addAttachment(List<SourceAttachment> attachments, String name, String url, String role) {
+        String storedName = name != null && !name.isBlank() ? name : null;
+        String storedUrl = url != null && !url.isBlank() ? url : null;
+        if (storedName != null || storedUrl != null) {
+            attachments.add(new SourceAttachment(storedName, storedUrl, role));
+        }
     }
 
     // "yyyy.MM.dd ~ yyyy.MM.dd" 조합. 둘 중 null이면 적절히 처리

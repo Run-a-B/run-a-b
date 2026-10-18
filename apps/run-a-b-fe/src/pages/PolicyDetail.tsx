@@ -203,14 +203,16 @@ interface PolicyApplicationMethodSectionProps {
 }
 
 export function PolicyApplicationMethodSection({ detail, summary }: PolicyApplicationMethodSectionProps) {
-  const applicationMethod = summary?.expandedApplicationMethod?.trim() || detail.applicationMethod?.trim();
+  const applicationMethod = detail.originalApplicationMethod?.trim()
+    ? detail.originalApplicationMethod : detail.applicationMethod;
+  const expandedApplicationMethod = summary?.expandedApplicationMethod?.trim();
   const originalNoticeUrl = firstSafeExternalUrl(detail.detailUrl, detail.applicationUrl);
 
   return (
-    <section className="mb-6">
+    <section className="mb-6 min-w-0">
       <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
-      {applicationMethod ? (
-        <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{applicationMethod}</p>
+      {applicationMethod?.trim() ? (
+        <p className="min-w-0 text-base text-gray-700 leading-8 whitespace-pre-wrap [overflow-wrap:anywhere]">{applicationMethod}</p>
       ) : (
         <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
           <p className="text-sm text-gray-600 flex-1">신청 방법 정보가 아직 수집되지 않았어요.</p>
@@ -224,6 +226,12 @@ export function PolicyApplicationMethodSection({ detail, summary }: PolicyApplic
               원문 공고 보기
             </a>
           )}
+        </div>
+      )}
+      {expandedApplicationMethod && (
+        <div className="mt-3 min-w-0 rounded-xl border border-primary-100 bg-primary-50 px-5 py-4">
+          <h3 className="mb-2 text-sm font-bold text-primary-700">AI가 정리한 신청 방법</h3>
+          <p className="min-w-0 text-sm leading-7 text-gray-700 whitespace-pre-wrap [overflow-wrap:anywhere]">{expandedApplicationMethod}</p>
         </div>
       )}
     </section>
@@ -425,13 +433,13 @@ export default function PolicyDetail() {
                   { label: "지원 분야", value: apiDetail.category ?? "-" },
                   { label: "업종", value: apiDetail.industry ?? "-" },
                   { label: "공고일", value: apiDetail.date ?? "-" },
-                  { label: "신청 기간", value: apiDetail.applicationPeriod || "-" },
+                  { label: "신청 기간", value: apiDetail.originalApplicationPeriod?.trim() ? apiDetail.originalApplicationPeriod : apiDetail.applicationPeriod || "-" },
                   { label: "공고번호", value: apiDetail.announcementNo ?? "-" },
                   { label: "담당부서", value: apiDetail.department ?? "-" },
                 ].map(({ label, value }, idx) => (
-                  <div key={label} className={`flex px-4 py-3 ${idx < 6 ? "border-b border-gray-100" : ""} ${idx % 2 === 0 ? "border-r border-gray-100" : ""}`}>
+                  <div key={label} className={`flex min-w-0 px-4 py-3 ${idx < 6 ? "border-b border-gray-100" : ""} ${idx % 2 === 0 ? "border-r border-gray-100" : ""}`}>
                     <span className="text-gray-400 w-20 shrink-0">{label}</span>
-                    <span className="text-gray-800 font-medium">{value}</span>
+                    <span className="min-w-0 text-gray-800 font-medium whitespace-pre-wrap [overflow-wrap:anywhere]">{value}</span>
                   </div>
                 ))}
               </div>
