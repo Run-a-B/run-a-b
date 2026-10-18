@@ -179,8 +179,8 @@ def finalize(root=Path("/"), runner=run, mysql_uid=999):
         require(time.monotonic() < deadline)
         time.sleep(2)
     print(json.dumps({"final_mysql_ready": True}))
-    runner(mysql, input="REVOKE ALL PRIVILEGES ON `runab_db`.* FROM 'runab_app'@'%';\n"
-                       "GRANT SELECT, INSERT, UPDATE, DELETE ON `runab_db`.* TO 'runab_app'@'%';\n")
+    runner(mysql, input="REVOKE IF EXISTS ALL PRIVILEGES ON `runab\\_db`.* FROM 'runab_app'@'%';\n"
+                       "GRANT SELECT, INSERT, UPDATE, DELETE ON `runab\\_db`.* TO 'runab_app'@'%';\n")
     print(json.dumps({"application_crud_applied": True}))
     runner(["nginx", "-t"])
     runner(["systemctl", "daemon-reload"])

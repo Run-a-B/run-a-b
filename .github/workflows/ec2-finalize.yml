@@ -32,7 +32,7 @@ jobs:
           [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
           : "${SSHPASS:?EC2_PASSWORD is required}"
           : "${EC2_KNOWN_HOSTS:?Pinned host key is required}"
-          echo 'b3c7b41060ddb2c1897af820f3e91e78156cf2ec846768c72f799737af0dfa47  ops/ec2/one-off-finalize.py' | sha256sum --check --status
+          echo 'ec649679e117cda5701b8de17e3cd65982e8c150f8e976e100a360931a1ba03b  ops/ec2/one-off-finalize.py' | sha256sum --check --status
           install -d -m 700 "$HOME/.ssh"
           install -m 600 /dev/null "$HOME/.ssh/known_hosts"
           printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
