@@ -29,6 +29,9 @@ import static org.mockito.BDDMockito.given;
 @ExtendWith(MockitoExtension.class)
 class PolicySyncServiceTest {
 
+    private static final String BROAD_REGION_TAGS =
+            "기술,서울,부산,대구,인천,전남광주,대전,울산,세종,경기,강원,충북,충남,전북,경북,경남,제주";
+
     @Autowired private PolicyRepository repository;
     @Autowired private TestEntityManager entityManager;
     @Mock private BizinfoApiClient client;
@@ -220,6 +223,54 @@ class PolicySyncServiceTest {
     void onlyResolvesCombinedRegionalTagsWithUnambiguousEvidence(String tags, String title, String region) throws Exception {
         Policy policy = sync(payload().put("hashTags", tags).put("pblancNm", title));
         assertThat(policy.getRegion()).isEqualTo(region);
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {
+            BROAD_REGION_TAGS + "|원전 생태계...|중앙부처|전국",
+            BROAD_REGION_TAGS + ",경기도|대구국제기계산업대전...|경기도|경기도",
+            BROAD_REGION_TAGS + ",제주특별자치도|제주 K-뷰티...|중앙부처|제주특별자치도",
+            "기술,서울,소상공인|서울 소상공인 지원|중앙부처|서울특별시",
+            "경기도," + BROAD_REGION_TAGS + "|대구국제기계산업대전...|경기도|경기도",
+            "서울,부산|기업 지원|중앙부처|NULL",
+            "부산,서울|기업 지원|중앙부처|NULL",
+            "서울,부산|[부산] 기업 지원|중앙부처|부산광역시",
+            "서울,부산|부산진구 기업 지원|중앙부처|부산광역시",
+            "서울,부산|광양시 기업 지원|중앙부처|NULL",
+            "서울,부산,경기도|대구 국제 행사|중앙부처|경기도",
+            BROAD_REGION_TAGS + ",경기도,제주특별자치도|기업 지원|중앙부처|NULL",
+            "기술,서울,부산,대구,인천,전남광주,대전,울산,세종,경기,강원,충북,충남,전북,경북,경남|기업 지원|중앙부처|NULL",
+            "전남광주,부산|광양시 기업 지원|중앙부처|전라남도",
+            "서울,서울,서울특별시|기업 지원|중앙부처|서울특별시",
+            BROAD_REGION_TAGS + "|대구국제기계산업대전...|경기도|경기도"
+    }, delimiter = '|', nullValues = "NULL")
+    void resolvesTheWholeRegionalEvidenceSetInsteadOfTheFirstTag(String tags, String title,
+                                                                 String agency, String expectedRegion) throws Exception {
+        Policy policy = sync(payload().put("hashtags", tags).put("pblancNm", title).put("jrsdInsttNm", agency)
+                .without("hashTags"));
+
+        assertThat(policy.getRegion()).isEqualTo(expectedRegion);
+    }
+
+    @Test
+    void resyncCorrectsStoredFirstTagRegionWithoutDuplicatingOrLosingSource() throws Exception {
+        Policy initial = sync(payload().put("hashTags", "서울").put("description", "<p>기존 공식 원문</p>"));
+        assertThat(initial.getRegion()).isEqualTo("서울특별시");
+
+        Policy nationwide = sync(payload().put("hashtags", BROAD_REGION_TAGS).put("pblancNm", "원전 생태계...")
+                .without("hashTags"));
+        assertThat(nationwide.getRegion()).isEqualTo("전국");
+
+        Policy local = sync(payload().put("hashtags", BROAD_REGION_TAGS + ",경기도")
+                .put("pblancNm", "대구국제기계산업대전...").without("hashTags"));
+        assertThat(local.getRegion()).isEqualTo("경기도");
+
+        Policy unknown = sync(payload().put("hashtags", "서울,부산").put("pblancNm", "기업 지원")
+                .without("hashTags"));
+        assertThat(unknown.getRegion()).isNull();
+        assertThat(repository.count()).isEqualTo(1);
+        assertThat(unknown.getOriginalNoticeHtml()).isEqualTo("<p>기존 공식 원문</p>");
+        assertThat(unknown.getOriginalNoticeText()).isEqualTo("기존 공식 원문");
     }
 
     private ObjectNode payload() {

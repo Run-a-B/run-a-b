@@ -64,7 +64,7 @@ public class PolicySyncService {
             String originalNoticeText = BizinfoSourceTextParser.toText(item.getDescription());
             String originalNoticeHtml = BizinfoSourceTextParser.hasSubstantiveContent(item.getDescription())
                     ? item.getDescription() : null;
-            String region = extractRegion(item.getHashtags(), item.getPblancNm());
+            String region = extractRegion(item.getHashtags(), item.getPblancNm(), item.getJrsdInsttNm());
             String agency = truncate(item.getJrsdInsttNm(), 100);
             String originalPeriod = firstNonBlank(item.getReqstDt(), item.getReqstBeginEndDe());
             LocalDate startDate = parsePeriod(originalPeriod, true);
@@ -151,34 +151,48 @@ public class PolicySyncService {
         return value.length() > maxLength ? value.substring(0, maxLength) : value;
     }
 
-    // 정확한 지역 태그를 우선 사용하고, 전남광주 결합 태그는 명확한 제목 근거가 있어야 한다.
-    private String extractRegion(String hashtags, String title) {
+    // 모든 지역 태그를 모아 판단한다. 전체 시/도 태그는 전국이며, 별도 정식 지역명은 더 구체적인 근거다.
+    private String extractRegion(String hashtags, String title, String agency) {
         if (hashtags == null || hashtags.isBlank()) {
             return "전국";
         }
-        boolean combinedRegion = false;
+        Set<String> regions = new HashSet<>();
+        Set<String> formalRegions = new HashSet<>();
         for (String tag : hashtags.split(",")) {
             String trimmed = tag.trim();
             if (REGION_MAP.containsKey(trimmed)) {
-                return REGION_MAP.get(trimmed);
+                regions.add(REGION_MAP.get(trimmed));
+            } else if (REGION_MAP.containsValue(trimmed)) {
+                regions.add(trimmed);
+                formalRegions.add(trimmed);
+            } else if (trimmed.equals("전남광주")) {
+                regions.addAll(Set.of("전라남도", "광주광역시"));
             }
-            if (REGION_MAP.containsValue(trimmed)) return trimmed;
-            if (trimmed.equals("전남광주")) combinedRegion = true;
         }
-        if (combinedRegion) return resolveCombinedRegion(title);
-        return "전국";
+        if (regions.isEmpty()) return "전국";
+        if (regions.size() == 1) return regions.iterator().next();
+        if (formalRegions.size() == 1) return formalRegions.iterator().next();
+
+        Set<String> clues = findRegionClues(title, agency);
+        if (clues.size() == 1) {
+            String region = clues.iterator().next();
+            return regions.contains(region) ? region : null;
+        }
+        if (!clues.isEmpty()) return null;
+        return formalRegions.isEmpty() && regions.containsAll(REGION_MAP.values()) ? "전국" : null;
     }
 
-    private String resolveCombinedRegion(String title) {
-        if (title == null || title.isBlank()) return null;
-        Set<String> candidates = new HashSet<>();
-        for (String token : title.split("[^가-힣]+")) {
-            Set<String> provinces = RegionHierarchy.provincesOf(token);
-            if (provinces.size() == 1) candidates.addAll(provinces);
+    private Set<String> findRegionClues(String title, String agency) {
+        Set<String> clues = new HashSet<>();
+        if (title != null) {
+            for (String token : title.split("[^가-힣]+")) {
+                Set<String> provinces = RegionHierarchy.provincesOf(token);
+                if (provinces.size() == 1) clues.addAll(provinces);
+            }
         }
-        if (candidates.size() != 1) return null;
-        String region = candidates.iterator().next();
-        return Set.of("전라남도", "광주광역시").contains(region) ? region : null;
+        Set<String> agencyRegions = RegionHierarchy.provincesOf(agency);
+        if (agencyRegions.size() == 1) clues.addAll(agencyRegions);
+        return clues;
     }
 
     // "2026-06-17 ~ 2026-07-10"를 " ~ "로 split. begin=true면 시작일, false면 종료일. 실패 시 null
