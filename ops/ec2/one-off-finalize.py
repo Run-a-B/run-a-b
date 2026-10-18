@@ -69,12 +69,14 @@ def finalize(root=Path("/"), runner=run, mysql_uid=999):
     for name, expected in SOURCE_HASHES.items():
         originals[name] = read(BUNDLE + "/" + name, owner=None)
         require(hashlib.sha256(originals[name]).hexdigest() == expected)
+    print(json.dumps({"original_sources_verified": True}), flush=True)
     bootstrap = types.ModuleType("approved_original_bootstrap")
     bootstrap.__file__ = BUNDLE + "/bootstrap.py"
     # Execute exactly the snapshotted, pinned source bytes, not a second file read.
     exec(compile(originals["bootstrap.py"], bootstrap.__file__, "exec"), bootstrap.__dict__)
     tool = bootstrap.Bootstrap(root, runner)
     tool.check_user()
+    print(json.dumps({"account_verified": True}), flush=True)
 
     installed = {
         "/srv/runab/ops/bootstrap.py": read("/srv/runab/ops/bootstrap.py", mode=0o644),
@@ -89,12 +91,17 @@ def finalize(root=Path("/"), runner=run, mysql_uid=999):
                       "    location ^~ /.well-known/acme-challenge/ { root /var/lib/runab/acme; }\n"
                       "    location / { add_header Cache-Control no-store always; return 503; }\n}\n").encode()
     require(installed["/etc/nginx/conf.d/runab.conf"] == expected_nginx)
+    print(json.dumps({"installed_config_verified": True}), flush=True)
     for name in ("/srv/runab", "/srv/runab/releases", "/srv/runab/ops", "/var/lib/runab", "/var/lib/runab/acme"):
         directory(name, 0o755)
     require(not any(path("/srv/runab/releases").iterdir()))
+    print(json.dumps({"release_directories_verified": True}), flush=True)
     directory("/etc/runab", 0o700)
     directory("/etc/runab/mysql", 0o700)
+    print(json.dumps({"private_directories_verified": True}), flush=True)
     directory("/var/lib/runab/mysql", 0o700, owner=mysql_uid)
+    print(json.dumps({"mysql_directory_verified": True}), flush=True)
+    print(json.dumps({"directories_verified": True}), flush=True)
 
     private_names = ("/etc/runab/mysql/root-password", "/etc/runab/mysql/app-password",
                      "/etc/runab/mysql/root-client.cnf", "/etc/runab/api.env")
@@ -114,6 +121,7 @@ def finalize(root=Path("/"), runner=run, mysql_uid=999):
                     "DB_USERNAME=runab_app\nDB_PASSWORD=" + app_password + "\nJWT_SECRET=" + jwt + "\n"
                     "TRUSTED_PROXY_IPS=127.0.0.1\nSPRING_PROFILES_ACTIVE=prod\nSERVER_ADDRESS=127.0.0.1\nSERVER_PORT=8080\n")
     require(raw_env == expected_env)
+    print(json.dumps({"private_config_verified": True}), flush=True)
 
     # No pull or external resolution. Match the exact locally pinned 8.4 artifact
     # used by the original bootstrap to its container's manifest and image ID.
@@ -124,6 +132,7 @@ def finalize(root=Path("/"), runner=run, mysql_uid=999):
     digest = candidates[0]
     image_env = dict(value.split("=", 1) for value in image["Config"]["Env"])
     require(image_env.get("MYSQL_MAJOR") == "8.4" and image_env.get("MYSQL_VERSION", "").startswith("8.4."))
+    print(json.dumps({"image_verified": True}), flush=True)
     actual = tool.inspect()
     tool.check_container(actual, digest)
     require(actual["State"]["Running"] and not actual["State"]["OOMKilled"]
@@ -135,8 +144,10 @@ def finalize(root=Path("/"), runner=run, mysql_uid=999):
         "MYSQL_ROOT_PASSWORD_FILE": "/run/runab-secrets/root-password",
         "MYSQL_PASSWORD_FILE": "/run/runab-secrets/app-password"}.items()))
     require(not {"MYSQL_ALLOW_EMPTY_PASSWORD", "MYSQL_RANDOM_ROOT_PASSWORD", "MYSQL_ROOT_PASSWORD", "MYSQL_PASSWORD"} & container_env.keys())
+    print(json.dumps({"container_verified": True}), flush=True)
     require(not runner(["systemctl", "is-active", "runab-api"], allow_failure=True))
     require(not runner(["systemctl", "is-active", "nginx"], allow_failure=True))
+    print(json.dumps({"services_inactive": True}), flush=True)
     print(json.dumps({"partial_state_verified": True}))
 
     mysql = ["docker", "exec", "-i", "--user", "0", "runab-mysql", "mysql",
