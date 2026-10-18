@@ -111,8 +111,11 @@ class Bootstrap:
                            ("/etc/runab/mysql", "/run/runab-secrets", False)}, "unexpected MySQL mounts")
 
     def sql(self, sql):
+        # The image's temporary initialization server is socket-only. Requiring
+        # loopback TCP prevents root readiness before app users/grants exist.
         return self.run(["docker", "exec", "-i", "--user", "0", "runab-mysql", "mysql",
-                         "--defaults-extra-file=/run/runab-secrets/root-client.cnf", "--batch", "--skip-column-names"], input=sql)
+                         "--defaults-extra-file=/run/runab-secrets/root-client.cnf", "--protocol=TCP",
+                         "--host=127.0.0.1", "--port=3306", "--batch", "--skip-column-names"], input=sql)
 
     def wait_database(self):
         deadline = time.monotonic() + 180
