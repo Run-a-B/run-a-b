@@ -5,10 +5,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.runab.api.dto.recommend.MatchResult;
 import com.runab.api.entity.BusinessInfo;
+import com.runab.api.entity.Policy;
 import com.runab.api.entity.PolicyCard;
+import com.runab.api.service.BusinessFieldConverter;
+import com.runab.api.service.diagnosis.DiagnosisInputNormalizer;
+import com.runab.api.service.diagnosis.DiagnosisInputNormalizer.NumericBand;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,7 +32,7 @@ import java.util.Set;
 @Component
 public class EligibilityMatcher {
 
-    public static final String MATCHER_VERSION = "eligibility_matcher_v1";
+    public static final String MATCHER_VERSION = "eligibility_matcher_v2";
     public static final String SCORING_RULE_VERSION = "scoring_rule_v1";
 
     // eligibilityScore 항목별 배점 (합 100)
@@ -46,6 +52,8 @@ public class EligibilityMatcher {
     private static final Set<String> PREPARING_SYNONYMS = Set.of("준비중", "예비", "예비창업", "preparing");
 
     private final ObjectMapper objectMapper;
+    private final BusinessFieldConverter businessFields = new BusinessFieldConverter();
+    private final DiagnosisInputNormalizer inputNormalizer = new DiagnosisInputNormalizer();
 
     public EligibilityMatcher(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -62,13 +70,32 @@ public class EligibilityMatcher {
      * - 매핑 없는 다른 업종 → FAIL → false
      */
     public boolean matchesIndustryFilter(PolicyCard card, String selectedIndustry) {
+        return evaluateIndustryFilter(card, selectedIndustry) == MatchStatus.PASS;
+    }
+
+    /**
+     * 카드 업종 판정 상태를 그대로 반환한다.
+     * 목록 필터는 UNKNOWN이면서 카드 근거가 없을 때만 정책 본문 기반 fallback을 사용할 수 있어야 하므로
+     * PASS/FAIL을 boolean으로 뭉개지 않는다. 근거 유무는 hasIndustryConditionEvidence로 구분한다.
+     */
+    public MatchStatus evaluateIndustryFilter(PolicyCard card, String selectedIndustry) {
         JsonNode elig = parse(card).path("eligibility");
-        return evalIndustry(elig, selectedIndustry) == MatchStatus.PASS;
+        return evalIndustry(elig, selectedIndustry);
+    }
+
+    public boolean hasIndustryConditionEvidence(PolicyCard card) {
+        JsonNode elig = parse(card).path("eligibility");
+        return hasConditionEvidence(elig, "industries", "industry_condition_type");
     }
 
     public MatchResult match(BusinessInfo user, PolicyCard card) {
+        return match(user, card, null);
+    }
+
+    public MatchResult match(BusinessInfo user, PolicyCard card, Policy policy) {
         JsonNode root = parse(card);
         JsonNode elig = root.path("eligibility");
+        boolean fullyExtracted = card != null && "extracted".equals(card.getExtractionStatus()) && root.isObject();
 
         // 상태별 항목 키 분류 버킷
         List<String> pass = new ArrayList<>();
@@ -83,39 +110,51 @@ public class EligibilityMatcher {
 
         // ---- region (20) ----
         MatchStatus regionStatus = evalRegion(elig, user.getRegion(), hardFailReasons);
+        boolean hasCardRegionEvidence = hasConditionEvidence(
+                elig, "regions", "region_condition_type");
+        if (regionStatus == MatchStatus.UNKNOWN && !hasCardRegionEvidence) {
+            regionStatus = evalPolicyRegion(policy, user.getRegion(), hardFailReasons);
+        }
         scorer.add("region", regionStatus, W_REGION, true);
 
         // ---- industry (20) ----
         MatchStatus industryStatus = evalIndustry(elig, user.getJobCategory());
+        boolean hasCardIndustryEvidence = hasConditionEvidence(
+                elig, "industries", "industry_condition_type");
+        if (industryStatus == MatchStatus.UNKNOWN && !hasCardIndustryEvidence) {
+            industryStatus = evalPolicyIndustry(policy, user.getJobCategory());
+        }
         scorer.add("industry", industryStatus, W_INDUSTRY, true);
 
-        // ---- date (10) : application_period.status와 반드시 일치 (규칙1·2) ----
-        MatchStatus dateStatus = evalDate(root, card, hardFailReasons);
-        scorer.add("date", dateStatus, W_DATE, false);
+        // ---- date (10) : 유효한 카드 날짜 → 누락된 경계의 정책 날짜 → 상태 문자열 ----
+        PolicyDateEvaluation date = evalDate(root, root.isObject() ? card : null, policy, hardFailReasons);
+        scorer.add("date", date.status(), W_DATE, false, date.scoreFraction());
 
         // ---- business_stage (10) ----
-        scorer.add("business_stage", evalBusinessStage(elig, user.getBusinessStatus()), W_BUSINESS_STAGE, false);
+        scorer.add("business_stage", evalBusinessStage(elig, user.getBusinessStatus(), fullyExtracted), W_BUSINESS_STAGE, false);
 
         // ---- business_type (8) : user에 business_type 필드 없음 → UNKNOWN. TODO: 소상공인⊂중소기업 위계 ----
-        scorer.add("business_type", presenceOnly(list(elig, "business_types")), W_BUSINESS_TYPE, false);
+        scorer.add("business_type", noCondition(elig, "business_types", fullyExtracted), W_BUSINESS_TYPE, false);
 
         // ---- owner_type (8) : user 정보 없음 → UNKNOWN ----
-        scorer.add("owner_type", presenceOnly(list(elig, "owner_types")), W_OWNER_TYPE, false);
+        scorer.add("owner_type", noCondition(elig, "owner_types", fullyExtracted), W_OWNER_TYPE, false);
 
         // ---- revenue (8) ----
-        scorer.add("revenue", evalMax(longOrNull(elig, "max_revenue"),
-                user.getAnnualRevenue()), W_REVENUE, false);
+        scorer.add("revenue", evalMax(elig, "max_revenue", fullyExtracted,
+                user.getAnnualRevenue() == null ? null : inputNormalizer.revenueBand(
+                        businessFields.formatRevenue(user.getAnnualRevenue()))), W_REVENUE, false);
 
         // ---- employees (8) ----
-        scorer.add("employees", evalMax(longOrNull(elig, "max_employees"),
-                user.getEmployeeCount() == null ? null : user.getEmployeeCount().longValue()), W_EMPLOYEES, false);
+        scorer.add("employees", evalMax(elig, "max_employees", fullyExtracted,
+                user.getEmployeeCount() == null ? null : inputNormalizer.employeeBand(
+                        businessFields.formatEmployeeCount(user.getEmployeeCount()))), W_EMPLOYEES, false);
 
         // ---- business_months (4) : user 정보 없음 ----
-        scorer.add("business_months", presenceOnlyAny(elig, "min_business_months", "max_business_months"),
+        scorer.add("business_months", noConditions(elig, fullyExtracted, "min_business_months", "max_business_months"),
                 W_BUSINESS_MONTHS, false);
 
         // ---- age (4) : user 정보 없음 ----
-        scorer.add("age", presenceOnlyAny(elig, "min_age", "max_age"), W_AGE, false);
+        scorer.add("age", noConditions(elig, fullyExtracted, "min_age", "max_age"), W_AGE, false);
 
         // ---- required_flags (규칙5) : user 정보 없으면 UNKNOWN으로 표시 ----
         Map<String, String> requiredFlagCheck = new LinkedHashMap<>();
@@ -154,8 +193,9 @@ public class EligibilityMatcher {
     // 계층 매칭: 정책 원문이 구/군 단위("강남구")로 추출돼도 사용자의 시/도 선택("서울특별시")과 매칭되게 함
     private MatchStatus evalRegion(JsonNode elig, String userRegion, List<String> hardFailReasons) {
         List<String> regions = list(elig, "regions");
-        String type = text(elig, "region_condition_type", "unknown");
+        String type = normalizedText(elig, "region_condition_type");
 
+        if ("unknown".equals(type)) return MatchStatus.UNKNOWN;
         if ("nationwide".equals(type) || regions.contains("전국")) {
             return MatchStatus.PASS; // 전국 → 무조건 충족
         }
@@ -165,11 +205,22 @@ public class EligibilityMatcher {
         if (userRegion == null || userRegion.isBlank()) {
             return MatchStatus.UNKNOWN;
         }
-        for (String r : regions) {
-            if (RegionHierarchy.sameProvince(userRegion, r)) {
+        return evalResolvedRegions(regions, userRegion, hardFailReasons);
+    }
+
+    private MatchStatus evalResolvedRegions(List<String> regions, String userRegion, List<String> hardFailReasons) {
+        Set<String> userProvinces = RegionHierarchy.provincesOf(userRegion);
+        if (userProvinces.size() != 1) return MatchStatus.UNKNOWN;
+        boolean unresolved = false;
+        for (String region : regions) {
+            Set<String> provinces = RegionHierarchy.provincesOf(region);
+            if (provinces.size() != 1) {
+                unresolved = true;
+            } else if (provinces.equals(userProvinces)) {
                 return MatchStatus.PASS;
             }
         }
+        if (unresolved) return MatchStatus.UNKNOWN;
         // 지역 불일치는 hard (규칙: hardFail=true)
         hardFailReasons.add("region_mismatch");
         return MatchStatus.FAIL;
@@ -178,8 +229,9 @@ public class EligibilityMatcher {
     // 규칙4: industries=[]+unknown은 PASS 금지(UNKNOWN). 불일치는 soft(hardFail 아님)
     private MatchStatus evalIndustry(JsonNode elig, String userIndustry) {
         List<String> industries = list(elig, "industries");
-        String type = text(elig, "industry_condition_type", "unknown");
+        String type = normalizedText(elig, "industry_condition_type");
 
+        if ("unknown".equals(type)) return MatchStatus.UNKNOWN;
         // 업종 무관("전업종") → 사용자 업종과 무관하게 PASS. (evalRegion의 "전국"/nationwide 처리와 동일 패턴)
         if ("all".equals(type) || industries.contains("전업종")) {
             return MatchStatus.PASS;
@@ -200,26 +252,91 @@ public class EligibilityMatcher {
         return MatchStatus.FAIL;
     }
 
-    // 규칙1·2: closed면 date=FAIL + hardFail. open이면 PASS. 없으면 UNKNOWN
-    private MatchStatus evalDate(JsonNode root, PolicyCard card, List<String> hardFailReasons) {
-        String status = text(root.path("application_period"), "status", null);
+    // 날짜 경계는 카드 우선으로 결합한다. 결정적인 경계는 상태보다 우선하고,
+    // 한쪽 경계만으로 현재 상태를 확정할 수 없을 때는 상태 문자열을 함께 사용한다.
+    private PolicyDateEvaluation evalDate(JsonNode root, PolicyCard card, Policy policy, List<String> hardFailReasons) {
+        JsonNode applicationPeriod = root.path("application_period");
+        LocalDate start = dateOrNull(applicationPeriod, "start");
+        LocalDate end = dateOrNull(applicationPeriod, "end");
+        if (policy != null) {
+            if (start == null) start = policy.getApplicationStartDate();
+            if (end == null) end = policy.getApplicationEndDate();
+        }
+        LocalDate today = LocalDate.now();
+        if (end != null && end.isBefore(today)) {
+            hardFailReasons.add("application_period.status=closed");
+            return new PolicyDateEvaluation(MatchStatus.FAIL, 0.0);
+        }
+        if (start != null && start.isAfter(today)) {
+            return new PolicyDateEvaluation(MatchStatus.PARTIAL, 0.5);
+        }
+        if (start != null && end != null) {
+            return new PolicyDateEvaluation(MatchStatus.PASS, deadlineFraction(today, end));
+        }
+        String status = text(applicationPeriod, "status", null);
         if (status == null && card != null) {
             status = card.getApplicationStatus(); // fullJson에 없으면 컬럼값 폴백
         }
         if ("closed".equals(status)) {
             hardFailReasons.add("application_period.status=closed");
-            return MatchStatus.FAIL;
+            return new PolicyDateEvaluation(MatchStatus.FAIL, null);
         }
         if ("open".equals(status)) {
-            return MatchStatus.PASS;
+            return new PolicyDateEvaluation(MatchStatus.PASS,
+                    start != null || end != null ? deadlineFraction(today, end) : null);
         }
-        return MatchStatus.UNKNOWN;
+        if ("upcoming".equals(status) || "scheduled".equals(status)) {
+            return new PolicyDateEvaluation(MatchStatus.PARTIAL, null);
+        }
+        return new PolicyDateEvaluation(MatchStatus.UNKNOWN, null);
     }
 
-    private MatchStatus evalBusinessStage(JsonNode elig, Boolean businessStatus) {
+    private LocalDate dateOrNull(JsonNode applicationPeriod, String key) {
+        String date = text(applicationPeriod, key, null);
+        if (date == null || date.isBlank()) return null;
+        try {
+            return LocalDate.parse(date);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private MatchStatus evalPolicyRegion(Policy policy, String userRegion, List<String> hardFailReasons) {
+        if (policy == null || policy.getRegion() == null || policy.getRegion().isBlank()) {
+            return MatchStatus.UNKNOWN;
+        }
+        if ("전국".equals(policy.getRegion().trim())) {
+            return MatchStatus.PASS;
+        }
+        if (userRegion == null || userRegion.isBlank()) {
+            return MatchStatus.UNKNOWN;
+        }
+        return evalResolvedRegions(List.of(policy.getRegion()), userRegion, hardFailReasons);
+    }
+
+    private MatchStatus evalPolicyIndustry(Policy policy, String userIndustry) {
+        return PolicyIndustryFallbackMatcher.evaluate(policy, userIndustry);
+    }
+
+    private double deadlineFraction(LocalDate today, LocalDate end) {
+        if (end == null) {
+            return 0.6;
+        }
+        long remainingDays = ChronoUnit.DAYS.between(today, end);
+        if (remainingDays <= 7) return 1.0;
+        if (remainingDays <= 14) return 0.9;
+        if (remainingDays <= 30) return 0.8;
+        if (remainingDays <= 60) return 0.7;
+        if (remainingDays <= 120) return 0.6;
+        return 0.5;
+    }
+
+    private record PolicyDateEvaluation(MatchStatus status, Double scoreFraction) {}
+
+    private MatchStatus evalBusinessStage(JsonNode elig, Boolean businessStatus, boolean fullyExtracted) {
         List<String> stages = list(elig, "business_stages");
         if (stages.isEmpty()) {
-            return MatchStatus.NOT_REQUIRED;
+            return noCondition(elig, "business_stages", fullyExtracted);
         }
         if (businessStatus == null) {
             return MatchStatus.UNKNOWN;
@@ -233,29 +350,31 @@ public class EligibilityMatcher {
         return MatchStatus.FAIL; // soft (hardFail 아님)
     }
 
-    // card 조건은 있으나 user 정보가 없는 항목: 조건 있으면 UNKNOWN, 없으면 NOT_REQUIRED
-    private MatchStatus presenceOnly(List<String> cardValues) {
-        return cardValues.isEmpty() ? MatchStatus.NOT_REQUIRED : MatchStatus.UNKNOWN;
+    // Only an explicit empty value on a complete extraction establishes that no condition applies.
+    private MatchStatus noCondition(JsonNode elig, String field, boolean fullyExtracted) {
+        JsonNode value = elig.path(field);
+        return fullyExtracted && (value.isNull() || (value.isArray() && value.isEmpty()))
+                ? MatchStatus.NOT_REQUIRED : MatchStatus.UNKNOWN;
     }
 
-    private MatchStatus presenceOnlyAny(JsonNode elig, String... fields) {
-        for (String f : fields) {
-            if (longOrNull(elig, f) != null) {
-                return MatchStatus.UNKNOWN;
-            }
+    private MatchStatus noConditions(JsonNode elig, boolean fullyExtracted, String... fields) {
+        if (!fullyExtracted) return MatchStatus.UNKNOWN;
+        for (String field : fields) {
+            if (!elig.path(field).isNull()) return MatchStatus.UNKNOWN;
         }
         return MatchStatus.NOT_REQUIRED;
     }
 
-    // max 조건 비교: card 한도 없으면 NOT_REQUIRED, user 값 없으면 UNKNOWN, 이하면 PASS 아니면 FAIL(soft)
-    private MatchStatus evalMax(Long cardMax, Long userValue) {
+    // Persisted amounts represent UI bands, not exact observations. Reuse diagnosis interval rules.
+    private MatchStatus evalMax(JsonNode elig, String field, boolean fullyExtracted, NumericBand userBand) {
+        Long cardMax = longOrNull(elig, field);
         if (cardMax == null) {
-            return MatchStatus.NOT_REQUIRED;
+            return elig.path(field).isNull() ? noCondition(elig, field, fullyExtracted) : MatchStatus.UNKNOWN;
         }
-        if (userValue == null) {
+        if (userBand == null) {
             return MatchStatus.UNKNOWN;
         }
-        return userValue <= cardMax ? MatchStatus.PASS : MatchStatus.FAIL;
+        return userBand.compareToMaximum(cardMax);
     }
 
     // goalScore: user main_business_goal이 아직 BusinessInfo에 없음 → MVP 중립값 50.
@@ -282,15 +401,18 @@ public class EligibilityMatcher {
     // ===== JSON 파싱 헬퍼 (절대 예외 던지지 않음) =====
 
     private JsonNode parse(PolicyCard card) {
-        if (card == null || card.getFullJson() == null || card.getFullJson().isBlank()) {
-            return JsonNodeFactory.instance.objectNode();
+        if (card == null || !("extracted".equals(card.getExtractionStatus())
+                || "partially_extracted".equals(card.getExtractionStatus()))
+                || card.getFullJson() == null || card.getFullJson().isBlank()) {
+            return JsonNodeFactory.instance.missingNode();
         }
         try {
-            return objectMapper.readTree(card.getFullJson());
+            JsonNode root = objectMapper.readTree(card.getFullJson());
+            return root != null && root.isObject() ? root : JsonNodeFactory.instance.missingNode();
         } catch (Exception e) {
             log.warn("[matcher] fullJson 파싱 실패 (policyId={}) → 전부 UNKNOWN 처리: {}",
                     card.getPolicyId(), e.getMessage());
-            return JsonNodeFactory.instance.objectNode();
+            return JsonNodeFactory.instance.missingNode();
         }
     }
 
@@ -298,19 +420,42 @@ public class EligibilityMatcher {
         List<String> result = new ArrayList<>();
         JsonNode arr = node.path(field);
         if (arr.isArray()) {
-            arr.forEach(n -> result.add(n.asText()));
+            for (JsonNode n : arr) {
+                if (!n.isTextual()) return List.of();
+                String value = n.asText().trim();
+                if (!value.isBlank()) result.add(value);
+            }
         }
         return result;
     }
 
+    private boolean hasConditionEvidence(JsonNode node, String valuesField, String typeField) {
+        JsonNode type = node.path(typeField);
+        if (!type.isMissingNode() && !type.isTextual()) return true;
+        JsonNode values = node.path(valuesField);
+        if (!values.isMissingNode()) {
+            if (!values.isArray()) return true;
+            for (JsonNode value : values) {
+                if (!value.isTextual()) return true;
+            }
+        }
+        return !list(node, valuesField).isEmpty() || normalizedText(node, typeField) != null;
+    }
+
+    private String normalizedText(JsonNode node, String field) {
+        String value = text(node, field, null);
+        if (value == null || value.isBlank()) return null;
+        return value.trim();
+    }
+
     private String text(JsonNode node, String field, String def) {
         JsonNode n = node.path(field);
-        return (n.isMissingNode() || n.isNull()) ? def : n.asText();
+        return n.isTextual() ? n.asText() : def;
     }
 
     private Long longOrNull(JsonNode node, String field) {
         JsonNode n = node.path(field);
-        return (n.isMissingNode() || n.isNull()) ? null : n.asLong();
+        return n.isIntegralNumber() && n.canConvertToLong() && n.longValue() >= 0 ? n.longValue() : null;
     }
 
     // status → 가중점수 환산 + 버킷 분류
@@ -330,6 +475,11 @@ public class EligibilityMatcher {
 
         // important(region/industry)는 UNKNOWN 감점이 더 큼(30%), 나머지는 40%
         void add(String name, MatchStatus status, double maxPoints, boolean important) {
+            add(name, status, maxPoints, important, null);
+        }
+
+        void add(String name, MatchStatus status, double maxPoints, boolean important,
+                 Double scoreFraction) {
             // 버킷 분류는 상태 그대로 유지 (리포트/디버깅용 — 점수 계산과 무관)
             switch (status) {
                 case PASS -> pass.add(name);
@@ -349,7 +499,7 @@ public class EligibilityMatcher {
                 return;
             }
 
-            double fraction = switch (status) {
+            double fraction = scoreFraction != null ? scoreFraction : switch (status) {
                 case PASS -> 1.0;
                 case PARTIAL -> 0.5;                 // 배윤성 40~70% → MVP 일괄 50% 고정
                 case UNKNOWN -> important ? 0.3 : 0.4; // region/industry는 중요필수라 낮게

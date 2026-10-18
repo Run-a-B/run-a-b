@@ -11,6 +11,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import com.runab.api.repository.UserRepository;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -20,6 +21,7 @@ import java.util.Collections;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final UserRepository userRepository;
 
     //------------------------------------------------------------------------------------------------------------------------
 
@@ -34,8 +36,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // 2 토큰이 유효하면 시큐리티 컨텍스트에서 사용자 정보 저장을 함
         if (StringUtils.hasText(token) && jwtTokenProvider.validateToken(token)){
+          try {
             Long userId = jwtTokenProvider.getUserIdFromToken(token);
             String tokenType = jwtTokenProvider.getTokenType(token);
+
+            if (!("ACCESS".equals(tokenType) || "TEMP".equals(tokenType))
+                    || userRepository.findById(userId).filter(user -> !user.isDeleted()).isEmpty()) {
+                filterChain.doFilter(request, response);
+                return;
+            }
 
             // 유저 아아디를 principal로 저장. 권한은 토큰 종류로 구분 (ROLE_ACCESS, ROLE_TEMP)
             UsernamePasswordAuthenticationToken auth =
@@ -47,6 +56,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                             )
                     );
             SecurityContextHolder.getContext().setAuthentication(auth);
+          } catch (io.jsonwebtoken.JwtException | IllegalArgumentException e) {
+            SecurityContextHolder.clearContext();
+          }
         }
 
     //------------------------------------------------------------------------------------------------------------------------

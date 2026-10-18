@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import Reveal from "@/components/common/Reveal";
+import { relevancePresentation } from "@/features/policy/presentation";
+import { useAuth } from "@/contexts/AuthContext";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "기술": "bg-violet-100 text-violet-700",
@@ -21,7 +23,7 @@ interface LatestPolicy {
   category: string;
   date: string;
   agency: string;
-  relevance: number;
+  relevance: number | null;
 }
 
 function PolicyCardSkeleton() {
@@ -44,6 +46,7 @@ function PolicyCardSkeleton() {
 }
 
 export function HomePage() {
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [latestPolicies, setLatestPolicies] = useState<LatestPolicy[]>([]);
   const [policyLoading, setPolicyLoading] = useState(true);
@@ -137,6 +140,7 @@ export function HomePage() {
               [1, 2, 3].map(i => <PolicyCardSkeleton key={i} />)
             ) : latestPolicies.map((policy, i) => {
               const tagStyle = CATEGORY_COLORS[policy.category] ?? "bg-primary-100 text-primary-600";
+              const relevanceView = relevancePresentation(policy.relevance, Boolean(user));
               return (
                 <Reveal key={policy.id} index={i} className="flex-1">
                   <div
@@ -150,12 +154,18 @@ export function HomePage() {
                     <h2 className="text-base font-bold leading-snug line-clamp-2">{policy.title}</h2>
                     <p className="text-sm text-text-secondary leading-relaxed line-clamp-2">{policy.description}</p>
                     <div className="flex items-center justify-between mt-auto pt-2">
-                      <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary-100">
-                        <div className="w-10 h-1 rounded-full bg-gray-300 overflow-hidden">
-                          <div className="h-full rounded-full bg-primary-600" style={{ width: `${policy.relevance}%` }} />
+                      {relevanceView.available ? (
+                        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary-100">
+                          <div className="w-10 h-1 rounded-full bg-gray-300 overflow-hidden">
+                            <div className="h-full rounded-full bg-primary-600" style={{ width: relevanceView.width }} />
+                          </div>
+                          <span className="text-xs font-bold text-primary-600">{relevanceView.label}</span>
                         </div>
-                        <span className="text-xs font-bold text-primary-600">관련도 {policy.relevance}%</span>
-                      </div>
+                      ) : (
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-500">
+                          {relevanceView.label}
+                        </span>
+                      )}
                       <span className="text-xs text-text-secondary">{policy.agency}</span>
                     </div>
                   </div>
@@ -208,8 +218,8 @@ export function HomePage() {
           <Reveal index={2} className="flex-1">
             <div className="h-full bg-white rounded-2xl p-8 flex flex-col gap-5 border border-gray-200 will-change-transform transition-[transform,box-shadow,border-color] duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(139,92,246,0.12)] hover:border-primary-300">
               <div className="w-12 h-12 bg-primary-50 rounded-xl flex items-center justify-center"><img src="/lamp.svg" alt="lamp" className="w-6 h-6" /></div>
-              <h3 className="text-base font-bold">지원사업 맥락 추천</h3>
-              <p className="text-sm text-text-secondary leading-7">단순 자격 매칭이 아니라, 정책 영향 분석 결과에 기반한 지원사업을 추천해 드려요. 피해를 줄이거나 혜택을 극대화할 수 있는 지원을 찾아드려요.</p>
+              <h3 className="text-base font-bold">같은 분야 공고 탐색</h3>
+              <p className="text-sm text-text-secondary leading-7">리포트에서 같은 카테고리의 다른 최신 공고도 함께 살펴볼 수 있어요. 신청 자격과 접수 기간은 각 공고의 원문과 진단에서 따로 확인해 주세요.</p>
             </div>
           </Reveal>
         </div>

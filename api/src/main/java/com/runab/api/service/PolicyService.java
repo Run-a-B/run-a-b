@@ -14,6 +14,8 @@ import com.runab.api.repository.PolicyCardRepository;
 import com.runab.api.repository.PolicyRepository;
 import com.runab.api.repository.PolicySpecification;
 import com.runab.api.service.matcher.EligibilityMatcher;
+import com.runab.api.service.matcher.MatchStatus;
+import com.runab.api.service.matcher.PolicyIndustryFallbackMatcher;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -38,9 +40,10 @@ public class PolicyService {
 
     private static final String SORT_RELEVANCE = "관련도 높은순";
 
-    // 관련도 정렬 비교자: 점수 내림차순 → 동점이면 최신순(publishedDate desc, null 뒤) → id desc (안정 정렬)
+    // 관련도 정렬: hard fail 뒤 → 점수 내림차순 → publishedDate desc(null 뒤) → id desc
     private static final Comparator<ScoredPolicy> RELEVANCE_COMPARATOR =
-            Comparator.comparingInt(ScoredPolicy::score).reversed()
+            Comparator.comparing(ScoredPolicy::hardFail)
+                    .thenComparing(Comparator.comparingInt(ScoredPolicy::score).reversed())
                     .thenComparing(sp -> sp.policy().getPublishedDate(),
                             Comparator.nullsLast(Comparator.reverseOrder()))
                     .thenComparing(sp -> sp.policy().getId(), Comparator.reverseOrder());
@@ -51,7 +54,7 @@ public class PolicyService {
     private final EligibilityMatcher eligibilityMatcher;
 
     // 점수까지 계산된 정책 (관련도 정렬 + 응답 매핑용 임시 홀더)
-    private record ScoredPolicy(Policy policy, int score, boolean aiRecommended) {}
+    private record ScoredPolicy(Policy policy, int score, boolean hardFail, boolean aiRecommended) {}
 
     // ===== 1) 정책 목록 조회 (필터 + 검색 + 정렬 + 페이징) =====
     // userId가 있으면(로그인 + 사업정보 등록) matcher로 관련도를 실제 계산, 없으면 0/false 폴백.
@@ -59,7 +62,13 @@ public class PolicyService {
             String region, String industry, String category, String query,
             String sort, int page, int size, Long userId) {
 
-        // 업종 필터는 Policy.industry(전부 "전체") 대신 policy_card.eligibility.industries 기준(자바 레벨)으로 판정한다.
+        // JPA offsets are int-bounded; the response also converts the page back to a one-based int.
+        if (page < 0 || page == Integer.MAX_VALUE || size < 1 || size > 100
+                || (long) page * size > Integer.MAX_VALUE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR);
+        }
+
+        // 업종 필터는 policy_card를 우선하고, 카드 판정이 UNKNOWN일 때만 정책 본문의 명확한 업종 표현으로 보완한다.
         boolean industryFilter = industry != null && !industry.isBlank() && !industry.equals("전체 업종");
 
         BusinessInfo businessInfo = (userId == null)
@@ -93,11 +102,11 @@ public class PolicyService {
         // 후보군 카드 IN 조회 (업종 필터 판정 + 관련도 계산 공용) — N+1 방지 패턴 재사용
         final Map<String, PolicyCard> cardMap = loadCards(candidates);
 
-        // 업종 필터: 선택 업종 기준(사업정보 무관). 카드 없음/industries 비어있음 → 제외.
+        // 업종 필터: 선택 업종 기준(사업정보 무관). 카드의 명시 판정이 최우선이며 UNKNOWN만 텍스트 fallback.
         if (industryFilter) {
             candidates = candidates.stream()
-                    .filter(p -> eligibilityMatcher.matchesIndustryFilter(
-                            cardMap.get(PolicyCard.toPolicyId(p.getExternalId())), industry))
+                    .filter(p -> matchesIndustry(
+                            p, cardMap.get(PolicyCard.toPolicyId(p.getExternalId())), industry))
                     .toList();
         }
 
@@ -107,11 +116,12 @@ public class PolicyService {
         List<ScoredPolicy> scored = candidates.stream()
                 .map(p -> {
                     if (businessInfo == null) {
-                        return new ScoredPolicy(p, 0, false);
+                        return new ScoredPolicy(p, 0, false, false);
                     }
                     PolicyCard card = cardMap.get(PolicyCard.toPolicyId(p.getExternalId()));
-                    MatchResult m = eligibilityMatcher.match(businessInfo, card);
-                    return new ScoredPolicy(p, m.getScore(), m.getScore() >= AI_RECOMMEND_THRESHOLD && !m.isHardFail());
+                    MatchResult m = eligibilityMatcher.match(businessInfo, card, p);
+                    return new ScoredPolicy(p, m.getScore(), m.isHardFail(),
+                            m.getScore() >= AI_RECOMMEND_THRESHOLD && !m.isHardFail());
                 })
                 .collect(Collectors.toList());
 
@@ -124,10 +134,22 @@ public class PolicyService {
         int from = Math.min(page * size, scored.size());
         int to = Math.min(from + size, scored.size());
         List<PolicyListResponse> content = scored.subList(from, to).stream()
-                .map(sp -> PolicyListResponse.from(sp.policy(), sp.score(), sp.aiRecommended()))
+                .map(sp -> businessInfo == null
+                        ? PolicyListResponse.from(sp.policy())
+                        : PolicyListResponse.from(sp.policy(), sp.score(), sp.aiRecommended()))
                 .toList();
 
         return PolicyPageResponse.from(new PageImpl<>(content, PageRequest.of(page, size), total));
+    }
+
+    private boolean matchesIndustry(Policy policy, PolicyCard card, String selectedIndustry) {
+        MatchStatus cardStatus = eligibilityMatcher.evaluateIndustryFilter(card, selectedIndustry);
+        return switch (cardStatus) {
+            case PASS -> true;
+            case UNKNOWN -> !eligibilityMatcher.hasIndustryConditionEvidence(card)
+                    && PolicyIndustryFallbackMatcher.matches(policy, selectedIndustry);
+            case PARTIAL, FAIL, NOT_REQUIRED -> false;
+        };
     }
 
     // Policy → 목록 응답 (사업정보 있으면 관련도 계산해서 채움)
@@ -136,7 +158,7 @@ public class PolicyService {
             return PolicyListResponse.from(policy);
         }
         PolicyCard card = cardMap.get(PolicyCard.toPolicyId(policy.getExternalId()));
-        MatchResult match = eligibilityMatcher.match(businessInfo, card);
+        MatchResult match = eligibilityMatcher.match(businessInfo, card, policy);
         return PolicyListResponse.from(policy, match.getScore(),
                 match.getScore() >= AI_RECOMMEND_THRESHOLD && !match.isHardFail());
     }
@@ -158,6 +180,9 @@ public class PolicyService {
     public PolicyDetailResponse getPolicyDetail(Long id) {
         Policy policy = policyRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.POLICY_NOT_FOUND));
-        return PolicyDetailResponse.from(policy);
+        PolicyCard card = policy.getExternalId() == null
+                ? null
+                : policyCardRepository.findByPolicyId(PolicyCard.toPolicyId(policy.getExternalId())).orElse(null);
+        return PolicyDetailResponse.from(policy, card == null ? null : card.getExtractionStatus());
     }
 }

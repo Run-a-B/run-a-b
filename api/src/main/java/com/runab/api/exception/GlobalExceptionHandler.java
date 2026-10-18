@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
+@lombok.extern.slf4j.Slf4j
 public class GlobalExceptionHandler {
 
     // 1  우리가 직접 던지는 비즈니스 예외처리
@@ -34,10 +35,21 @@ public class GlobalExceptionHandler {
     // 3) 그 외 예상 못한 모든 예외처릴
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Object>> handleAll(Exception e) {
-        e.printStackTrace();  // 개발 중엔 에러 추적 위해 콘솔에 찍음 (실제로 서비스 시작하면 지워도됨)
+        // Upstream exceptions may contain credentials, email addresses or generated prompts.
+        log.error("Unhandled request error type={}", e.getClass().getSimpleName());
         return ResponseEntity
                 .status(500)
                 .body(ApiResponse.error("INTERNAL_ERROR", 500, "서버 내부 오류가 발생했습니다"));
+    }
+
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Object>> malformedJson() {
+        return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_ERROR", 400, "요청 형식을 확인해주세요"));
+    }
+
+    @ExceptionHandler(org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Object>> invalidParameterType() {
+        return ResponseEntity.badRequest().body(ApiResponse.error("VALIDATION_ERROR", 400, "요청 값을 확인해주세요"));
     }
 
 

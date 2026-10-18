@@ -17,6 +17,11 @@ public class AuthController {
     private final AuthService authService;
     private final GoogleAuthService googleAuthService;
 
+    @PostMapping("/signup/complete")
+    public ApiResponse<LoginResponse> signupComplete(@Valid @RequestBody SignupCompleteRequest request) {
+        return ApiResponse.success(authService.signupComplete(request), "회원가입이 완료되었습니다");
+    }
+
     //  회원가입 1단계
     @PostMapping("/signup")
     public ApiResponse<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {

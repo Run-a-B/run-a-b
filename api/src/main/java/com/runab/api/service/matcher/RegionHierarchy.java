@@ -55,6 +55,9 @@ public final class RegionHierarchy {
         // "서울특별시 강남구" 처럼 붙어있는 경우 마지막 토큰(구/군/시)만 추출
         if (trimmed.contains(" ")) {
             String[] parts = trimmed.split("\\s+");
+            String province = PROVINCE_ALIAS.get(parts[0]);
+            if (province != null) return Set.of(province);
+            if (PROVINCE_ALIAS.containsValue(parts[0])) return Set.of(parts[0]);
             district = parts[parts.length - 1];
         }
         return DISTRICT_TO_PROVINCES.getOrDefault(district, Collections.emptySet());

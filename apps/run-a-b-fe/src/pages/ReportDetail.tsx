@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { getSavedReport, deleteReport, type SavedReport } from "@/data/reports";
+import { getSavedReport, deleteReport, type RelatedPolicy } from "@/data/reports";
+import axios from "axios";
+import { loadReportDetail, type ReportDetailState } from "@/features/reports/detailLoader";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "기술": "bg-violet-100 text-violet-700",
@@ -28,48 +30,75 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
 }
 
+export function ReportLoadNotice({ state, onRetry, onBack }: {
+  state: "loading" | "missing" | "error";
+  onRetry: () => void;
+  onBack: () => void;
+}) {
+  return <div className="flex flex-col items-center justify-center gap-4 py-40 text-gray-600">
+    <p role={state === "error" ? "alert" : "status"} className="text-lg font-semibold">
+      {state === "loading" ? "리포트를 불러오고 있어요" : state === "missing" ? "리포트를 찾을 수 없어요" : "리포트를 불러오지 못했어요"}
+    </p>
+    {state === "error" && <>
+      <p className="text-sm">연결 상태를 확인한 뒤 다시 시도해 주세요.</p>
+      <button type="button" onClick={onRetry} className="min-h-11 rounded-xl bg-primary-600 px-5 py-3 text-sm font-semibold text-white">다시 시도</button>
+    </>}
+    <button type="button" onClick={onBack} className="min-h-11 text-sm text-primary-600 hover:underline">리포트 목록으로 돌아가기</button>
+  </div>;
+}
+
+export function RelatedPolicies({ policies, onOpen }: { policies: RelatedPolicy[]; onOpen: (id: number) => void }) {
+  if (policies.length === 0) return null;
+  return <div className="bg-white rounded-2xl border border-gray-200 p-6 flex flex-col gap-3">
+    <p className="text-sm font-bold text-gray-800">같은 분야의 공고</p>
+    <p className="text-sm leading-6 text-gray-500">리포트 생성 시 같은 카테고리에서 최신순으로 골랐어요. 신청 자격과 접수 기간은 각 공고에서 따로 확인해 주세요.</p>
+    {policies.map(rel => <button key={rel.id} type="button" onClick={() => onOpen(rel.id)} className="flex items-center gap-3 text-left bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-xl p-3 transition-colors">
+      <span className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
+      </span>
+      <span className="flex-1 text-sm font-medium text-primary-700 line-clamp-1">{rel.title}</span>
+      <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0"><polyline points="9 18 15 12 9 6" /></svg>
+    </button>)}
+  </div>;
+}
+
 export default function ReportDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const policyId = Number(id);
-  const [report, setReport] = useState<SavedReport | null | "notfound">(null);
+  const [state, setState] = useState<ReportDetailState>({ tag: "loading", policyId });
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let active = true;
-    setReport(null);
-    getSavedReport(policyId)
-      .then((found) => {
-        if (active) setReport(found ?? "notfound");
-      })
-      .catch(() => {
-        if (active) setReport("notfound");
-      });
+    void loadReportDetail(getSavedReport, policyId, () => active, setState);
     return () => {
       active = false;
     };
-  }, [policyId]);
+  }, [policyId, retry]);
 
   async function handleDelete() {
     try {
       await deleteReport(policyId);
       navigate("/reports", { replace: true });
-    } catch (err: any) {
-      alert(err.response?.data?.message || "리포트 삭제에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "리포트 삭제에 실패했어요");
     }
   }
 
-  if (report === null) return null;
-
-  if (report === "notfound") {
-    return (
-      <div className="flex flex-col items-center justify-center py-40 text-gray-400">
-        <p className="text-lg font-semibold mb-2">리포트를 찾을 수 없어요</p>
-        <button onClick={() => navigate("/reports")} className="mt-4 text-sm text-primary-600 hover:underline">
-          리포트 목록으로 돌아가기
-        </button>
-      </div>
-    );
+  const current = !Number.isSafeInteger(policyId) || policyId < 1
+    ? { tag: "missing" as const, policyId }
+    : state.policyId === policyId ? state : { tag: "loading" as const, policyId };
+  if (current.tag !== "ready") {
+    return <ReportLoadNotice state={current.tag} onBack={() => navigate("/reports")} onRetry={() => {
+      setState({ tag: "loading", policyId });
+      setRetry(value => value + 1);
+    }} />;
   }
+  const report = current.report;
 
   const categoryColor = CATEGORY_COLORS[report.category ?? ""] ?? "bg-gray-100 text-gray-600";
   const businessImpact = report.businessImpact ?? [];
@@ -103,6 +132,7 @@ export default function ReportDetail() {
               <span className="text-xs text-gray-400">저장일: {formatDate(report.savedAt)}</span>
             </div>
             <h1 className="text-2xl font-bold text-gray-900 leading-snug">{report.policyTitle}</h1>
+            <p className="mt-3 text-sm leading-6 text-gray-500">생성 당시 사업 정보와 수집된 공고를 기준으로 작성한 리포트예요. 사업 정보나 신청 조건이 달라졌을 수 있으니 최신 원문과 현재 조건을 다시 확인해 주세요.</p>
           </div>
           <button
             onClick={handleDelete}
@@ -175,29 +205,7 @@ export default function ReportDetail() {
         )}
 
         {/* Related policies */}
-        {report.relatedIds.length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 flex flex-col gap-3">
-            <p className="text-sm font-bold text-gray-800">함께 신청하면 좋아요</p>
-            {report.relatedIds.map((rel) => (
-              <button
-                key={rel.id}
-                onClick={() => navigate(`/policies/${rel.id}`)}
-                className="flex items-center gap-3 text-left bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-xl p-3 transition-colors"
-              >
-                <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center shrink-0">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                  </svg>
-                </div>
-                <span className="flex-1 text-sm font-medium text-primary-700 line-clamp-1">{rel.title}</span>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400 shrink-0">
-                  <polyline points="9 18 15 12 9 6"/>
-                </svg>
-              </button>
-            ))}
-          </div>
-        )}
+        <RelatedPolicies policies={report.relatedIds} onOpen={id => navigate(`/policies/${id}`)} />
 
         {/* Actions */}
         <div className="flex gap-3">

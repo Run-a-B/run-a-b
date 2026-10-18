@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getSavedReports, deleteReport, type SavedReport } from "@/data/reports";
+import { filterReports, REPORT_TABS, type ReportTab } from "@/features/reports/filtering";
+import axios from "axios";
 
 const CATEGORY_COLORS: Record<string, string> = {
   "기술": "bg-violet-100 text-violet-700",
@@ -34,20 +36,15 @@ function formatDate(iso: string) {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
 }
 
-const TABS = ["최신순", "오래된순", "부정 영향", "긍정 영향"] as const;
-type Tab = (typeof TABS)[number];
-
 export default function ReportList() {
   const navigate = useNavigate();
   const [reports, setReports] = useState<SavedReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>("최신순");
+  const [tab, setTab] = useState<ReportTab>("최신순");
 
   useEffect(() => {
-    setLoading(true);
-    setError(false);
     getSavedReports()
       .then(setReports)
       .catch(() => setError(true))
@@ -59,23 +56,15 @@ export default function ReportList() {
     try {
       await deleteReport(policyId);
       setReports((prev) => prev.filter((r) => r.policyId !== policyId));
-    } catch (err: any) {
-      alert(err.response?.data?.message || "리포트 삭제에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "리포트 삭제에 실패했어요");
     }
   }
 
-  const filtered = reports
-    .filter((r) => {
-      if (query && !r.policyTitle.includes(query) && !r.summary.includes(query)) return false;
-      // impactLabel 텍스트 매칭 대신 direction 필드로 필터 (impactLabel엔 "긍정/부정" 글자가 없는 경우가 많음)
-      if (tab === "부정 영향" && r.direction !== "negative") return false;
-      if (tab === "긍정 영향" && r.direction !== "positive") return false;
-      return true;
-    })
-    .sort((a, b) => {
-      if (tab === "오래된순") return a.savedAt.localeCompare(b.savedAt);
-      return b.savedAt.localeCompare(a.savedAt);
-    });
+  const filtered = filterReports(reports, query, tab);
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -102,7 +91,7 @@ export default function ReportList() {
             />
           </div>
           <div className="flex gap-1.5">
-            {TABS.map((t) => (
+            {REPORT_TABS.map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}

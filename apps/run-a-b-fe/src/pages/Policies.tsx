@@ -1,9 +1,12 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Dropdown from "@/components/common/Dropdown";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { type Policy } from "@/data/policies";
 import { getVisitedPolicies } from "@/data/visited";
+import { relevancePresentation } from "@/features/policy/presentation";
+import { loadPolicyList, type PolicyListState } from "@/features/policy/listLoader";
+import { useAuth } from "@/contexts/AuthContext";
 
 const REGIONS = [
   "전체 지역", "서울특별시", "부산광역시", "대구광역시", "인천광역시",
@@ -28,9 +31,10 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const PER_PAGE = 12;
 
-function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
+export function PolicyCard({ policy, visited, relevance, authenticated = false }: { policy: Policy; visited: boolean; relevance: number | null; authenticated?: boolean }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
+  const relevanceView = relevancePresentation(relevance, authenticated);
 
   return (
     <div
@@ -62,28 +66,48 @@ function PolicyCard({ policy, visited, relevance }: { policy: Policy; visited: b
         )}
       </div>
 
-      <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-2">{policy.title}</h3>
+      <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-2">
+        <Link to={`/policies/${policy.id}`} onClick={event => event.stopPropagation()} className="focus-visible:outline-primary-600">{policy.title}</Link>
+      </h3>
       <p className="text-xs text-gray-500 leading-relaxed line-clamp-2 flex-1">{policy.description}</p>
 
       <div className="flex items-end justify-between pt-1">
-        <div className="flex items-center gap-2">
-          <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary-500 rounded-full" style={{ width: `${relevance}%` }} />
+        {relevanceView.available ? (
+          <div className="flex items-center gap-2">
+            <div className="w-12 h-1 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-primary-500 rounded-full" style={{ width: relevanceView.width }} />
+            </div>
+            <span className="text-xs font-medium text-primary-600">{relevanceView.label}</span>
           </div>
-          <span className="text-xs font-medium text-primary-600">관련도 {relevance}%</span>
-        </div>
+        ) : (
+          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+            {relevanceView.label}
+          </span>
+        )}
         <div className="text-right">
           <p className="text-xs text-gray-500">{policy.agency}</p>
           <p className="text-xs text-gray-400">{policy.date}</p>
         </div>
       </div>
+      <button
+        type="button"
+        aria-label={`${policy.title} 60초 진단`}
+        onClick={(event) => {
+          event.stopPropagation();
+          navigate(`/policies/${policy.id}/diagnosis`);
+        }}
+        className="min-h-11 w-full rounded-xl border border-primary-200 bg-primary-50 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-100 transition-colors"
+      >
+        60초 진단
+      </button>
     </div>
   );
 }
 
-function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visited: boolean; relevance: number }) {
+export function PolicyListItem({ policy, visited, relevance, authenticated = false }: { policy: Policy; visited: boolean; relevance: number | null; authenticated?: boolean }) {
   const navigate = useNavigate();
   const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
+  const relevanceView = relevancePresentation(relevance, authenticated);
 
   return (
     <div
@@ -114,17 +138,36 @@ function PolicyListItem({ policy, visited, relevance }: { policy: Policy; visite
           )}
           <span className="text-xs text-gray-400 ml-auto shrink-0">{policy.date}</span>
         </div>
-        <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-1">{policy.title}</h3>
+        <h3 className="text-sm font-bold text-gray-900 leading-snug line-clamp-1">
+          <Link to={`/policies/${policy.id}`} onClick={event => event.stopPropagation()} className="focus-visible:outline-primary-600">{policy.title}</Link>
+        </h3>
         <p className="text-xs text-gray-500 leading-relaxed line-clamp-1">{policy.description}</p>
       </div>
 
       <div className="flex items-center gap-4 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-primary-500 rounded-full" style={{ width: `${relevance}%` }} />
+        <button
+          type="button"
+          aria-label={`${policy.title} 60초 진단`}
+          onClick={(event) => {
+            event.stopPropagation();
+            navigate(`/policies/${policy.id}/diagnosis`);
+          }}
+          className="min-h-11 rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-xs font-semibold text-primary-600 hover:bg-primary-100 transition-colors"
+        >
+          60초 진단
+        </button>
+        {relevanceView.available ? (
+          <div className="flex items-center gap-2">
+            <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-full bg-primary-500 rounded-full" style={{ width: relevanceView.width }} />
+            </div>
+            <span className="w-16 text-xs font-medium text-primary-600">{relevanceView.label}</span>
           </div>
-          <span className="text-xs font-medium text-primary-600 w-16">관련도 {relevance}%</span>
-        </div>
+        ) : (
+          <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+            {relevanceView.label}
+          </span>
+        )}
         <span className="text-xs text-gray-500 w-20 text-right">{policy.agency}</span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-300">
           <polyline points="9 18 15 12 9 6" />
@@ -189,6 +232,7 @@ function LoadingSkeleton({ viewMode }: { viewMode: "grid" | "list" }) {
 }
 
 export default function Policies() {
+  const { user } = useAuth();
   const [region, setRegion] = useState("전체 지역");
   const [industry, setIndustry] = useState("전체 업종");
   const [category, setCategory] = useState("전체 카테고리");
@@ -198,12 +242,19 @@ export default function Policies() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [visitedIds, setVisitedIds] = useState<Set<number>>(() => getVisitedPolicies());
 
-  const [policies, setPolicies] = useState<Policy[]>([]);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalElements, setTotalElements] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [retry, setRetry] = useState(0);
+  const [result, setResult] = useState<{ key: string; state: PolicyListState }>({ key: "", state: { tag: "loading" } });
+  const params = useMemo(() => {
+    const value = new URLSearchParams({ region, industry, category, sort, page: String(page), size: String(PER_PAGE) });
+    if (query) value.set("query", query);
+    return value.toString();
+  }, [region, industry, category, query, sort, page]);
+  const requestKey = `${params}|${retry}`;
+  const state: PolicyListState = result.key === requestKey ? result.state : { tag: "loading" };
+  const loading = state.tag === "loading";
+  const policies = state.tag === "success" ? state.data.policies : [];
+  const totalPages = state.tag === "success" ? state.data.totalPages : 0;
+  const totalElements = state.tag === "success" ? state.data.totalElements : 0;
 
   useEffect(() => {
     const onFocus = () => setVisitedIds(getVisitedPolicies());
@@ -212,35 +263,12 @@ export default function Policies() {
   }, []);
 
   useEffect(() => {
-    clearTimeout(debounceRef.current);
-    const delay = query ? 400 : 0;
-    debounceRef.current = setTimeout(fetchPolicies, delay);
-    return () => clearTimeout(debounceRef.current);
-  }, [region, industry, category, query, sort, page]);
-
-  async function fetchPolicies() {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        region,
-        industry,
-        category,
-        sort,
-        page: String(page),
-        size: String(PER_PAGE),
-      });
-      if (query) params.set("query", query);
-      const res = await api.get(`/api/v1/policies?${params}`);
-      const data = res.data.data;
-      setPolicies(data.policies);
-      setTotalPages(data.totalPages);
-      setTotalElements(data.totalElements);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }
+    let active = true;
+    const timer = setTimeout(() => {
+      void loadPolicyList(api, params, () => active, next => setResult({ key: requestKey, state: next }));
+    }, query ? 400 : 0);
+    return () => { active = false; clearTimeout(timer); };
+  }, [params, query, requestKey]);
 
   function handleFilter(setter: (v: string) => void) {
     return (v: string) => { setter(v); setPage(1); };
@@ -309,14 +337,9 @@ export default function Policies() {
         <div className="flex items-start justify-between mb-6">
           <div>
             <p className="text-sm text-gray-500">
-              총 <span className="font-semibold text-gray-900">{totalElements.toLocaleString()}개</span>의 정책이 있어요
+              {state.tag === "success" ? <>총 <span className="font-semibold text-gray-900">{totalElements.toLocaleString()}개</span>의 정책이 있어요</>
+                : loading ? "정책을 불러오고 있어요" : "정책을 불러오지 못했어요"}
             </p>
-            {/* 현재 대부분의 정책이 업종 무관(전체)으로 등록돼 있어 업종 필터만으로는 결과가 거의 좁혀지지 않음을 안내 */}
-            {industry !== "전체 업종" && (
-              <p className="text-xs text-gray-400 mt-1">
-                ⓘ 등록된 정책 대부분이 업종 무관으로 분류돼 있어, 업종 필터로는 결과가 거의 좁혀지지 않을 수 있어요.
-              </p>
-            )}
           </div>
           <div className="flex items-center gap-3">
             <Dropdown value={sort} onChange={handleFilter(setSort)} options={SORT_OPTIONS} />
@@ -347,6 +370,13 @@ export default function Policies() {
 
         {loading ? (
           <LoadingSkeleton viewMode={viewMode} />
+        ) : state.tag === "error" ? (
+          <div role="alert" className="flex flex-col items-center justify-center gap-4 py-20 text-gray-500">
+            <p className="text-sm">정책을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</p>
+            <button type="button" onClick={() => setRetry(value => value + 1)} className="rounded-full bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700">
+              다시 시도
+            </button>
+          </div>
         ) : policies.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-400">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="mb-3">
@@ -360,13 +390,13 @@ export default function Policies() {
             {viewMode === "grid" ? (
               <div className="grid grid-cols-3 gap-4">
                 {policies.map(policy => (
-                  <PolicyCard key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} />
+                  <PolicyCard key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} authenticated={Boolean(user)} />
                 ))}
               </div>
             ) : (
               <div className="flex flex-col gap-3">
                 {policies.map(policy => (
-                  <PolicyListItem key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} />
+                  <PolicyListItem key={policy.id} policy={policy} visited={visitedIds.has(policy.id)} relevance={policy.relevance} authenticated={Boolean(user)} />
                 ))}
               </div>
             )}

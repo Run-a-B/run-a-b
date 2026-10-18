@@ -99,6 +99,36 @@ public class Policy {
     @Column(name = "source_system", length = 50)
     private String sourceSystem;
 
+    @Column(name = "original_notice_html", columnDefinition = "LONGTEXT")
+    private String originalNoticeHtml;
+
+    @Column(name = "original_notice_text", columnDefinition = "LONGTEXT")
+    private String originalNoticeText;
+
+    @Column(name = "original_application_method", columnDefinition = "LONGTEXT")
+    private String originalApplicationMethod;
+
+    @Column(name = "original_application_period", columnDefinition = "TEXT")
+    private String originalApplicationPeriod;
+
+    @Column(name = "executing_agency", columnDefinition = "TEXT")
+    private String executingAgency;
+
+    @Column(name = "inquiry_contact", columnDefinition = "TEXT")
+    private String inquiryContact;
+
+    @Column(name = "attachment_name", columnDefinition = "TEXT")
+    private String attachmentName;
+
+    @Column(name = "attachment_url", columnDefinition = "TEXT")
+    private String attachmentUrl;
+
+    @Column(name = "notice_file_name", columnDefinition = "TEXT")
+    private String noticeFileName;
+
+    @Column(name = "notice_file_url", columnDefinition = "TEXT")
+    private String noticeFileUrl;
+
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
@@ -114,7 +144,10 @@ public class Policy {
                   LocalDate applicationStartDate, LocalDate applicationEndDate, LocalDate publishedDate,
                   String announcementNo, String department, String supportScale, String targetGroup,
                   String purposeText, String applicationMethod, String applicationUrl,
-                  String detailUrl, String sourceSystem) {
+                  String detailUrl, String sourceSystem,
+                  String originalNoticeHtml, String originalNoticeText, String originalApplicationMethod,
+                  String originalApplicationPeriod, String executingAgency, String inquiryContact,
+                  String attachmentName, String attachmentUrl, String noticeFileName, String noticeFileUrl) {
         this.externalId = externalId;
         this.title = title;
         this.category = category;
@@ -135,6 +168,16 @@ public class Policy {
         this.applicationUrl = applicationUrl;
         this.detailUrl = detailUrl;
         this.sourceSystem = sourceSystem;
+        this.originalNoticeHtml = originalNoticeHtml;
+        this.originalNoticeText = originalNoticeText;
+        this.originalApplicationMethod = originalApplicationMethod;
+        this.originalApplicationPeriod = originalApplicationPeriod;
+        this.executingAgency = executingAgency;
+        this.inquiryContact = inquiryContact;
+        this.attachmentName = attachmentName;
+        this.attachmentUrl = attachmentUrl;
+        this.noticeFileName = noticeFileName;
+        this.noticeFileUrl = noticeFileUrl;
     }
 
     // bizinfo 동기화 시 기존 정책 갱신용 (setter 금지 원칙 → 비즈니스 메서드로만 수정)
@@ -150,16 +193,36 @@ public class Policy {
         this.filterCategory = filterCategory;
         this.region = region;
         this.industry = industry;
-        this.description = description;
+        this.description = retainOnBlank(description, this.description);
         this.agency = agency;
         this.applicationStartDate = applicationStartDate;
         this.applicationEndDate = applicationEndDate;
         this.publishedDate = publishedDate;
         this.targetGroup = targetGroup;
-        this.applicationMethod = applicationMethod;
+        this.applicationMethod = retainOnBlank(applicationMethod, this.applicationMethod);
         this.applicationUrl = applicationUrl;
         this.detailUrl = detailUrl;
         this.sourceSystem = sourceSystem;
+    }
+
+    public void updateSourceFromBizinfo(String originalNoticeHtml, String originalNoticeText,
+                                        String originalApplicationMethod, String originalApplicationPeriod,
+                                        String executingAgency, String inquiryContact, String attachmentName,
+                                        String attachmentUrl, String noticeFileName, String noticeFileUrl) {
+        this.originalNoticeHtml = retainOnBlank(originalNoticeHtml, this.originalNoticeHtml);
+        this.originalNoticeText = retainOnBlank(originalNoticeText, this.originalNoticeText);
+        this.originalApplicationMethod = retainOnBlank(originalApplicationMethod, this.originalApplicationMethod);
+        this.originalApplicationPeriod = retainOnBlank(originalApplicationPeriod, this.originalApplicationPeriod);
+        this.executingAgency = retainOnBlank(executingAgency, this.executingAgency);
+        this.inquiryContact = retainOnBlank(inquiryContact, this.inquiryContact);
+        this.attachmentName = retainOnBlank(attachmentName, this.attachmentName);
+        this.attachmentUrl = retainOnBlank(attachmentUrl, this.attachmentUrl);
+        this.noticeFileName = retainOnBlank(noticeFileName, this.noticeFileName);
+        this.noticeFileUrl = retainOnBlank(noticeFileUrl, this.noticeFileUrl);
+    }
+
+    private String retainOnBlank(String incoming, String existing) {
+        return incoming == null || incoming.isBlank() ? existing : incoming;
     }
 
     // 생성및 수정 시간 자동 세팅 (User 엔티티와 동일 방식)

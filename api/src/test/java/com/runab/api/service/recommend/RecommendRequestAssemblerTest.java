@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -56,19 +57,21 @@ class RecommendRequestAssemblerTest {
             {
               "policy_id": "bizinfo_support_program:PBLN_000000000123405",
               "category": "금융",
-              "application_period": { "start": "2026-06-15", "end": "2026-06-29", "status": "open" },
+              "application_period": { "start": "%s", "end": "%s", "status": "open" },
               "benefit": { "benefit_type": "loan_low_interest" },
               "eligibility": {
                 "regions": ["서울특별시"], "region_condition_type": "specific",
                 "industries": ["음식점업"], "industry_condition_type": "specific",
                 "business_types": ["중소기업"],
                 "max_revenue": 1000000000, "max_employees": 50,
+                "min_business_months": null, "max_business_months": null,
+                "min_age": null, "max_age": null,
                 "business_stages": ["운영중"], "owner_types": [],
                 "required_flags": [], "excluded_targets": []
               },
               "attachment_analysis": { "status": "documents_found" }
             }
-            """;
+            """.formatted(LocalDate.now().minusDays(1), LocalDate.now().plusDays(7));
         PolicyCard card = PolicyCard.builder()
                 .policyId("bizinfo_support_program:PBLN_000000000123405")
                 .externalId("PBLN_000000000123405")
@@ -93,9 +96,10 @@ class RecommendRequestAssemblerTest {
         // user_business_info 변환/unknown 채움
         assertThat(json).contains("\"business_stage\" : \"운영중\"", "\"main_business_goal\" : \"unknown\"");
         // candidate에 match(camelCase) 포함 + 점수
-        // business_types가 비어있지 않으나 user에 business_type 필드가 없어 UNKNOWN(8*0.4) → 100이 아닌 95
-        assertThat(json).contains("\"match\"", "\"matcherVersion\" : \"eligibility_matcher_v1\"",
-                "\"eligibilityScore\" : 95");
+        // NOT_REQUIRED는 분모에서 제외. 5억원 이상 밴드는 매출 상한과 겹쳐 PARTIAL.
+        // 판단 배점 84 중 75.2점 → 89.523...를 반올림해 90.
+        assertThat(json).contains("\"match\"", "\"matcherVersion\" : \"eligibility_matcher_v2\"",
+                "\"eligibilityScore\" : 90", "\"partial\" : [ \"revenue\" ]");
         // request_id 포맷
         assertThat(request.getRequestId()).startsWith("req_");
         assertThat(request.getCandidatePolicies()).hasSize(1);

@@ -16,7 +16,12 @@ public class SignupRequest {
 
     @NotBlank(message = "이메일을 입력해주세요")
     @Email(message = "올바른 이메일 형식이 아닙니다")
+    @Size(max = 100, message = "이메일은 100자 이하여야 합니다")
     private String email;
+
+    @NotBlank(message = "이메일 인증을 다시 진행해주세요")
+    @Size(max = 128)
+    private String verificationToken;
 
     @Min(value = 1, message = "올바른 나이를 입력해주세요")
     @Max(value = 120, message = "올바른 나이를 입력해주세요")

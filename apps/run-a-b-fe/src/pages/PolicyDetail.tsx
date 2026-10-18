@@ -1,8 +1,24 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { getSavedReport } from "@/data/reports";
+import { generatePolicyReport } from "@/features/reports/generation";
 import { markPolicyVisited } from "@/data/visited";
+import {
+  firstSafeExternalUrl,
+  summaryFailureMessage,
+  type PolicyDetailData,
+} from "@/features/policy/presentation";
+import {
+  isPolicyDetailForRoute,
+  policyDetailViewState,
+  type LoadedPolicyDetail,
+  type PolicyDetailLoadState,
+} from "@/features/policy/detailRoute";
+import { PolicyBriefing } from "@/components/policy/PolicyBriefing";
+import { DiagnosisEntryCard } from "@/components/policy/DiagnosisEntryCard";
+import { PolicyNoticeDetails } from "@/components/policy/PolicyNoticeDetails";
+import { useAuth } from "@/contexts/AuthContext";
 
 const HIGHLIGHT_ICONS: Record<string, React.ReactNode> = {
   money: (
@@ -46,31 +62,15 @@ const TAG_COLORS = [
   "bg-orange-50 text-orange-700",
 ];
 
-interface ApiDetail {
-  id: number;
-  title: string;
-  description: string | null;
-  date: string | null;
-  announcementNo: string | null;
-  department: string | null;
-  applicationPeriod: string | null;
-  supportScale: string | null;
-  targetGroup: string | null;
-  purposeText: string | null;
-  applicationMethod: string | null;
-  applicationUrl: string | null;
-  detailUrl: string | null;
-  category: string;
-  region: string;
-  industry: string;
-  agency: string;
-}
-
 interface PolicySummaryData {
   summaryLines: string[];
   highlights: { icon: string; label: string; content: string }[];
   expandedDescription?: string | null;
   expandedApplicationMethod?: string | null;
+}
+
+function hasText(value: string | null | undefined): value is string {
+  return Boolean(value?.trim());
 }
 
 // AI/미구현 필드 기본값 — AI 연동 후 API 응답으로 교체 예정
@@ -79,7 +79,6 @@ const AI_DEFAULTS = {
   targetConditions: [] as string[],
   exclusions: [] as string[],
   supportItems: [] as { category: string; amount: string; method: string }[],
-  aiSummaryText: "AI 요약 기능이 준비 중이에요. 곧 이 정책에 대한 맞춤 요약을 제공할 예정입니다.",
   aiHighlights: [] as { icon: string; label: string; content: string }[],
   businessImpact: [] as { label: string; level: number; direction: "up" | "down"; tag: string; barColor: string; tagColor: string }[],
   reportData: {
@@ -92,36 +91,214 @@ const AI_DEFAULTS = {
   applicationChecklist: [] as { id: string; label: string; required: boolean; description?: string }[],
 };
 
+interface PolicySummaryPanelProps {
+  detail: PolicyDetailData;
+  summary: PolicySummaryData | null;
+  summaryState: "loading" | "done" | "error" | "login";
+  summaryError?: string | null;
+}
+
+export function PolicySummaryPanel({ detail, summary, summaryState, summaryError }: PolicySummaryPanelProps) {
+  const summaryLines = summary?.summaryLines?.filter(hasText) ?? [];
+  const summaryHighlights = summary?.highlights?.filter(
+    (highlight) => hasText(highlight.label) || hasText(highlight.content),
+  ) ?? [];
+  const hasExpandedDescription = hasText(summary?.expandedDescription);
+  const hasExpandedApplicationMethod = hasText(summary?.expandedApplicationMethod);
+  const hasPanelContent = summaryLines.length > 0 || summaryHighlights.length > 0;
+  const hasSummaryContent = hasPanelContent || hasExpandedDescription || hasExpandedApplicationMethod;
+  const showUnavailable = summaryState === "error" || (summaryState === "done" && !hasSummaryContent);
+  const showAppliedNote = summaryState === "done" && hasSummaryContent && !hasPanelContent;
+
+  return (
+    <div className="bg-primary-50 rounded-2xl border border-primary-100 overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-primary-100">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-xl bg-primary-500 flex items-center justify-center">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-white">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </div>
+          <span className="text-sm font-bold text-gray-800">핵심 요약</span>
+        </div>
+        {summaryState === "done" && hasSummaryContent ? (
+          <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-primary-600 border border-primary-100">
+            <span className="w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" />
+            완료
+          </span>
+        ) : summaryState === "loading" ? (
+          <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block animate-pulse" />
+            요약 중
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
+            준비 중
+          </span>
+        )}
+      </div>
+
+      <div className="px-5 py-4 flex flex-col gap-4">
+        {summaryState === "login" && <Link to="/login" className="min-h-11 flex items-center justify-center rounded-xl bg-primary-600 px-4 py-3 text-sm font-semibold text-white">로그인 후 AI 요약 보기</Link>}
+        {summaryState === "loading" && (
+          <div className="flex flex-col gap-2 animate-pulse">
+            <div className="h-3.5 bg-white rounded w-full" />
+            <div className="h-3.5 bg-white rounded w-5/6" />
+            <div className="h-3.5 bg-white rounded w-2/3" />
+            <p className="text-xs text-gray-400 mt-1">AI가 공고문을 요약하고 있어요...</p>
+          </div>
+        )}
+
+        {showUnavailable && (
+          <div className="flex flex-col gap-3">
+            {summaryError && <p role="status" className="text-sm text-gray-600 leading-7">{summaryError}</p>}
+            <p className="text-sm text-gray-500 leading-7">자동 요약을 불러오지 못해 수집된 공고 정보를 보여드려요.</p>
+            {(detail.purposeText || detail.description) && (
+              <div className="flex flex-col gap-2">
+                {detail.purposeText && (
+                  <p className="text-sm text-gray-600 leading-6 whitespace-pre-line">{detail.purposeText}</p>
+                )}
+                {detail.description && (
+                  <p className="text-sm text-gray-600 leading-6 whitespace-pre-line">{detail.description}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {showAppliedNote && (
+          <p className="text-sm text-gray-500 leading-7">자동 정리된 상세 정보를 본문에 반영했어요.</p>
+        )}
+
+        {summaryState === "done" && hasSummaryContent && (
+          <p className="text-xs text-gray-500 leading-6">AI가 선택한 원문 발췌예요. 최종 신청 조건은 원문 공고를 확인해 주세요.</p>
+        )}
+
+        {summaryState === "done" && hasPanelContent && (
+          <>
+            {summaryLines.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {summaryLines.map((line, i) => (
+                  <li key={i} className="flex gap-2 text-sm text-gray-600 leading-6">
+                    <span className="text-primary-500 font-bold shrink-0">{i + 1}.</span>
+                    <span className="min-w-0 whitespace-pre-line [overflow-wrap:anywhere]">{line}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {summaryHighlights.length > 0 && (
+              <div className="flex flex-col gap-2">
+                {summaryHighlights.map((h, i) => (
+                  <div key={i} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
+                    <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
+                      <p className="text-sm text-gray-500 leading-6 whitespace-pre-line [overflow-wrap:anywhere]">{h.content}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface PolicyApplicationMethodSectionProps {
+  detail: PolicyDetailData;
+  summary: PolicySummaryData | null;
+}
+
+export function PolicyApplicationMethodSection({ detail, summary }: PolicyApplicationMethodSectionProps) {
+  const applicationMethod = detail.originalApplicationMethod?.trim()
+    ? detail.originalApplicationMethod : detail.applicationMethod;
+  const expandedApplicationMethod = summary?.expandedApplicationMethod?.trim();
+  const originalNoticeUrl = firstSafeExternalUrl(detail.detailUrl, detail.applicationUrl);
+
+  return (
+    <section className="mb-6 min-w-0">
+      <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
+      {applicationMethod?.trim() ? (
+        <p className="min-w-0 text-base text-gray-700 leading-8 whitespace-pre-wrap [overflow-wrap:anywhere]">{applicationMethod}</p>
+      ) : (
+        <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+          <p className="text-sm text-gray-600 flex-1">신청 방법 정보가 아직 수집되지 않았어요.</p>
+          {originalNoticeUrl && (
+            <a
+              href={originalNoticeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 shrink-0 items-center text-sm font-semibold text-primary-600 hover:underline"
+            >
+              원문 공고 보기
+            </a>
+          )}
+        </div>
+      )}
+      {expandedApplicationMethod && (
+        <div className="mt-3 min-w-0 rounded-xl border border-primary-100 bg-primary-50 px-5 py-4">
+          <h3 className="mb-2 text-sm font-bold text-primary-700">AI가 정리한 신청 방법</h3>
+          <p className="min-w-0 text-sm leading-7 text-gray-700 whitespace-pre-wrap [overflow-wrap:anywhere]">{expandedApplicationMethod}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function PolicyDetail() {
+  const { user } = useAuth();
+  const authenticated = Boolean(user && localStorage.getItem("access_token"));
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const policyId = Number(id);
 
-  const [apiDetail, setApiDetail] = useState<ApiDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [loadedDetail, setLoadedDetail] = useState<LoadedPolicyDetail | null>(null);
+  const [detailLoadState, setDetailLoadState] = useState<PolicyDetailLoadState>({ tag: "loading", policyId });
   const [reportState, setReportState] = useState<"idle" | "loading" | "done">("idle");
+  const reportGeneration = useRef<{ active: boolean } | null>(null);
   const [summary, setSummary] = useState<PolicySummaryData | null>(null);
-  const [summaryState, setSummaryState] = useState<"loading" | "done" | "error">("loading");
+  const [summaryState, setSummaryState] = useState<"loading" | "done" | "error" | "login">(authenticated ? "loading" : "login");
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const detailBelongsToRoute = isPolicyDetailForRoute(loadedDetail, policyId);
+  const apiDetail = detailBelongsToRoute ? loadedDetail?.detail ?? null : null;
+  const detailViewState = policyDetailViewState(detailLoadState, loadedDetail, policyId);
+
+  useEffect(() => () => {
+    // 생성 요청은 서버에서 완료하되, 떠난 화면의 응답으로 이동하거나 경고하지 않는다.
+    if (reportGeneration.current) reportGeneration.current.active = false;
+  }, [policyId, authenticated]);
 
   useEffect(() => {
-    setLoading(true);
-    setNotFound(false);
+    let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 즉시 새 정책의 로딩 상태로 전환한다.
+    setDetailLoadState({ tag: "loading", policyId });
+    setLoadedDetail(null);
     api.get(`/api/v1/policies/${policyId}`)
       .then(res => {
-        const data: ApiDetail = res.data.data;
-        setApiDetail(data);
+        if (!active) return;
+        const data: PolicyDetailData = res.data.data;
+        setLoadedDetail({ policyId, detail: data });
+        setDetailLoadState({ tag: "ready", policyId });
         markPolicyVisited(policyId);
       })
       .catch(err => {
-        if (err.response?.status === 404) setNotFound(true);
-      })
-      .finally(() => setLoading(false));
+        if (!active) return;
+        setDetailLoadState({ tag: err.response?.status === 404 ? "missing" : "error", policyId });
+      });
+    return () => {
+      active = false;
+    };
   }, [policyId]);
 
   // 이미 이 정책 리포트를 만들었는지 백엔드에서 확인 (계정별 스코프)
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 리포트 상태도 현재 정책 경로에 귀속한다.
+    setReportState("idle");
+    if (!authenticated) return;
     getSavedReport(policyId)
       .then((found) => {
         if (active && found) setReportState("done");
@@ -130,12 +307,18 @@ export default function PolicyDetail() {
     return () => {
       active = false;
     };
-  }, [policyId]);
+  }, [policyId, authenticated]);
 
   // AI 요약 조회 (최초 1회 백엔드에서 생성 후 캐싱 → 재방문 시 빠름). 실패해도 페이지는 정상.
   useEffect(() => {
     let active = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 라우트 변경 시 이전 정책 요약을 표시하지 않는다.
     setSummary(null);
+    setSummaryError(null);
+    if (!authenticated) {
+      setSummaryState("login");
+      return;
+    }
     setSummaryState("loading");
     api.get(`/api/v1/policies/${policyId}/summary`)
       .then((res) => {
@@ -143,30 +326,34 @@ export default function PolicyDetail() {
         setSummary(res.data.data);
         setSummaryState("done");
       })
-      .catch(() => {
-        if (active) setSummaryState("error");
+      .catch((error) => {
+        if (active) {
+          setSummaryState("error");
+          setSummaryError(summaryFailureMessage(error.response?.data?.error?.code, error.response?.status));
+        }
       });
     return () => {
       active = false;
     };
-  }, [policyId]);
+  }, [policyId, authenticated]);
 
   function handleGenerateReport() {
-    if (!apiDetail) return;
+    if (!authenticated) { navigate("/login"); return; }
+    if (!apiDetail || reportGeneration.current?.active) return;
+    const request = { active: true };
+    reportGeneration.current = request;
     setReportState("loading");
     // 생성 요청이 백엔드에서 user_id 스코프로 DB에 저장(upsert)까지 처리한다. 프론트는 결과 페이지로 이동만.
-    api.post(`/api/v1/policies/${apiDetail.id}/report`)
-      .then(() => {
-        navigate(`/reports/${apiDetail.id}`);
-      })
-      .catch((err) => {
-        console.error(err);
-        alert(err.response?.data?.message || "리포트 생성에 실패했어요");
+    void generatePolicyReport(api, apiDetail.id, () => request.active,
+      generatedPolicyId => navigate(`/reports/${generatedPolicyId}`),
+      message => {
+        alert(message);
         setReportState("idle");
-      });
+      },
+    ).finally(() => { request.active = false; });
   }
 
-  if (loading) {
+  if (detailViewState === "loading") {
     return (
       <div className="bg-gray-50 min-h-screen pt-15 px-40 py-8">
         <div className="flex flex-col gap-4 animate-pulse">
@@ -181,10 +368,12 @@ export default function PolicyDetail() {
     );
   }
 
-  if (notFound || !apiDetail) {
+  if (detailViewState !== "ready" || !apiDetail) {
     return (
-      <div className="flex flex-col items-center justify-center py-40 text-gray-400">
-        <p className="text-lg font-semibold mb-2">정책을 찾을 수 없어요</p>
+      <div className="flex flex-col items-center justify-center py-40 text-gray-600">
+        <p className="text-lg font-semibold mb-2">
+          {detailViewState === "missing" ? "정책을 찾을 수 없어요" : "정책을 불러오지 못했어요"}
+        </p>
         <button onClick={() => navigate("/policies")} className="mt-4 text-sm text-primary-600 hover:underline">
           정책 목록으로 돌아가기
         </button>
@@ -192,9 +381,11 @@ export default function PolicyDetail() {
     );
   }
 
+  const originalNoticeUrl = firstSafeExternalUrl(apiDetail.detailUrl, apiDetail.applicationUrl);
+
   return (
     <div className="bg-gray-50 min-h-screen pt-15">
-      <div className="px-40 py-4">
+      <div className="px-4 py-4 sm:px-6 lg:px-10 2xl:px-40">
         <nav className="flex items-center gap-1.5 text-sm text-gray-500">
           <Link to="/" className="hover:text-gray-700 transition-colors">홈</Link>
           <span className="text-gray-300">›</span>
@@ -204,12 +395,12 @@ export default function PolicyDetail() {
         </nav>
       </div>
 
-      <div className="px-40 py-8 flex gap-6 items-start">
+      <div className="flex flex-col items-start gap-6 px-4 py-8 sm:px-6 lg:px-10 xl:flex-row 2xl:px-40">
         {/* Left: Policy Document */}
-        <div className="flex-1 min-w-0">
+        <div className="w-full min-w-0 flex-1">
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-gray-700">정책 원문</span>
                 <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">공식 문서</span>
               </div>
@@ -224,9 +415,9 @@ export default function PolicyDetail() {
                   </svg>
                   복사
                 </button>
-                {(apiDetail.detailUrl || apiDetail.applicationUrl) ? (
+                {originalNoticeUrl ? (
                   <a
-                    href={(apiDetail.detailUrl || apiDetail.applicationUrl)!}
+                    href={originalNoticeUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-xs text-primary-600 border border-primary-200 bg-primary-50 rounded-lg px-3 py-1.5 hover:bg-primary-100 transition-colors font-medium"
@@ -242,7 +433,7 @@ export default function PolicyDetail() {
               </div>
             </div>
 
-            <div className="px-6 py-6">
+            <div className="px-5 py-6 sm:px-6">
               {/* Tags */}
               {AI_DEFAULTS.tags.length > 0 && (
                 <div className="flex items-center gap-2 mb-4">
@@ -256,184 +447,43 @@ export default function PolicyDetail() {
 
               {/* Category + Title */}
               <div className="flex items-center gap-2 mb-3">
-                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[apiDetail.category] ?? "bg-gray-100 text-gray-600"}`}>
-                  {apiDetail.category}
+                <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${CATEGORY_COLORS[apiDetail.category ?? ""] ?? "bg-gray-100 text-gray-600"}`}>
+                  {apiDetail.category ?? "분류 정보 없음"}
                 </span>
-                <span className="text-xs text-gray-400">{apiDetail.region}</span>
+                <span className="text-xs text-gray-600">{apiDetail.region ?? "지역 정보 없음"}</span>
               </div>
-              <h1 className="text-2xl font-bold text-gray-900 leading-snug mb-6">{apiDetail.title}</h1>
+              <h1 className="text-xl font-bold text-gray-900 leading-snug mb-6 sm:text-2xl">{apiDetail.title}</h1>
 
               {/* Metadata grid */}
-              <div className="grid grid-cols-2 border border-gray-200 rounded-xl overflow-hidden text-sm mb-8">
+              <div className="grid grid-cols-1 border border-gray-200 rounded-xl overflow-hidden text-sm mb-8 sm:grid-cols-2">
                 {[
-                  { label: "주관 기관", value: apiDetail.agency },
-                  { label: "지역", value: apiDetail.region },
-                  { label: "지원 분야", value: apiDetail.category },
-                  { label: "업종", value: apiDetail.industry },
+                  { label: "주관 기관", value: apiDetail.agency ?? "-" },
+                  { label: "지역", value: apiDetail.region ?? "-" },
+                  { label: "지원 분야", value: apiDetail.category ?? "-" },
+                  { label: "업종", value: apiDetail.industry ?? "-" },
                   { label: "공고일", value: apiDetail.date ?? "-" },
-                  { label: "신청 기간", value: apiDetail.applicationPeriod || "-" },
+                  { label: "신청 기간", value: apiDetail.originalApplicationPeriod?.trim() ? apiDetail.originalApplicationPeriod : apiDetail.applicationPeriod || "-" },
                   { label: "공고번호", value: apiDetail.announcementNo ?? "-" },
                   { label: "담당부서", value: apiDetail.department ?? "-" },
                 ].map(({ label, value }, idx) => (
-                  <div key={label} className={`flex px-4 py-3 ${idx < 6 ? "border-b border-gray-100" : ""} ${idx % 2 === 0 ? "border-r border-gray-100" : ""}`}>
+                  <div key={label} className={`flex min-w-0 px-4 py-3 ${idx < 6 ? "border-b border-gray-100" : ""} ${idx % 2 === 0 ? "border-r border-gray-100" : ""}`}>
                     <span className="text-gray-400 w-20 shrink-0">{label}</span>
-                    <span className="text-gray-800 font-medium">{value}</span>
+                    <span className="min-w-0 text-gray-800 font-medium whitespace-pre-wrap [overflow-wrap:anywhere]">{value}</span>
                   </div>
                 ))}
               </div>
 
-              {/* 지원 대상 배지 */}
-              {apiDetail.targetGroup && (
-                <div className="flex items-center gap-2 mb-5">
-                  <span className="text-xs font-semibold text-gray-400 shrink-0">지원 대상</span>
-                  <span className="text-xs font-medium px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                    {apiDetail.targetGroup}
-                  </span>
-                </div>
-              )}
-
-              {/* 지원 규모 */}
-              {apiDetail.supportScale && (
-                <div className="mb-5 flex items-start gap-3 bg-primary-50 border border-primary-100 rounded-xl px-4 py-3">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0 mt-0.5">
-                    <line x1="12" y1="1" x2="12" y2="23"/>
-                    <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-                  </svg>
-                  <div>
-                    <p className="text-xs font-semibold text-primary-600 mb-0.5">지원 규모</p>
-                    <p className="text-sm text-gray-700 leading-6 whitespace-pre-line">{apiDetail.supportScale}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* 사업 내용: AI가 원본(사업 목적+사업 내용)만으로 재구성한 문장 우선, 없으면 원본 필드 폴백 */}
-              {(summary?.expandedDescription || apiDetail.purposeText || apiDetail.description) && (
-                <section className="mb-6">
-                  <h2 className="text-lg font-bold text-gray-900 mb-3">사업 내용</h2>
-                  {summary?.expandedDescription ? (
-                    <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{summary.expandedDescription}</p>
-                  ) : (
-                    <div className="flex flex-col gap-3">
-                      {apiDetail.purposeText && (
-                        <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.purposeText}</p>
-                      )}
-                      {apiDetail.description && (
-                        <p className="text-base text-gray-700 leading-8 whitespace-pre-line">{apiDetail.description}</p>
-                      )}
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* 신청 방법: AI 재구성 우선, 없으면 원본 폴백 */}
-              {(summary?.expandedApplicationMethod || apiDetail.applicationMethod) && (
-                <section className="mb-6">
-                  <h2 className="text-lg font-bold text-gray-900 mb-3">신청 방법</h2>
-                  <p className="text-base text-gray-700 leading-8 whitespace-pre-line">
-                    {summary?.expandedApplicationMethod || apiDetail.applicationMethod}
-                  </p>
-                </section>
-              )}
-
-              {/* 더 자세한 내용 안내 */}
-              {(apiDetail.detailUrl || apiDetail.applicationUrl) && (
-                <div className="mt-2 flex items-center gap-3 bg-primary-50 border border-primary-100 rounded-xl px-5 py-4">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0">
-                    <circle cx="12" cy="12" r="10"/>
-                    <line x1="12" y1="8" x2="12" y2="12"/>
-                    <line x1="12" y1="16" x2="12.01" y2="16"/>
-                  </svg>
-                  <p className="text-sm text-gray-600 flex-1">더 자세한 내용은 원문 공고에서 확인할 수 있어요.</p>
-                  <a
-                    href={(apiDetail.detailUrl || apiDetail.applicationUrl)!}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 text-sm font-semibold text-primary-600 hover:underline"
-                  >
-                    원문 보기 →
-                  </a>
-                </div>
-              )}
+              <PolicyBriefing detail={apiDetail} />
+              <PolicyNoticeDetails detail={apiDetail} summary={summary} />
             </div>
           </div>
         </div>
 
         {/* Right: AI panels */}
-        <div className="w-110 shrink-0 flex flex-col gap-4 sticky top-6">
-          {/* AI Summary */}
-          <div className="bg-primary-50 rounded-2xl border border-primary-100 overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-primary-100">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-xl bg-primary-500 flex items-center justify-center">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" className="text-white">
-                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                  </svg>
-                </div>
-                <span className="text-sm font-bold text-gray-800">AI 요약</span>
-              </div>
-              {summaryState === "done" ? (
-                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-primary-600 border border-primary-100">
-                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500 inline-block" />
-                  완료
-                </span>
-              ) : summaryState === "loading" ? (
-                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block animate-pulse" />
-                  요약 중
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-white text-gray-400 border border-gray-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block" />
-                  준비 중
-                </span>
-              )}
-            </div>
+        <aside className="flex w-full flex-col gap-4 xl:sticky xl:top-6 xl:w-110 xl:shrink-0">
+          <PolicySummaryPanel detail={apiDetail} summary={summary} summaryState={summaryState} summaryError={summaryError} />
 
-            <div className="px-5 py-4 flex flex-col gap-4">
-              {summaryState === "loading" && (
-                <div className="flex flex-col gap-2 animate-pulse">
-                  <div className="h-3.5 bg-white rounded w-full" />
-                  <div className="h-3.5 bg-white rounded w-5/6" />
-                  <div className="h-3.5 bg-white rounded w-2/3" />
-                  <p className="text-xs text-gray-400 mt-1">AI가 공고문을 요약하고 있어요...</p>
-                </div>
-              )}
-
-              {summaryState === "error" && (
-                <p className="text-sm text-gray-500 leading-7">{AI_DEFAULTS.aiSummaryText}</p>
-              )}
-
-              {summaryState === "done" && summary && (
-                <>
-                  {summary.summaryLines.length > 0 ? (
-                    <ul className="flex flex-col gap-2">
-                      {summary.summaryLines.map((line, i) => (
-                        <li key={i} className="flex gap-2 text-sm text-gray-600 leading-6">
-                          <span className="text-primary-500 font-bold shrink-0">{i + 1}.</span>
-                          <span>{line}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-sm text-gray-500 leading-7">{AI_DEFAULTS.aiSummaryText}</p>
-                  )}
-                  {summary.highlights.length > 0 && (
-                    <div className="flex flex-col gap-2">
-                      {summary.highlights.map((h, i) => (
-                        <div key={i} className="flex gap-3 bg-white rounded-xl p-3 border border-primary-100">
-                          <span className="mt-0.5">{HIGHLIGHT_ICONS[h.icon]}</span>
-                          <div>
-                            <p className="text-sm font-semibold text-gray-700 mb-0.5">{h.label}</p>
-                            <p className="text-sm text-gray-500 leading-6">{h.content}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
+          <DiagnosisEntryCard policyId={policyId} />
 
           {/* AI Report */}
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
@@ -469,7 +519,7 @@ export default function PolicyDetail() {
                   onClick={handleGenerateReport}
                   className="w-full mt-1 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold py-3 rounded-xl transition-colors"
                 >
-                  AI 리포트 생성하기
+                  {authenticated ? "AI 리포트 생성하기" : "로그인 후 AI 리포트 생성하기"}
                 </button>
               </div>
             )}
@@ -515,7 +565,7 @@ export default function PolicyDetail() {
             </svg>
             목록으로 돌아가기
           </button>
-        </div>
+        </aside>
       </div>
     </div>
   );

@@ -1,0 +1,119 @@
+name: Release to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runab-production
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test and build API
+        working-directory: api
+        run: bash ./gradlew --no-daemon test bootJar
+      - name: Test deployment operations and workflow boundaries
+        run: python3 -m unittest discover -s ops/ec2 -p 'test_*.py' -v
+      - name: Install frontend dependencies
+        working-directory: apps/run-a-b-fe
+        run: npm ci
+      - name: Audit, test, lint and build frontend
+        working-directory: apps/run-a-b-fe
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+        run: npm audit --audit-level=moderate && npm test && npm run lint && npm run build
+      - name: Package one release without environment files
+        id: package
+        run: |
+          set -euo pipefail
+          mkdir release-bundle
+          cp api/build/libs/api-0.0.1-SNAPSHOT.jar release-bundle/api.jar
+          cp -R apps/run-a-b-fe/dist release-bundle/dist
+          cp ops/ec2/ec2_ops.py ops/ec2/bootstrap.py release-bundle/
+          test -s release-bundle/api.jar
+          test -f release-bundle/dist/index.html
+          if find release-bundle -type l -print -quit | grep -q .; then
+            echo 'Release bundle must not contain symlinks' >&2
+            exit 1
+          fi
+          if find release-bundle -name '.env*' -print -quit | grep -q .; then
+            echo 'Environment files must not enter release artifacts' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-bundle/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-bundle/
+      - name: Install SSH password client
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+      - name: Preflight, stage and activate combined release
+        id: activate
+        env:
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          # Defense in depth: PR artifacts and manual non-main runs never reach SSH.
+          [[ "$GITHUB_REF" == refs/heads/main ]] || exit 1
+          [[ "$GITHUB_EVENT_NAME" == push || "$GITHUB_EVENT_NAME" == workflow_dispatch ]] || exit 1
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ && "$GITHUB_RUN_ATTEMPT" =~ ^[0-9]+$ ]] || exit 1
+          : "${SSHPASS:?EC2_PASSWORD is required}"
+          : "${EC2_KNOWN_HOSTS:?Independently verified EC2_KNOWN_HOSTS is required}"
+          release="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          upload="/tmp/runab-release-${release}"
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F 43.201.103.134 -f "$HOME/.ssh/known_hosts" > /dev/null
+          ssh_options=(-o StrictHostKeyChecking=yes -o GlobalKnownHostsFile=/dev/null
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" -o ConnectTimeout=15
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 "umask 077; mkdir -m 700 -- '$upload'"
+          sshpass -e scp "${ssh_options[@]}" -r -- release-bundle "ec2-user@43.201.103.134:$upload/"
+          # Both scripts come from this main run's artifact, never from a PR run.
+          sshpass -e ssh "${ssh_options[@]}" -- ec2-user@43.201.103.134 bash -s -- "$release" <<'REMOTE'
+          set -euo pipefail
+          release="$1"
+          [[ "$release" =~ ^[0-9a-f]{40}-[0-9]+-[0-9]+$ ]] || exit 1
+          bundle="/tmp/runab-release-${release}/release-bundle"
+          sudo -n python3 "$bundle/bootstrap.py" preflight --domain run-a-b.com
+          sudo -n python3 "$bundle/ec2_ops.py" stage --root /srv/runab --release "$release" \
+            --jar "$bundle/api.jar" --dist "$bundle/dist"
+          sudo -n python3 "$bundle/ec2_ops.py" activate --root /srv/runab --release "$release" \
+            --service runab-api --health-url 'http://127.0.0.1:8080/api/v1/policies?page=1&size=1' --timeout 90
+          REMOTE

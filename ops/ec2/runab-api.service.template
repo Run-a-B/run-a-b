@@ -1,0 +1,30 @@
+# Review/install only after the real EC2 user, Java 21 path, and filesystem are verified.
+# /srv/runab/releases/<unique-id>/{api.jar,dist/}; /srv/runab/current is an atomic symlink.
+# Root owns releases and /etc/runab/api.env (0600); runab/nginx need read/traverse access.
+# Set required DB_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET and applicable integration
+# keys in /etc/runab/api.env. Set TRUSTED_PROXY_IPS=127.0.0.1 for local nginx only.
+# Keep external DB/schema changes reviewed and compatible with the previous release.
+[Unit]
+Description=RunAB API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=runab
+Group=runab
+WorkingDirectory=/srv/runab
+EnvironmentFile=/etc/runab/api.env
+ExecStart=/usr/bin/java -Xms128m -Xmx640m -XX:MaxMetaspaceSize=192m -XX:+ExitOnOutOfMemoryError -jar /srv/runab/current/api.jar --spring.profiles.active=prod --spring.jpa.hibernate.ddl-auto=validate --server.address=127.0.0.1 --server.port=8080 --server.forward-headers-strategy=none
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+SuccessExitStatus=143
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

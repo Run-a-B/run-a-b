@@ -1,10 +1,17 @@
-import { useState, useEffect } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
-import { MOCK_POLICIES, POLICY_DETAILS } from "@/data/policies";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "@/lib/api";
+import {
+  buildChecklistProgress,
+  checkedForPolicy,
+  loadPolicyChecklist,
+  retryChecklistLoad,
+  type CheckedByPolicy,
+  type ChecklistItem,
+  type PolicyChecklistDetail,
+} from "@/features/policy/checklist";
 
 const CATEGORY_COLORS: Record<string, string> = {
-  // 실 데이터 카테고리 (Task A에서 정리된 목록)
   기술: "bg-violet-100 text-violet-700",
   금융: "bg-indigo-100 text-indigo-700",
   인력: "bg-blue-100 text-blue-700",
@@ -13,344 +20,181 @@ const CATEGORY_COLORS: Record<string, string> = {
   수출: "bg-sky-100 text-sky-700",
   내수: "bg-teal-100 text-teal-700",
   기타: "bg-gray-100 text-gray-600",
-  // 구형 mock 카테고리 호환
-  최저임금: "bg-gray-100 text-gray-600",
-  "노동·복지": "bg-blue-100 text-blue-700",
-  "대출·자금": "bg-indigo-100 text-indigo-700",
-  에너지: "bg-orange-100 text-orange-700",
-  디지털: "bg-violet-100 text-violet-700",
-  세금: "bg-green-100 text-green-700",
-  창업지원: "bg-emerald-100 text-emerald-700",
-  임차료: "bg-pink-100 text-pink-700",
-  교육: "bg-sky-100 text-sky-700",
 };
 
-interface ChecklistItem {
-  id: string;
-  label: string;
-  required: boolean;
-  description?: string;
+export type ChecklistLoadState =
+  | { tag: "loading"; policyId: number }
+  | {
+      tag: "loaded";
+      policyId: number;
+      policy: { id: number; title: string; category: string | null };
+      detail: PolicyChecklistDetail;
+      sourceUrl: string | null;
+    }
+  | { tag: "failed"; policyId: number };
+
+export function ChecklistLoadNotice({
+  failed,
+  onBack,
+  onRetry,
+}: {
+  failed: boolean;
+  onBack: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-24">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-50"><ChecklistIcon className="text-primary-400" /></div>
+      <div role={failed ? "alert" : "status"} aria-live={failed ? undefined : "polite"} className="text-center">
+        <p className="mb-1 text-base font-bold text-gray-700">{failed ? "체크리스트를 불러오지 못했어요" : "체크리스트 정보를 불러오고 있어요"}</p>
+        <p className="text-sm leading-6 text-gray-600">{failed ? "네트워크 상태를 확인한 뒤 다시 시도해 주세요." : "정책 원문과 신청 준비 정보를 확인하고 있어요."}</p>
+      </div>
+      <div className="mt-2 flex gap-3">
+        <button onClick={onBack} className="min-h-11 rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50">정책 상세 보기</button>
+        {failed && <button onClick={onRetry} className="min-h-11 rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700">다시 시도</button>}
+      </div>
+    </div>
+  );
 }
-interface ChecklistDetail {
-  applicationPeriod: string;
-  department: string;
-  applicationUrl: string;
-  applicationChecklist: ChecklistItem[];
+
+function currentChecklistLoad(state: ChecklistLoadState, policyId: number): ChecklistLoadState {
+  if (!Number.isInteger(policyId) || policyId < 1) return { tag: "failed", policyId };
+  return state.policyId === policyId ? state : { tag: "loading", policyId };
 }
 
 export default function PolicyChecklist() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const policyId = Number(id);
-
-  const mockPolicy = MOCK_POLICIES.find((p) => p.id === policyId);
-  const mockDetail = POLICY_DETAILS[policyId];
-
-  // 실 API 데이터 (mock에 없을 때 API로 채움) — 기존 UI가 쓰는 policy/detail 모양 그대로 맞춘다
-  const [apiPolicy, setApiPolicy] = useState<{ title: string; category: string } | null>(null);
-  const [apiDetail, setApiDetail] = useState<ChecklistDetail | null>(null);
-  const [apiFailed, setApiFailed] = useState(false);
-  const [apiUrl, setApiUrl] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [loadState, setLoadState] = useState<ChecklistLoadState>({ tag: "loading", policyId });
+  const [checkedByPolicy, setCheckedByPolicy] = useState<CheckedByPolicy>({});
 
   useEffect(() => {
-    if (mockPolicy && mockDetail) return; // mock으로 처리 가능하면 API 호출 불필요 (회귀 없음)
     let active = true;
-    setApiFailed(false);
-    Promise.all([
-      api.get(`/api/v1/policies/${policyId}`),
-      api.get(`/api/v1/policies/${policyId}/checklist`),
-    ])
-      .then(([pRes, cRes]) => {
-        if (!active) return;
-        setApiPolicy({ title: pRes.data.data.title, category: pRes.data.data.category });
-        setApiDetail(cRes.data.data);
-        setApiUrl(pRes.data.data.detailUrl || pRes.data.data.applicationUrl || null);
+    if (!Number.isInteger(policyId) || policyId < 1) {
+      return () => {
+        active = false;
+      };
+    }
+
+    loadPolicyChecklist(api, policyId)
+      .then((result) => {
+        if (active) setLoadState({ tag: "loaded", policyId, ...result });
       })
       .catch(() => {
-        if (active) setApiFailed(true);
+        if (active) setLoadState({ tag: "failed", policyId });
       });
+
     return () => {
       active = false;
     };
-  }, [policyId, mockPolicy, mockDetail]);
+  }, [policyId, retry]);
 
-  const [checked, setChecked] = useState<Record<string, boolean>>({});
-
-  // 최종 데이터: mock 우선(회귀 없음), 없으면 API
-  const policy = mockPolicy && mockDetail ? mockPolicy : apiPolicy;
-  const detail = mockPolicy && mockDetail ? mockDetail : apiDetail;
-
-  // mock도 없고 API도 아직/실패면 준비 중 UI (API 성공 전 로딩 포함)
-  if (!policy || !detail) {
-    const title = apiPolicy?.title ?? (apiFailed ? "정책" : "정책 로딩 중...");
+  const currentLoad = currentChecklistLoad(loadState, policyId);
+  if (currentLoad.tag !== "loaded") {
+    const failed = currentLoad.tag === "failed";
     return (
-      <div className="bg-gray-50 min-h-screen">
-        <div className="px-40 py-4">
-          <nav className="flex items-center gap-1.5 text-sm text-gray-500">
-            <Link to="/" className="hover:text-gray-700 transition-colors">홈</Link>
-            <span className="text-gray-300">›</span>
-            <Link to="/policies" className="hover:text-gray-700 transition-colors">정책 모아보기</Link>
-            <span className="text-gray-300">›</span>
-            <Link to={`/policies/${policyId}`} className="hover:text-gray-700 transition-colors truncate max-w-xs">{title}</Link>
-            <span className="text-gray-300">›</span>
-            <span className="text-gray-700 font-medium">신청 준비</span>
-          </nav>
-        </div>
-        <div className="flex flex-col items-center justify-center py-24 gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-primary-50 flex items-center justify-center">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary-400">
-              <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-              <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-              <line x1="9" y1="12" x2="15" y2="12"/>
-              <line x1="9" y1="16" x2="13" y2="16"/>
-            </svg>
-          </div>
-          <div className="text-center">
-            <p className="text-base font-bold text-gray-700 mb-1">신청 체크리스트 준비 중이에요</p>
-            <p className="text-sm text-gray-400 leading-6">
-              이 정책의 맞춤 체크리스트가 곧 제공될 예정이에요.<br />
-              지금은 원문 공고에서 직접 신청 서류를 확인해 주세요.
-            </p>
-          </div>
-          <div className="flex gap-3 mt-2">
-            <button
-              onClick={() => navigate(`/policies/${policyId}`)}
-              className="px-5 py-2.5 text-sm font-semibold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
-            >
-              정책 상세 보기
-            </button>
-            {apiUrl && (
-              <a
-                href={apiUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-5 py-2.5 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-xl transition-colors"
-              >
-                원문 공고 보기
-              </a>
-            )}
-          </div>
-        </div>
+      <div className="min-h-screen bg-gray-50 pt-15">
+        <ChecklistBreadcrumb policyId={policyId} title={failed ? "정책" : "정책 로딩 중..."} />
+        <ChecklistLoadNotice failed={failed} onBack={() => navigate(`/policies/${policyId}`)} onRetry={retryChecklist} />
       </div>
     );
   }
 
-  const required = detail.applicationChecklist.filter((i) => i.required);
-  const optional = detail.applicationChecklist.filter((i) => !i.required);
-  const requiredChecked = required.filter((i) => checked[i.id]).length;
-  const totalChecked = detail.applicationChecklist.filter((i) => checked[i.id]).length;
-  const allRequiredDone = requiredChecked === required.length;
-  const categoryColor = CATEGORY_COLORS[policy.category] ?? "bg-gray-100 text-gray-600";
+  const { policy, detail, sourceUrl } = currentLoad;
+  const checklist = detail.applicationChecklist ?? [];
+  const checked = checkedForPolicy(checkedByPolicy, policyId);
+  const required = checklist.filter((item) => item.required);
+  const optional = checklist.filter((item) => !item.required);
+  const progress = buildChecklistProgress(checklist, checked);
+  const totalChecked = checklist.filter((item) => checked[item.id]).length;
+  const categoryColor = CATEGORY_COLORS[policy.category ?? ""] ?? "bg-gray-100 text-gray-600";
+  const groupItems = progress.kind === "recommendations" ? checklist : required;
 
-  function toggle(id: string) {
-    setChecked((prev) => ({ ...prev, [id]: !prev[id] }));
+  function toggle(itemId: string) {
+    setCheckedByPolicy((previous) => {
+      const current = checkedForPolicy(previous, policyId);
+      return {
+        ...previous,
+        [policyId]: { ...current, [itemId]: !current[itemId] },
+      };
+    });
+  }
+
+  function retryChecklist() {
+    setLoadState(retryChecklistLoad(policyId));
+    setRetry((value) => value + 1);
   }
 
   return (
-    <div className="bg-gray-50 min-h-screen pt-15">
-      {/* Breadcrumb */}
-      <div className="px-40 py-4">
-        <nav className="flex items-center gap-1.5 text-sm text-gray-500">
-          <Link to="/" className="hover:text-gray-700 transition-colors">홈</Link>
-          <span className="text-gray-300">›</span>
-          <Link to="/policies" className="hover:text-gray-700 transition-colors">정책 모아보기</Link>
-          <span className="text-gray-300">›</span>
-          <Link to={`/policies/${policyId}`} className="hover:text-gray-700 transition-colors truncate max-w-xs">{policy.title}</Link>
-          <span className="text-gray-300">›</span>
-          <span className="text-gray-700 font-medium">신청 준비</span>
-        </nav>
-      </div>
-
-      <div className="px-40 py-8 flex gap-6 items-start">
-        {/* Left: Checklist */}
-        <div className="flex-1 min-w-0 flex flex-col gap-4">
-          {/* Policy header card */}
-          <div className="bg-white rounded-2xl border border-gray-200 px-6 py-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${categoryColor}`}>{policy.category}</span>
-              <span className="text-xs text-gray-400">{detail.applicationPeriod}</span>
+    <div className="min-h-screen bg-gray-50 pt-15">
+      <ChecklistBreadcrumb policyId={policyId} title={policy.title} />
+      <div className="flex items-start gap-6 px-40 py-8">
+        <div className="flex min-w-0 flex-1 flex-col gap-4">
+          <div className="rounded-2xl border border-gray-200 bg-white px-6 py-5">
+            <div className="mb-3 flex items-center gap-2">
+              <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${categoryColor}`}>{policy.category ?? "기타"}</span>
+              <span className="text-xs text-gray-600">{detail.applicationPeriod}</span>
             </div>
-            <h1 className="text-lg font-bold text-gray-900 leading-snug mb-1">{policy.title}</h1>
+            <h1 className="mb-1 text-lg font-bold leading-snug text-gray-900">{policy.title}</h1>
             <p className="text-sm text-gray-500">{detail.department}</p>
           </div>
 
-          {/* Required documents */}
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-100">
-              <div className="w-2 h-2 rounded-full bg-red-400" />
-              <span className="text-sm font-bold text-gray-800">필수 서류</span>
-              <span className="ml-auto text-xs font-semibold text-primary-600">{requiredChecked}/{required.length} 완료</span>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {required.map((item) => (
-                <ChecklistRow key={item.id} item={item} checked={!!checked[item.id]} onToggle={() => toggle(item.id)} required />
-              ))}
-            </div>
-          </div>
+          <ChecklistGroup title={progress.groupTitle} completed={progress.completed} total={progress.total} required={progress.kind === "required"} notice={progress.notice} items={groupItems} checked={checked} onToggle={toggle} />
 
-          {/* Optional documents */}
-          {optional.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center gap-2 px-6 py-4 border-b border-gray-100">
-                <div className="w-2 h-2 rounded-full bg-gray-300" />
-                <span className="text-sm font-bold text-gray-800">선택 서류</span>
-                <span className="text-xs text-gray-400 ml-1">(해당 시 제출)</span>
-              </div>
-              <div className="divide-y divide-gray-100">
-                {optional.map((item) => (
-                  <ChecklistRow key={item.id} item={item} checked={!!checked[item.id]} onToggle={() => toggle(item.id)} required={false} />
-                ))}
-              </div>
-            </div>
+          {progress.kind === "required" && optional.length > 0 && (
+            <ChecklistGroup title="추가 확인 서류" completed={optional.filter((item) => checked[item.id]).length} total={optional.length} required={false} notice="제출 여부는 원문 공고에서 확인해 주세요" items={optional} checked={checked} onToggle={toggle} />
           )}
 
-          {/* Tips */}
-          <div className="bg-amber-50 border border-amber-100 rounded-2xl px-6 py-4 flex gap-3">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-amber-500 shrink-0 mt-0.5">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            <div>
-              <p className="text-sm font-semibold text-amber-800 mb-1">신청 전 확인 사항</p>
-              <ul className="text-xs text-amber-700 leading-6 space-y-1">
-                <li>• 서류는 최근 3개월 이내 발급본을 준비해 주세요.</li>
-                <li>• 원본 서류가 필요한 경우 방문 접수 시 지참하세요.</li>
-                <li>• 신청 기간 및 예산 현황에 따라 마감될 수 있으니 서두르세요.</li>
-                <li>• 정확한 제출 서류는 반드시 원문 공고를 확인하세요.</li>
-              </ul>
-            </div>
+          <div className="flex gap-3 rounded-2xl border border-amber-100 bg-amber-50 px-6 py-4">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0 text-amber-500"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+            <div><p className="mb-1 text-sm font-semibold text-amber-800">신청 전 확인 사항</p><ul className="space-y-1 text-xs leading-6 text-amber-700"><li>• 제출 서류와 양식은 원문 공고를 기준으로 확인해 주세요.</li><li>• 신청 기간과 예산 현황에 따라 조기 마감될 수 있어요.</li></ul></div>
           </div>
         </div>
 
-        {/* Right: Progress & CTA */}
-        <div className="w-80 shrink-0 flex flex-col gap-4 sticky top-6">
-          {/* Progress card */}
-          <div className="bg-white rounded-2xl border border-gray-200 px-5 py-5">
-            <p className="text-sm font-bold text-gray-800 mb-4">준비 현황</p>
-
-            {/* Progress ring area */}
-            <div className="flex items-center gap-4 mb-4">
-              <div className="relative w-16 h-16 shrink-0">
-                <svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90">
-                  <circle cx="32" cy="32" r="26" fill="none" stroke="#f3f4f6" strokeWidth="6" />
-                  <circle
-                    cx="32" cy="32" r="26"
-                    fill="none"
-                    stroke={allRequiredDone ? "#22c55e" : "#6C63FF"}
-                    strokeWidth="6"
-                    strokeDasharray={`${2 * Math.PI * 26}`}
-                    strokeDashoffset={`${2 * Math.PI * 26 * (1 - totalChecked / detail.applicationChecklist.length)}`}
-                    strokeLinecap="round"
-                    style={{ transition: "stroke-dashoffset 0.4s ease" }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-sm font-bold text-gray-800">{totalChecked}/{detail.applicationChecklist.length}</span>
-                </div>
-              </div>
+        <aside className="sticky top-6 flex w-80 shrink-0 flex-col gap-4">
+          <div className="rounded-2xl border border-gray-200 bg-white px-5 py-5">
+            <p className="mb-4 text-sm font-bold text-gray-800">준비 현황</p>
+            <div className="mb-4 flex items-center gap-4">
+              <ProgressRing checked={totalChecked} total={checklist.length} />
               <div>
-                <p className="text-sm font-semibold text-gray-800">
-                  {allRequiredDone ? "필수 서류 완료!" : `필수 서류 ${requiredChecked}/${required.length} 준비됨`}
-                </p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {allRequiredDone ? "신청 페이지로 이동할 수 있어요" : `${required.length - requiredChecked}개 서류가 남았어요`}
-                </p>
+                <p className="text-sm font-semibold text-gray-800">{progress.kind === "required" ? `필수 서류 ${progress.completed}/${progress.total} 준비됨` : `준비 권장 서류 ${progress.completed}/${progress.total} 확인됨`}</p>
+                <p className="mt-0.5 text-xs text-gray-600">{progress.notice ?? `${progress.total - progress.completed}개 필수 서류가 남았어요`}</p>
               </div>
             </div>
-
-            {/* Required items summary */}
-            <div className="flex flex-col gap-1.5 mb-4">
-              {required.map((item) => (
-                <div key={item.id} className="flex items-center gap-2">
-                  <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${checked[item.id] ? "bg-green-400" : "bg-gray-100"}`}>
-                    {checked[item.id] && (
-                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                    )}
-                  </div>
-                  <span className={`text-xs truncate ${checked[item.id] ? "text-gray-400 line-through" : "text-gray-600"}`}>{item.label}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* CTA button */}
-            <a
-              href={detail.applicationUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-colors ${
-                allRequiredDone
-                  ? "bg-primary-600 hover:bg-primary-700 text-white"
-                  : "bg-gray-100 text-gray-400 pointer-events-none"
-              }`}
-            >
-              신청 페이지로 이동
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                <polyline points="15 3 21 3 21 9"/>
-                <line x1="10" y1="14" x2="21" y2="3"/>
-              </svg>
-            </a>
-            {!allRequiredDone && (
-              <p className="text-xs text-gray-400 text-center mt-2">필수 서류를 모두 체크하면 활성화돼요</p>
-            )}
+            {progress.kind === "required" && <div className="mb-4 flex flex-col gap-1.5">{required.map((item) => <div key={item.id} className="flex items-center gap-2"><div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${checked[item.id] ? "bg-green-400" : "bg-gray-100"}`}>{checked[item.id] && <span className="text-[8px] font-bold text-white">✓</span>}</div><span className={`truncate text-xs ${checked[item.id] ? "text-gray-600 line-through" : "text-gray-600"}`}>{item.label}</span></div>)}</div>}
+            {sourceUrl ? <a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-700">원문 공고·신청 페이지 보기 <ExternalIcon /></a> : <p className="rounded-xl bg-gray-50 px-4 py-3 text-center text-xs leading-5 text-gray-500">원문 공고·신청 페이지 URL을 확인해 주세요.</p>}
           </div>
-
-          {/* Back to policy */}
-          <button
-            onClick={() => navigate(`/policies/${policyId}`)}
-            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors justify-center py-2"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="19" y1="12" x2="5" y2="12"/>
-              <polyline points="12 19 5 12 12 5"/>
-            </svg>
-            정책 상세로 돌아가기
-          </button>
-        </div>
+          <button onClick={() => navigate(`/policies/${policyId}`)} className="flex items-center justify-center gap-1.5 py-2 text-sm text-gray-500 transition-colors hover:text-gray-700">정책 상세로 돌아가기</button>
+        </aside>
       </div>
     </div>
   );
 }
 
-function ChecklistRow({
-  item,
-  checked,
-  onToggle,
-  required,
-}: {
-  item: { id: string; label: string; required: boolean; description?: string };
-  checked: boolean;
-  onToggle: () => void;
-  required: boolean;
-}) {
-  return (
-    <div
-      onClick={onToggle}
-      className={`flex items-start gap-4 px-6 py-4 cursor-pointer transition-colors hover:bg-gray-50 ${checked ? "bg-gray-50" : ""}`}
-    >
-      <div className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${
-        checked ? "bg-primary-600 border-primary-600" : "border-gray-300"
-      }`}>
-        {checked && (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className={`text-sm font-medium ${checked ? "text-gray-400 line-through" : "text-gray-800"}`}>{item.label}</p>
-          {required && (
-            <span className="text-xs text-red-400 font-medium shrink-0">필수</span>
-          )}
-        </div>
-        {item.description && (
-          <p className="text-xs text-gray-400 mt-0.5 leading-5">{item.description}</p>
-        )}
-      </div>
-    </div>
-  );
+function ChecklistBreadcrumb({ policyId, title }: { policyId: number; title: string }) {
+  return <div className="px-40 py-4"><nav className="flex items-center gap-1.5 text-sm text-gray-500"><Link to="/" className="transition-colors hover:text-gray-700">홈</Link><span className="text-gray-300">›</span><Link to="/policies" className="transition-colors hover:text-gray-700">정책 모아보기</Link><span className="text-gray-300">›</span><Link to={`/policies/${policyId}`} className="max-w-xs truncate transition-colors hover:text-gray-700">{title}</Link><span className="text-gray-300">›</span><span className="font-medium text-gray-700">신청 준비</span></nav></div>;
+}
+
+function ChecklistGroup({ title, completed, total, required, notice, items, checked, onToggle }: { title: string; completed: number; total: number; required: boolean; notice: string | null; items: ChecklistItem[]; checked: Record<string, boolean>; onToggle: (id: string) => void }) {
+  return <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white"><div className="flex items-center gap-2 border-b border-gray-100 px-6 py-4"><div className={`h-2 w-2 rounded-full ${required ? "bg-red-400" : "bg-gray-300"}`} /><span className="text-sm font-bold text-gray-800">{title}</span><span className="ml-auto text-xs font-semibold text-primary-600">{completed}/{total} 확인</span></div>{notice && <p className="px-6 pt-3 text-xs text-gray-500">{notice}</p>}<div className="divide-y divide-gray-100">{items.map((item) => <ChecklistRow key={item.id} item={item} checked={Boolean(checked[item.id])} onToggle={() => onToggle(item.id)} />)}</div></div>;
+}
+
+export function ChecklistRow({ item, checked, onToggle }: { item: ChecklistItem; checked: boolean; onToggle: () => void }) {
+  return <button type="button" aria-pressed={checked} onClick={onToggle} className={`flex w-full items-start gap-4 px-6 py-4 text-left transition-colors hover:bg-gray-50 ${checked ? "bg-gray-50" : ""}`}><span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 ${checked ? "border-primary-600 bg-primary-600" : "border-gray-300"}`}>{checked && <span className="text-[10px] font-bold text-white">✓</span>}</span><span className="min-w-0 flex-1"><span className={`block text-sm font-medium ${checked ? "text-gray-600 line-through" : "text-gray-800"}`}>{item.label}</span>{item.required && <span className="mt-1 block text-xs font-medium text-red-400">필수</span>}{item.description && <span className="mt-0.5 block text-xs leading-5 text-gray-600">{item.description}</span>}</span></button>;
+}
+
+function ProgressRing({ checked, total }: { checked: number; total: number }) {
+  const ratio = total > 0 ? checked / total : 0;
+  const circumference = 2 * Math.PI * 26;
+  return <div className="relative h-16 w-16 shrink-0"><svg width="64" height="64" viewBox="0 0 64 64" className="-rotate-90"><circle cx="32" cy="32" r="26" fill="none" stroke="#f3f4f6" strokeWidth="6" /><circle cx="32" cy="32" r="26" fill="none" stroke="#6C63FF" strokeWidth="6" strokeDasharray={`${circumference}`} strokeDashoffset={`${circumference * (1 - ratio)}`} strokeLinecap="round" style={{ transition: "stroke-dashoffset 0.4s ease" }} /></svg><div className="absolute inset-0 flex items-center justify-center"><span className="text-sm font-bold text-gray-800">{checked}/{total}</span></div></div>;
+}
+
+function ChecklistIcon({ className }: { className: string }) {
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /><line x1="9" y1="12" x2="15" y2="12" /><line x1="9" y1="16" x2="13" y2="16" /></svg>;
+}
+
+function ExternalIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>;
 }

@@ -5,15 +5,20 @@ import com.runab.api.dto.policy.BizinfoPolicyItem;
 import com.runab.api.dto.policy.PolicySyncResult;
 import com.runab.api.entity.Policy;
 import com.runab.api.repository.PolicyRepository;
+import com.runab.api.service.matcher.RegionHierarchy;
+import com.runab.api.service.source.BizinfoSourceTextParser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 기업마당(bizinfo) 정책을 받아와 Policy 테이블에 동기화한다.
@@ -26,7 +31,6 @@ public class PolicySyncService {
 
     private static final String SOURCE_SYSTEM = "bizinfo";
     private static final String BIZINFO_BASE_URL = "https://www.bizinfo.go.kr";
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     // 지역 단축명 → 정식 명칭 정규화 (PolicySpecification의 region 값과 일치시킴)
     private static final Map<String, String> REGION_MAP = Map.ofEntries(
@@ -55,22 +59,48 @@ public class PolicySyncService {
 
             String title = truncate(item.getPblancNm(), 500);
             String category = item.getPldirSportRealmLclasCodeNm();
-            String description = stripHtml(item.getBsnsSumryCn());
-            String region = extractRegion(item.getHashtags());
+            String synopsis = BizinfoSourceTextParser.toText(item.getBsnsSumryCn());
+            String description = synopsis == null ? null : truncate(synopsis.replaceAll("\\s+", " "), 1000);
+            String originalNoticeText = BizinfoSourceTextParser.toText(item.getDescription());
+            String originalNoticeHtml = BizinfoSourceTextParser.hasSubstantiveContent(item.getDescription())
+                    ? item.getDescription() : null;
+            String region = extractRegion(item.getHashtags(), item.getPblancNm(), item.getJrsdInsttNm());
             String agency = truncate(item.getJrsdInsttNm(), 100);
-            LocalDate startDate = parsePeriod(item.getReqstBeginEndDe(), true);
-            LocalDate endDate = parsePeriod(item.getReqstBeginEndDe(), false);
+            String originalPeriod = firstNonBlank(item.getReqstDt(), item.getReqstBeginEndDe());
+            LocalDate startDate = parsePeriod(originalPeriod, true);
+            LocalDate endDate = parsePeriod(originalPeriod, false);
             LocalDate publishedDate = parseDate(item.getCreatPnttm());
             String targetGroup = truncate(item.getTrgetNm(), 200);
-            String applicationMethod = stripHtml(item.getReqstMthPapersCn());
+            String applicationMethod = BizinfoSourceTextParser.toText(item.getReqstMthPapersCn());
             String applicationUrl = fitUrl(item.getRceptEngnHmpgUrl(), 500);
             String detailUrl = fitUrl(toAbsoluteUrl(item.getPblancUrl()), 500);
+            String executingAgency = BizinfoSourceTextParser.toText(item.getExcInsttNm());
+            String inquiryContact = BizinfoSourceTextParser.toText(item.getRefrncNm());
+            String attachmentName = firstNonBlank(item.getFileNm(), null);
+            String attachmentUrl = toAbsoluteUrl(item.getFlpthNm());
+            String noticeFileName = firstNonBlank(item.getPrintFileNm(), null);
+            String noticeFileUrl = toAbsoluteUrl(item.getPrintFlpthNm());
 
             Optional<Policy> existing = policyRepository.findByExternalId(item.getPblancId());
             if (existing.isPresent()) {
-                existing.get().updateFromBizinfo(title, category, category, region, "전체", description,
+                Policy policy = existing.get();
+                if (region == null && hasNoRegionalEvidence(item.getHashtags(), item.getPblancNm())
+                        && isReliableLocalRegion(policy.getRegion())) {
+                    region = policy.getRegion();
+                }
+                if (originalPeriod == null || originalPeriod.isBlank()) {
+                    startDate = policy.getApplicationStartDate();
+                    endDate = policy.getApplicationEndDate();
+                }
+                policy.updateFromBizinfo(title, category, category, region, "전체", description,
                         agency, startDate, endDate, publishedDate, targetGroup,
                         applicationMethod, applicationUrl, detailUrl, SOURCE_SYSTEM);
+                String sourceText = originalNoticeText;
+                if (sourceText == null && (originalNoticeHtml != null || policy.getOriginalNoticeHtml() == null)) {
+                    sourceText = synopsis;
+                }
+                policy.updateSourceFromBizinfo(originalNoticeHtml, sourceText, applicationMethod, originalPeriod,
+                        executingAgency, inquiryContact, attachmentName, attachmentUrl, noticeFileName, noticeFileUrl);
                 result.countUpdated();
             } else {
                 Policy policy = Policy.builder()
@@ -90,6 +120,16 @@ public class PolicySyncService {
                         .applicationUrl(applicationUrl)
                         .detailUrl(detailUrl)
                         .sourceSystem(SOURCE_SYSTEM)
+                        .originalNoticeHtml(originalNoticeHtml)
+                        .originalNoticeText(firstNonBlank(originalNoticeText, synopsis))
+                        .originalApplicationMethod(applicationMethod)
+                        .originalApplicationPeriod(originalPeriod)
+                        .executingAgency(executingAgency)
+                        .inquiryContact(inquiryContact)
+                        .attachmentName(attachmentName)
+                        .attachmentUrl(attachmentUrl)
+                        .noticeFileName(noticeFileName)
+                        .noticeFileUrl(noticeFileUrl)
                         .build();
                 policyRepository.save(policy);
                 result.countNew();
@@ -103,15 +143,8 @@ public class PolicySyncService {
 
     // ===== 변환 헬퍼 =====
 
-    // HTML 태그 제거 + 공백 정리 (Jsoup 등 추가 의존성 없이 정규식으로 처리)
-    private String stripHtml(String html) {
-        if (html == null) {
-            return null;
-        }
-        return html.replaceAll("<[^>]*>", "")
-                .replaceAll("&nbsp;", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
+    private String firstNonBlank(String preferred, String fallback) {
+        return preferred == null || preferred.isBlank() ? fallback : preferred;
     }
 
     // length 초과 시 잘라낸다
@@ -122,18 +155,112 @@ public class PolicySyncService {
         return value.length() > maxLength ? value.substring(0, maxLength) : value;
     }
 
-    // hashtags("기술,전남,로봇,2026")에서 아는 지역명을 찾아 정규화. 없으면 "전국"
-    private String extractRegion(String hashtags) {
+    // 지역 태그가 비었을 때도 제목 선두의 명시 범위를 놓치지 않는다.
+    // 전체 시/도 태그는 전국이며, 별도 정식 지역명은 더 구체적인 근거다.
+    private String extractRegion(String hashtags, String title, String agency) {
         if (hashtags == null || hashtags.isBlank()) {
-            return "전국";
+            return resolveLeadingScope(title);
         }
+        Set<String> regions = new HashSet<>();
+        Set<String> formalRegions = new HashSet<>();
         for (String tag : hashtags.split(",")) {
             String trimmed = tag.trim();
             if (REGION_MAP.containsKey(trimmed)) {
-                return REGION_MAP.get(trimmed);
+                regions.add(REGION_MAP.get(trimmed));
+            } else if (REGION_MAP.containsValue(trimmed)) {
+                regions.add(trimmed);
+                formalRegions.add(trimmed);
+            } else if (trimmed.equals("전남광주")) {
+                regions.addAll(Set.of("전라남도", "광주광역시"));
             }
         }
-        return "전국";
+        if (regions.isEmpty()) return resolveLeadingScope(title);
+        if (formalRegions.size() == 1) return formalRegions.iterator().next();
+        if (formalRegions.size() > 1) return null;
+        if (regions.size() == 1) return regions.iterator().next();
+
+        // 제목 선두의 [지역]만 공고 범위로 본다. 제목 중간이나 기관명은 전국 태그를 좁히지 않는다.
+        String leadingScope = leadingBracketScope(title);
+        Set<String> scopedRegions = regionsForScope(leadingScope);
+        if (!scopedRegions.isEmpty()) {
+            scopedRegions = new HashSet<>(scopedRegions);
+            scopedRegions.retainAll(regions);
+            if (scopedRegions.size() == 1) return scopedRegions.iterator().next();
+
+            Set<String> detailClues = findRegionClues(textAfterLeadingBracket(title), null);
+            detailClues.retainAll(scopedRegions);
+            return detailClues.size() == 1 ? detailClues.iterator().next() : null;
+        }
+        if (regions.containsAll(REGION_MAP.values())) return "전국";
+
+        Set<String> clues = findRegionClues(title, agency);
+        if (clues.size() == 1) {
+            String region = clues.iterator().next();
+            return regions.contains(region) ? region : null;
+        }
+        return null;
+    }
+
+    private String resolveLeadingScope(String title) {
+        Set<String> scopedRegions = regionsForScope(leadingBracketScope(title));
+        if (scopedRegions.size() == 1) return scopedRegions.iterator().next();
+        if (scopedRegions.size() > 1) {
+            Set<String> detailClues = findRegionClues(textAfterLeadingBracket(title), null);
+            detailClues.retainAll(scopedRegions);
+            return detailClues.size() == 1 ? detailClues.iterator().next() : null;
+        }
+        return null;
+    }
+
+    private boolean hasNoRegionalEvidence(String hashtags, String title) {
+        if (!regionsForScope(leadingBracketScope(title)).isEmpty()) return false;
+        if (hashtags == null || hashtags.isBlank()) return true;
+        for (String tag : hashtags.split(",")) {
+            String trimmed = tag.trim();
+            if (REGION_MAP.containsKey(trimmed) || REGION_MAP.containsValue(trimmed)
+                    || "전남광주".equals(trimmed)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isReliableLocalRegion(String region) {
+        return region != null && RegionHierarchy.provincesOf(region).size() == 1;
+    }
+
+    private String leadingBracketScope(String title) {
+        if (title == null) return null;
+        String trimmed = title.stripLeading();
+        if (!trimmed.startsWith("[")) return null;
+        int closingBracket = trimmed.indexOf(']');
+        return closingBracket > 1 ? trimmed.substring(1, closingBracket).trim() : null;
+    }
+
+    private Set<String> regionsForScope(String scope) {
+        if (scope == null) return Set.of();
+        if (REGION_MAP.containsKey(scope)) return Set.of(REGION_MAP.get(scope));
+        if (REGION_MAP.containsValue(scope)) return Set.of(scope);
+        if (scope.equals("전남광주")) return Set.of("전라남도", "광주광역시");
+        return Set.of();
+    }
+
+    private String textAfterLeadingBracket(String title) {
+        String trimmed = title.stripLeading();
+        return trimmed.substring(trimmed.indexOf(']') + 1);
+    }
+
+    private Set<String> findRegionClues(String title, String agency) {
+        Set<String> clues = new HashSet<>();
+        if (title != null) {
+            for (String token : title.split("[^가-힣]+")) {
+                Set<String> provinces = RegionHierarchy.provincesOf(token);
+                if (provinces.size() == 1) clues.addAll(provinces);
+            }
+        }
+        Set<String> agencyRegions = RegionHierarchy.provincesOf(agency);
+        if (agencyRegions.size() == 1) clues.addAll(agencyRegions);
+        return clues;
     }
 
     // "2026-06-17 ~ 2026-07-10"를 " ~ "로 split. begin=true면 시작일, false면 종료일. 실패 시 null
@@ -141,19 +268,21 @@ public class PolicySyncService {
         if (period == null || !period.contains("~")) {
             return null;
         }
-        String[] parts = period.split("~");
+        String[] parts = period.split("~", -1);
         String target = begin ? parts[0] : (parts.length > 1 ? parts[1] : null);
         return parseDate(target);
     }
 
-    // "yyyy-MM-dd ..." 형태에서 날짜 부분만 LocalDate로. 실패 시 null (예외 던지지 않음)
+    // yyyy-MM-dd / yyyyMMdd 및 날짜 뒤 시간 지원. 실패 시 null (예외 던지지 않음)
     private LocalDate parseDate(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
         }
         try {
             String datePart = raw.trim().split("\\s+")[0]; // 날짜+시간이면 날짜 부분만
-            return LocalDate.parse(datePart, DATE_FORMATTER);
+            DateTimeFormatter formatter = datePart.matches("\\d{8}")
+                    ? DateTimeFormatter.BASIC_ISO_DATE : DateTimeFormatter.ISO_LOCAL_DATE;
+            return LocalDate.parse(datePart, formatter);
         } catch (Exception e) {
             return null; // 1건 파싱 실패가 전체 동기화를 막지 않도록 안전 처리
         }
@@ -172,6 +301,12 @@ public class PolicySyncService {
         if (url == null || url.isBlank()) {
             return null;
         }
-        return url.startsWith("http") ? url : BIZINFO_BASE_URL + url;
+        try {
+            URI absolute = URI.create(BIZINFO_BASE_URL + "/").resolve(url.trim());
+            return "https".equalsIgnoreCase(absolute.getScheme()) || "http".equalsIgnoreCase(absolute.getScheme())
+                    ? absolute.toString() : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 }

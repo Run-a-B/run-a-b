@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { isValidPassword } from "@/features/auth/signup";
+import axios from "axios";
 
 const EyeIcon = () => (
     <svg
@@ -36,7 +38,12 @@ const EyeOffIcon = () => (
     </svg>
 );
 
-const PASSWORD_REGEX = /^[A-Za-z0-9!@$*]{6,}$/;
+interface UserUpdatePayload {
+    name: string;
+    age: number | null;
+    currentPassword?: string;
+    newPassword?: string;
+}
 
 function MyInfoSkeleton() {
     return (
@@ -75,7 +82,7 @@ function MyInfoSkeleton() {
 }
 
 export default function MyInfoPage() {
-    const { user, login } = useAuth();
+    const { user, login, logout } = useAuth();
     const navigate = useNavigate();
     const [name, setName] = useState(user?.name ?? "");
     const [age, setAge] = useState(user?.age ? String(user.age) : "");
@@ -98,6 +105,8 @@ export default function MyInfoPage() {
             })
             .catch(() => {})
             .finally(() => setLoading(false));
+        // Fetch once on mount. Depending on user would loop because login updates that context value.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -112,8 +121,8 @@ export default function MyInfoPage() {
     const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
 
     const pwError =
-        pw.next.length > 0 && !PASSWORD_REGEX.test(pw.next)
-            ? "영어·숫자·특수문자(I@$*) 6자 이상이어야 해요"
+        pw.next.length > 0 && !isValidPassword(pw.next)
+            ? "영어·숫자·특수문자(!@$*) 6~20자여야 해요"
             : "";
     const pwMatchError =
         pw.confirm.length > 0 && pw.next !== pw.confirm
@@ -121,9 +130,9 @@ export default function MyInfoPage() {
             : "";
 
     async function handleSave() {
-        if (!user) return;
+        if (!user || pwError || (pw.next && pw.next !== pw.confirm)) return;
         try {
-            const body: any = {
+            const body: UserUpdatePayload = {
                 name,
                 age: age ? Number(age) : null,
             };
@@ -138,8 +147,11 @@ export default function MyInfoPage() {
             setPw({ current: "", next: "", confirm: "" });
             setIsPasswordOpen(false);
             setSaved(true);
-        } catch (err: any) {
-            alert(err.response?.data?.message || "저장에 실패했어요");
+        } catch (err: unknown) {
+            const message = axios.isAxiosError<{ message?: string }>(err)
+                ? err.response?.data?.message
+                : undefined;
+            alert(message || "저장에 실패했어요");
         }
     }
 
@@ -160,12 +172,14 @@ export default function MyInfoPage() {
 
         try {
             await api.delete("/api/v1/users/me");
-            // 토큰 제거 후 로그인 페이지로
-            localStorage.removeItem("access_token");
+            logout();
             alert("계정이 삭제되었어요. 그동안 이용해 주셔서 감사합니다. ^^ ");
             navigate("/login");
-        } catch (err: any) {
-            alert(err.response?.data?.message || "계정 삭제에 실패했어요");
+        } catch (err: unknown) {
+            const message = axios.isAxiosError<{ message?: string }>(err)
+                ? err.response?.data?.message
+                : undefined;
+            alert(message || "계정 삭제에 실패했어요");
         }
     }
 
@@ -410,7 +424,7 @@ export default function MyInfoPage() {
                                     </p>
                                 ) : (
                                     <p className="text-xs text-gray-400 mt-1.5">
-                                        영어·숫자·특수문자(I@$*) 6자 이상
+                                        영어·숫자·특수문자(!@$*) 6~20자
                                     </p>
                                 )}
                             </div>

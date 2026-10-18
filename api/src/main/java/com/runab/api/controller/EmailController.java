@@ -7,6 +7,7 @@ import com.runab.api.service.EmailService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/auth/email")
@@ -24,8 +25,8 @@ public class EmailController {
 
     // 인증코드 확인
     @PostMapping("/verify")
-    public ApiResponse<Void> verifyCode(@Valid @RequestBody EmailVerifyRequest request) {
-        emailService.verifyCode(request.getEmail(), request.getCode());
-        return ApiResponse.success("이메일 인증이 완료되었습니다");
+    public ApiResponse<Map<String, String>> verifyCode(@Valid @RequestBody EmailVerifyRequest request) {
+        String receipt = emailService.verifyCode(request.getEmail(), request.getCode());
+        return ApiResponse.success(Map.of("verification_token", receipt), "이메일 인증이 완료되었습니다");
     }
 }

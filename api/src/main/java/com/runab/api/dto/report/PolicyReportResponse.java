@@ -1,5 +1,7 @@
 package com.runab.api.dto.report;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -19,7 +21,7 @@ public class PolicyReportResponse {
 
     private String impactLabel;   // 예: "사업에 긍정적 영향"
     private String impactStyle;   // tailwind 클래스 (bg-*, text-*)
-    private String direction;     // "positive" | "negative" (프론트 긍정/부정 필터·영향도 표시 조건)
+    private String direction;     // "neutral" | "negative" | legacy "positive" (프론트 리포트 필터)
     private String summary;
     private List<String> details;
     private List<RelatedPolicy> relatedIds;   // "함께 신청하면 좋아요" — id+제목
@@ -39,8 +41,12 @@ public class PolicyReportResponse {
 
     @Getter
     @Builder
+    @JsonDeserialize(builder = RelatedPolicy.RelatedPolicyBuilder.class)
     public static class RelatedPolicy {
         private Long id;
         private String title;
+
+        @JsonPOJOBuilder(withPrefix = "")
+        public static class RelatedPolicyBuilder {}
     }
 }

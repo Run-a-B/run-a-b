@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { INDUSTRY_OPTIONS, REGION_OPTIONS, REVENUE_OPTIONS } from "@/features/business/options";
+import { isSignupBusinessValid } from "@/features/business/signup";
+import { createSignupSubmitter, getSignupErrors, isSignupAccountValid, needsNewEmailVerification } from "@/features/auth/signup";
 import api from "@/lib/api";
+import axios from "axios";
 
 const EyeIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -30,19 +34,15 @@ const ChevronIcon = () => (
   </svg>
 );
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PASSWORD_REGEX = /^[A-Za-z0-9!@$*]+$/;
 const RESEND_COOLDOWN = 60;
 
-const INDUSTRY_OPTIONS = ["음식점", "카페/베이커리", "의류/패션", "뷰티/미용", "교육", "IT/소프트웨어", "제조", "도소매", "기타"];
-const REGION_OPTIONS = ["서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종", "경기", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주"];
-const REVENUE_OPTIONS = ["1억 미만", "1억~3억", "3억~5억", "5억~10억", "10억 이상"];
+export const SIGNUP_REVENUE_OPTIONS = REVENUE_OPTIONS;
 const EMPLOYEE_OPTIONS = ["없음 (나 혼자)", "1~4명", "5~9명", "10~29명", "30명 이상"];
 
 const STEPS = ["내 정보", "이메일 인증", "사업 정보"];
 
 function SelectField({ value, onChange, placeholder, options, disabled }: {
-  value: string; onChange: (v: string) => void; placeholder: string; options: string[]; disabled?: boolean;
+  value: string; onChange: (v: string) => void; placeholder: string; options: readonly string[]; disabled?: boolean;
 }) {
   return (
     <div className="relative mt-2">
@@ -107,30 +107,48 @@ export default function Signup() {
   const [touched, setTouched] = useState({ name: false, email: false, age: false, password: false, confirmPassword: false });
 
   // Step 2 — 이메일 인증
-  const [mockCode] = useState("");
+  const [verification, setVerification] = useState<{ email: string; token: string } | null>(null);
   const [digits, setDigits] = useState<string[]>(Array(6).fill(""));
   const [codeError, setCodeError] = useState("");
   const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const digitRefs = useRef<(HTMLInputElement | null)[]>(Array(6).fill(null));
+  const [pendingAction, setPendingAction] = useState<"send" | "verify" | "signup" | null>(null);
+  const pendingRef = useRef(false);
+  const [submitSignup] = useState(() => createSignupSubmitter(api));
+  const busy = pendingAction !== null;
 
   // Step 3
   const [biz, setBiz] = useState({ status: "사업 중", industry: "", region: "", revenue: "", employees: "" });
 
   // ── Step 1 validation ──────────────────────────────────────────────
-  const errors = {
-    name: form.name.length > 0 && (form.name.length < 2 || form.name.length > 20) ? "2~20자로 입력해 주세요" : "",
-    email: form.email.length > 0 && !EMAIL_REGEX.test(form.email) ? "올바른 이메일 형식이 아니에요" : "",
-    age: form.age.length > 0 && (isNaN(Number(form.age)) || Number(form.age) < 1 || Number(form.age) > 120) ? "올바른 나이를 입력해 주세요" : "",
-    password: form.password.length > 0 && !PASSWORD_REGEX.test(form.password) ? "영어·숫자·특수문자(I@$*)만 사용 가능해요" : "",
-    confirmPassword: form.confirmPassword.length > 0 && form.password !== form.confirmPassword ? "비밀번호가 일치하지 않아요" : "",
-  };
+  const errors = getSignupErrors(form);
+  const step1Valid = isSignupAccountValid(form);
 
-  const step1Valid = Object.values(errors).every(e => e === "") &&
-    form.name.length >= 2 && EMAIL_REGEX.test(form.email) &&
-    PASSWORD_REGEX.test(form.password) && form.password === form.confirmPassword;
+  function beginAction(action: NonNullable<typeof pendingAction>) {
+    if (pendingRef.current) return false;
+    pendingRef.current = true;
+    setPendingAction(action);
+    return true;
+  }
+
+  function finishAction() {
+    pendingRef.current = false;
+    setPendingAction(null);
+  }
+
+  function resetVerification() {
+    setVerification(null);
+    setDigits(Array(6).fill(""));
+    setCodeError("");
+  }
 
   function handleChange(field: keyof typeof form, value: string) {
+    if (field === "email") {
+      resetVerification();
+      if (timerRef.current) clearInterval(timerRef.current);
+      setCooldown(0);
+    }
     setForm(prev => ({ ...prev, [field]: value }));
   }
 
@@ -166,28 +184,40 @@ export default function Signup() {
   async function handleStep1Submit(e: React.SyntheticEvent) {
     e.preventDefault();
     setTouched({ name: true, email: true, age: true, password: true, confirmPassword: true });
-    if (!step1Valid) return;
+    if (!step1Valid || !beginAction("send")) return;
+    resetVerification();
     try {
-      await api.post("/api/v1/auth/email/send", { email: form.email });
+      await api.post("/api/v1/auth/email/send", { email: form.email.trim() });
       resetDigits();
       setCodeError("");
       startCooldown();
       setStep(2);
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
-      alert(err.response?.data?.message || "인증 코드 발송에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "인증 코드 발송에 실패했어요");
+    } finally {
+      finishAction();
     }
   }
 
   async function handleResend() {
-    if (cooldown > 0) return;
+    if (cooldown > 0 || !beginAction("send")) return;
+    resetVerification();
     try {
-      await api.post("/api/v1/auth/email/send", { email: form.email });
+      await api.post("/api/v1/auth/email/send", { email: form.email.trim() });
       resetDigits();
       setCodeError("");
       startCooldown();
-    } catch (err: any) {
-      alert(err.response?.data?.message || "재발송에 실패했어요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      alert(message || "재발송에 실패했어요");
+    } finally {
+      finishAction();
     }
   }
 
@@ -217,16 +247,29 @@ export default function Signup() {
 
   async function handleVerifySubmit(e: React.SyntheticEvent) {
     e.preventDefault();
+    if (digits.join("").length !== 6 || !beginAction("verify")) return;
+    setVerification(null);
     try {
-      await api.post("/api/v1/auth/email/verify", {
-        email: form.email,
+      const response = await api.post("/api/v1/auth/email/verify", {
+        email: form.email.trim(),
         code: digits.join(""),
       });
+      const token = response.data.data?.verification_token;
+      if (typeof token !== "string" || !token) {
+        setCodeError("인증 정보를 확인하지 못했어요. 코드를 다시 확인해 주세요");
+        return;
+      }
+      setVerification({ email: form.email.trim(), token });
       setCodeError("");
       setStep(3);
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
-      setCodeError(err.response?.data?.message || "인증 코드가 올바르지 않아요");
+    } catch (err: unknown) {
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : undefined;
+      setCodeError(message || "인증 코드가 올바르지 않아요");
+    } finally {
+      finishAction();
     }
   }
 
@@ -234,7 +277,7 @@ export default function Signup() {
 
   // ── Step 3 ─────────────────────────────────────────────────────────
   const isRunning = biz.status === "사업 중";
-  const step3Valid = biz.industry !== "" && biz.region !== "";
+  const step3Valid = isSignupBusinessValid(biz);
 
   function handleBizChange(field: keyof typeof biz, value: string) {
     setBiz(prev => ({ ...prev, [field]: value }));
@@ -242,39 +285,32 @@ export default function Signup() {
 
   async function handleFinalSubmit(e: React.SyntheticEvent) {
     e.preventDefault();
-    if (!step3Valid) return;
+    if (!step1Valid || !step3Valid || !beginAction("signup")) return;
     try {
-      // 1단계: 회원가입 (TEMP 토큰 받음)
-      const signupRes = await api.post("/api/v1/auth/signup", {
-        name: form.name,
-        email: form.email,
-        age: form.age ? Number(form.age) : null,
-        password: form.password,
-        passwordConfirm: form.confirmPassword,
-      });
-      const tempToken = signupRes.data.data.temp_token;
-
-      // 2단계: 사업 정보 등록 (TEMP 토큰 헤더로, ACCESS 토큰 받음)
-      const bizRes = await api.post(
-        "/api/v1/auth/signup/business",
-        {
-          businessStatus: biz.status === "사업 중",
-          jobCategory: biz.industry,
-          region: biz.region,
-          annualRevenue: biz.revenue || null,
-          employeeCount: biz.employees || null,
-        },
-        { headers: { Authorization: `Bearer ${tempToken}` } }
-      );
+      const token = verification?.email === form.email.trim() ? verification.token : "";
+      const response = await submitSignup(form, biz, token);
 
       // ACCESS 토큰 저장 + 유저 정보 세팅
-      const { access_token, user } = bizRes.data.data;
+      const { access_token, user } = response.data.data;
       localStorage.setItem("access_token", access_token);
       login(user);
+      setVerification(null);
 
       navigate("/mypage");
-    } catch (err: any) {
-      alert(err.response?.data?.message || "회원가입에 실패했어요");
+    } catch (err: unknown) {
+      if (needsNewEmailVerification(err)) {
+        resetVerification();
+        setCodeError("이메일 인증이 만료되었거나 사용되었어요. 인증 코드를 다시 발송해 주세요");
+        setStep(2);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      const message = axios.isAxiosError<{ message?: string }>(err)
+        ? err.response?.data?.message
+        : err instanceof Error ? err.message : undefined;
+      alert(message || "회원가입에 실패했어요");
+    } finally {
+      finishAction();
     }
   }
 
@@ -286,7 +322,7 @@ export default function Signup() {
       {step === 1 && (
         <>
           <div className="bg-white rounded-2xl w-110 shadow-lg">
-            <form onSubmit={handleStep1Submit} className="flex flex-col p-8">
+            <form onSubmit={handleStep1Submit} aria-busy={busy} className="flex flex-col p-8">
               <span className="text-xs font-bold text-primary-600 tracking-widest uppercase">Step 1 / 3</span>
               <h3 className="font-extrabold text-2xl mt-3 leading-snug">
                 안녕하세요!<br /> 기본 정보를 입력해 주세요
@@ -298,7 +334,7 @@ export default function Signup() {
                 이름 (닉네임) <span className="text-red-500">*</span>
               </label>
               <input
-                type="text" id="name" value={form.name} placeholder="홍길동"
+                type="text" id="name" value={form.name} placeholder="홍길동" disabled={busy}
                 onChange={e => handleChange("name", e.target.value)}
                 onBlur={() => handleBlur("name")}
                 className={`mt-2 ${inputClass("name")}`}
@@ -315,7 +351,7 @@ export default function Signup() {
               {/* Age */}
               <label htmlFor="age" className="text-sm font-semibold mt-5">나이</label>
               <input
-                type="number" id="age" value={form.age} placeholder="예: 35" min={1} max={120}
+                type="number" id="age" value={form.age} placeholder="예: 35" min={1} max={120} step={1} disabled={busy}
                 onChange={e => handleChange("age", e.target.value)}
                 onBlur={() => handleBlur("age")}
                 className={`mt-2 ${inputClass("age")}`}
@@ -330,7 +366,7 @@ export default function Signup() {
                 이메일 <span className="text-red-500">*</span>
               </label>
               <input
-                type="email" id="email" value={form.email} placeholder="example@email.com"
+                type="email" id="email" value={form.email} placeholder="example@email.com" disabled={busy}
                 onChange={e => handleChange("email", e.target.value)}
                 onBlur={() => handleBlur("email")}
                 className={`mt-2 ${inputClass("email")}`}
@@ -343,7 +379,7 @@ export default function Signup() {
               </label>
               <div className="relative mt-2">
                 <input
-                  type={showPassword ? "text" : "password"} id="password" value={form.password}
+                  type={showPassword ? "text" : "password"} id="password" value={form.password} disabled={busy}
                   placeholder="비밀번호를 입력해 주세요"
                   onChange={e => handleChange("password", e.target.value)}
                   onBlur={() => handleBlur("password")}
@@ -356,7 +392,7 @@ export default function Signup() {
               </div>
               {touched.password && errors.password
                 ? <p className="text-xs text-red-500 mt-1.5">{errors.password}</p>
-                : <p className="text-xs text-gray-400 mt-1.5">영어·숫자·특수문자(I@$*)만 사용 가능</p>
+                : <p className="text-xs text-gray-400 mt-1.5">영어·숫자·특수문자(!@$*) 6~20자</p>
               }
 
               {/* Confirm password */}
@@ -365,7 +401,7 @@ export default function Signup() {
               </label>
               <div className="relative mt-2">
                 <input
-                  type={showConfirmPassword ? "text" : "password"} id="confirmPassword" value={form.confirmPassword}
+                  type={showConfirmPassword ? "text" : "password"} id="confirmPassword" value={form.confirmPassword} disabled={busy}
                   placeholder="비밀번호를 입력해 주세요"
                   onChange={e => handleChange("confirmPassword", e.target.value)}
                   onBlur={() => handleBlur("confirmPassword")}
@@ -383,9 +419,9 @@ export default function Signup() {
               <button
                 type="submit"
                 className="bg-primary-600 py-3.5 mt-8 text-white rounded-full font-semibold hover:bg-primary-700 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                disabled={!step1Valid && Object.values(touched).some(Boolean)}
+                disabled={busy || (!step1Valid && Object.values(touched).some(Boolean))}
               >
-                인증 코드 발송 →
+                {pendingAction === "send" ? "발송 중…" : "인증 코드 발송 →"}
               </button>
             </form>
           </div>
@@ -399,7 +435,7 @@ export default function Signup() {
       {/* ── STEP 2: 이메일 인증 ── */}
       {step === 2 && (
         <div className="bg-white rounded-2xl w-110 shadow-lg">
-          <form onSubmit={handleVerifySubmit} className="flex flex-col p-8">
+          <form onSubmit={handleVerifySubmit} aria-busy={busy} className="flex flex-col p-8">
             <span className="text-xs font-bold text-primary-600 tracking-widest uppercase">Step 2 / 3</span>
             <h3 className="font-extrabold text-2xl mt-3 leading-snug">이메일 인증</h3>
             <p className="text-sm text-gray-500 mt-2 leading-6">
@@ -417,6 +453,8 @@ export default function Signup() {
                   inputMode="numeric"
                   maxLength={1}
                   value={d}
+                  disabled={busy}
+                  aria-label={`인증 코드 ${i + 1}번째 자리`}
                   onChange={e => handleDigitChange(i, e.target.value)}
                   onKeyDown={e => handleDigitKeyDown(i, e)}
                   onPaste={handleDigitPaste}
@@ -430,10 +468,7 @@ export default function Signup() {
                 />
               ))}
             </div>
-            {codeError
-              ? <p className="text-xs text-red-500 mt-2">{codeError}</p>
-              : <p className="text-xs text-gray-300 mt-2">개발용 코드: {mockCode}</p>
-            }
+            {codeError && <p role="alert" className="text-xs text-red-500 mt-2">{codeError}</p>}
 
             {/* 재발송 */}
             <div className="flex items-center gap-1.5 mt-5">
@@ -441,27 +476,28 @@ export default function Signup() {
               <button
                 type="button"
                 onClick={handleResend}
-                disabled={cooldown > 0}
+                disabled={busy || cooldown > 0}
                 className="text-xs font-semibold text-primary-600 hover:underline disabled:text-gray-300 disabled:cursor-default"
               >
-                {cooldown > 0 ? `${cooldown}초 후 재발송` : "재발송하기"}
+                {pendingAction === "send" ? "발송 중…" : cooldown > 0 ? `${cooldown}초 후 재발송` : "재발송하기"}
               </button>
             </div>
 
             <div className="flex gap-3 mt-8">
               <button
                 type="button"
-                onClick={() => setStep(1)}
+                onClick={() => { resetVerification(); setStep(1); }}
+                disabled={busy}
                 className="flex-1 py-3.5 rounded-full font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors"
               >
                 ← 이전
               </button>
               <button
                 type="submit"
-                disabled={digits.join("").length !== 6}
+                disabled={busy || digits.join("").length !== 6}
                 className="grow-2 py-3.5 rounded-full font-semibold text-white bg-primary-600 hover:bg-primary-700 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
               >
-                인증 완료 →
+                {pendingAction === "verify" ? "확인 중…" : "인증 완료 →"}
               </button>
             </div>
           </form>
@@ -471,7 +507,7 @@ export default function Signup() {
       {/* ── STEP 3: 사업 정보 ── */}
       {step === 3 && (
         <div className="bg-white rounded-2xl w-110 shadow-lg">
-          <form onSubmit={handleFinalSubmit} className="flex flex-col p-8">
+          <form onSubmit={handleFinalSubmit} aria-busy={busy} className="flex flex-col p-8">
             <div className="bg-primary-50 rounded-xl px-4 py-3 flex items-center gap-3 mb-5">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-primary-500 shrink-0">
                 <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
@@ -496,7 +532,7 @@ export default function Signup() {
             </label>
             <div className="grid grid-cols-2 gap-0 mt-2 border border-gray-200 rounded-xl overflow-hidden">
               {["사업 중", "사업 준비 중"].map(status => (
-                <button key={status} type="button" onClick={() => handleBizChange("status", status)}
+                <button key={status} type="button" onClick={() => handleBizChange("status", status)} disabled={busy}
                   className={`py-3 text-sm font-semibold transition-colors ${
                     biz.status === status
                       ? "bg-white text-primary-600 border-2 border-primary-500 rounded-xl -m-px z-10"
@@ -511,35 +547,37 @@ export default function Signup() {
             <label className="text-sm font-semibold mt-5">
               직군 (업종) <span className="text-red-500">*</span>
             </label>
-            <SelectField value={biz.industry} onChange={v => handleBizChange("industry", v)} placeholder="업종을 선택해 주세요" options={INDUSTRY_OPTIONS} />
+            <SelectField value={biz.industry} onChange={v => handleBizChange("industry", v)} placeholder="업종을 선택해 주세요" options={INDUSTRY_OPTIONS} disabled={busy} />
 
             <label className="text-sm font-semibold mt-5">
               지역 <span className="text-red-500">*</span>
             </label>
-            <SelectField value={biz.region} onChange={v => handleBizChange("region", v)} placeholder="지역을 선택해 주세요" options={REGION_OPTIONS} />
+            <SelectField value={biz.region} onChange={v => handleBizChange("region", v)} placeholder="지역을 선택해 주세요" options={REGION_OPTIONS} disabled={busy} />
 
             <label className="text-sm font-semibold mt-5 flex items-center gap-2">
               연 매출
+              {isRunning && <span className="text-red-500">*</span>}
               {isRunning && <span className="text-xs bg-primary-100 text-primary-600 font-semibold px-2 py-0.5 rounded-full">사업 중 전용</span>}
             </label>
-            <SelectField value={biz.revenue} onChange={v => handleBizChange("revenue", v)} placeholder="연 매출 범위를 선택해 주세요" options={REVENUE_OPTIONS} disabled={!isRunning} />
-            <p className="text-xs text-gray-400 mt-1.5">AI 분석 정확도 향상을 위해 입력해 주세요 (선택)</p>
+            <SelectField value={biz.revenue} onChange={v => handleBizChange("revenue", v)} placeholder="연 매출 범위를 선택해 주세요" options={SIGNUP_REVENUE_OPTIONS} disabled={busy || !isRunning} />
+            <p className="text-xs text-gray-400 mt-1.5">AI 분석 정확도 향상을 위해 입력해 주세요 (사업 중 필수)</p>
 
             <label className="text-sm font-semibold mt-5 flex items-center gap-2">
               직원 수 (본인 제외)
+              {isRunning && <span className="text-red-500">*</span>}
               {isRunning && <span className="text-xs bg-primary-100 text-primary-600 font-semibold px-2 py-0.5 rounded-full">사업 중 전용</span>}
             </label>
-            <SelectField value={biz.employees} onChange={v => handleBizChange("employees", v)} placeholder="직원 수를 선택해 주세요" options={EMPLOYEE_OPTIONS} disabled={!isRunning} />
-            <p className="text-xs text-gray-400 mt-1.5">최저임금 영향도 등 인건비 관련 분석에 사용돼요 (선택)</p>
+            <SelectField value={biz.employees} onChange={v => handleBizChange("employees", v)} placeholder="직원 수를 선택해 주세요" options={EMPLOYEE_OPTIONS} disabled={busy || !isRunning} />
+            <p className="text-xs text-gray-400 mt-1.5">최저임금 영향도 등 인건비 관련 분석에 사용돼요 (사업 중 필수)</p>
 
             <div className="flex gap-3 mt-8">
-              <button type="button" onClick={() => setStep(2)}
+              <button type="button" onClick={() => { resetVerification(); setStep(2); }} disabled={busy}
                 className="flex-1 py-3.5 rounded-full font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 transition-colors">
                 ← 이전
               </button>
-              <button type="submit" disabled={!step3Valid}
+              <button type="submit" disabled={busy || !step3Valid || !verification}
                 className="grow-2 py-3.5 rounded-full font-semibold text-white bg-primary-600 hover:bg-primary-700 hover:-translate-y-0.5 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0">
-                가입 완료!
+                {pendingAction === "signup" ? "가입 중…" : "가입 완료!"}
               </button>
             </div>
           </form>

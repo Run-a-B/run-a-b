@@ -23,8 +23,8 @@ import java.util.Set;
 
 /**
  * "신청 준비하기" 체크리스트 조립.
- * ⚠️ 신청 서류는 틀리면 사용자에게 피해를 주므로 AI 자유생성 금지 — 정적 공통 템플릿 + policy_card의 데이터 기반 항목만 조립한다.
- * 우선순위: (1) 공통 서류(하드코딩) → (2) policy_card.eligibility.required_flags/documents(extractor가 채운 값) → 데이터 없어도 (1)은 항상 반환.
+ * ⚠️ 신청 서류는 틀리면 사용자에게 피해를 주므로 AI 자유생성 금지 — 정적 공통 준비 권장 + policy_card의 문서 언급만 조립한다.
+ * 우선순위: (1) 공통 준비 권장(하드코딩) → (2) policy_card.eligibility.documents(extractor가 채운 값) → 데이터 없어도 (1)은 항상 반환.
  */
 @Slf4j
 @Service
@@ -34,13 +34,13 @@ public class PolicyChecklistService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy.MM.dd");
 
-    // 대부분의 소상공인/중소기업 지원사업 공통 필수 서류 (정적 템플릿). 카드 데이터가 없어도 항상 제공된다.
+    // 대부분의 소상공인/중소기업 지원사업에 일반적으로 준비하면 좋은 서류. 정책별 필수 서류로 단정하지 않는다.
     private static final List<PolicyChecklistResponse.ChecklistItem> COMMON_DOCS = List.of(
-            item("biz_reg", "사업자등록증", true, "최근 3개월 이내 발급본 권장"),
-            item("application_form", "신청서", true, "공고문에 첨부된 지정 양식으로 작성"),
-            item("biz_plan", "사업계획서", true, "지원 목적·활용 계획 포함"),
-            item("bank_copy", "통장 사본", true, "사업자 명의 계좌"),
-            item("privacy_consent", "개인정보 수집·이용 동의서", true, null)
+            item("biz_reg", "사업자등록증", false, "일반적으로 준비하면 좋은 서류예요. 최근 3개월 이내 발급본을 권장해요."),
+            item("application_form", "신청서", false, "일반적으로 준비하면 좋은 서류예요. 공고문에 첨부된 지정 양식을 확인해 주세요."),
+            item("biz_plan", "사업계획서", false, "일반적으로 준비하면 좋은 서류예요. 지원 목적과 활용 계획을 정리해 보세요."),
+            item("bank_copy", "통장 사본", false, "일반적으로 준비하면 좋은 서류예요. 사업자 명의 계좌인지 확인해 주세요."),
+            item("privacy_consent", "개인정보 수집·이용 동의서", false, "일반적으로 준비하면 좋은 서류예요. 원문 공고의 제출 여부를 확인해 주세요.")
     );
 
     private final PolicyRepository policyRepository;
@@ -69,7 +69,7 @@ public class PolicyChecklistService {
                 .build();
     }
 
-    // policy_card.eligibility의 required_flags / documents 배열을 체크리스트 항목으로 변환. 없으면 빈 리스트.
+    // policy_card.eligibility.documents 배열만 체크리스트 항목으로 변환. required_flags는 문서가 아니므로 표시하지 않는다.
     private List<PolicyChecklistResponse.ChecklistItem> extractCardDocs(PolicyCard card) {
         List<PolicyChecklistResponse.ChecklistItem> result = new ArrayList<>();
         JsonNode elig = parseEligibility(card);
@@ -78,21 +78,23 @@ public class PolicyChecklistService {
         Set<String> seen = new LinkedHashSet<>();
         COMMON_DOCS.forEach(c -> seen.add(normalize(c.getLabel())));
 
+        JsonNode documents = elig.path("documents");
+        if (!documents.isArray()) return result;
+
         int idx = 0;
-        for (String field : new String[]{"documents", "required_flags"}) {
-            JsonNode arr = elig.path(field);
-            if (!arr.isArray()) continue;
-            for (JsonNode n : arr) {
-                String label = n.asText("").trim();
-                if (label.isEmpty() || !seen.add(normalize(label))) continue; // 빈값·중복 제외
-                result.add(item("card_" + field + "_" + idx++, label, true, "공고문 자격요건에서 추출됨"));
-            }
+        for (JsonNode document : documents) {
+            if (!document.isTextual()) continue;
+            String label = document.asText().trim();
+            if (label.isEmpty() || !seen.add(normalize(label))) continue; // 빈값·중복 제외
+            result.add(item("card_document_" + idx++, label, false,
+                    "공고문에 언급된 서류예요. 필수 여부는 원문을 확인해 주세요."));
         }
         return result;
     }
 
     private JsonNode parseEligibility(PolicyCard card) {
-        if (card == null || card.getFullJson() == null || card.getFullJson().isBlank()) {
+        if (card == null || !isUsableExtraction(card.getExtractionStatus())
+                || card.getFullJson() == null || card.getFullJson().isBlank()) {
             return JsonNodeFactory.instance.objectNode();
         }
         try {
@@ -102,6 +104,11 @@ public class PolicyChecklistService {
                     card.getPolicyId(), e.getMessage());
             return JsonNodeFactory.instance.objectNode();
         }
+    }
+
+    private boolean isUsableExtraction(String extractionStatus) {
+        return "extracted".equals(extractionStatus)
+                || "partially_extracted".equals(extractionStatus);
     }
 
     // 담당 부서 우선, 없으면 주관 기관, 그것도 없으면 지역
@@ -118,9 +125,12 @@ public class PolicyChecklistService {
     }
 
     private String formatPeriod(Policy policy) {
+        if (policy.getOriginalApplicationPeriod() != null && !policy.getOriginalApplicationPeriod().isBlank()) {
+            return policy.getOriginalApplicationPeriod().trim();
+        }
         String start = policy.getApplicationStartDate() != null ? policy.getApplicationStartDate().format(DATE_FORMATTER) : "";
         String end = policy.getApplicationEndDate() != null ? policy.getApplicationEndDate().format(DATE_FORMATTER) : "";
-        if (start.isEmpty() && end.isEmpty()) return "상시 / 공고문 참조";
+        if (start.isEmpty() && end.isEmpty()) return "기간 정보 없음 — 원문 공고 확인";
         return start + " ~ " + end;
     }
 

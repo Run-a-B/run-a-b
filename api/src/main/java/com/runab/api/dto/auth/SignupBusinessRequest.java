@@ -20,6 +20,6 @@ public class SignupBusinessRequest {
     @NotBlank(message = "지역을 선택해주세요")
     private String region;            // "서울", "부산" 등
 
-    private String annualRevenue;     // "1억 미만" 같은 텍스트 (사업 중일 때만)
-    private String employeeCount;    // 1, 2, 3, ... 숫자 (선택, 사업 중일 때만)
+    private String annualRevenue;     // "1억원~3억원" 같은 구간 텍스트 (사업 중일 때만)
+    private String employeeCount;     // "1~4명" 같은 구간 텍스트 (사업 중일 때만)
 }
