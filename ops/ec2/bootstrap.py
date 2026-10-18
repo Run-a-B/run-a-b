@@ -209,8 +209,8 @@ class Bootstrap:
                   "--env", "MYSQL_PASSWORD_FILE=/run/runab-secrets/app-password", digest, *MYSQL_OPTIONS])
         self.wait_database()
         # Application uses DML only; reviewed schema is installed separately by root.
-        self.sql("REVOKE ALL PRIVILEGES ON `runab_db`.* FROM 'runab_app'@'%';\n"
-                 "GRANT SELECT, INSERT, UPDATE, DELETE ON `runab_db`.* TO 'runab_app'@'%';\n")
+        self.sql("REVOKE IF EXISTS ALL PRIVILEGES ON `runab\\_db`.* FROM 'runab_app'@'%';\n"
+                 "GRANT SELECT, INSERT, UPDATE, DELETE ON `runab\\_db`.* TO 'runab_app'@'%';\n")
         self.run(["nginx", "-t"])
         self.run(["systemctl", "daemon-reload"])
         self.run(["systemctl", "enable", "--now", "nginx"])

@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -320,6 +321,40 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(["network_ready", "socket_authentication_failed"], operations)
         self.assertFalse(self.nginx_active)
         self.assertFalse((self.root / "etc/runab/bootstrap.json").exists())
+
+    def apply_with_database_grant_fixture(self, existing_grant):
+        # Model the real 8.4 boundary observed in the disposable SQL probe: the
+        # image creates an escaped database-pattern grant; missing grants make a
+        # plain REVOKE fail, and unescaped '_' would widen a subsequent GRANT.
+        state = {"grant_present": existing_grant, "crud_only": False}
+
+        def grant_runner(args, *, input=None, allow_failure=False):
+            if "mysql" in args and input and "REVOKE " in input:
+                statements = input.splitlines()
+                self.assertEqual(2, len(statements))
+                revoke = re.fullmatch(r"REVOKE (IF EXISTS )?ALL PRIVILEGES ON `([^`]+)`\.\* FROM 'runab_app'@'%';", statements[0])
+                self.assertIsNotNone(revoke)
+                if revoke[2] != r"runab\_db" or (not state["grant_present"] and not revoke[1]):
+                    raise RuntimeError("MySQL 1141: no matching database-pattern grant")
+                state["grant_present"] = False
+                grant = re.fullmatch(r"GRANT SELECT, INSERT, UPDATE, DELETE ON `([^`]+)`\.\* TO 'runab_app'@'%';", statements[1])
+                self.assertIsNotNone(grant)
+                if grant[1] != r"runab\_db":
+                    raise RuntimeError("unescaped wildcard would grant access to similarly named databases")
+                state.update(grant_present=True, crud_only=True)
+            return self.runner(args, input=input, allow_failure=allow_failure)
+
+        tool = self.module().Bootstrap(self.root, grant_runner, free_bytes=6 * 1024**3)
+        tool.apply("run-a-b.com")
+        self.assertEqual({"grant_present": True, "crud_only": True}, state)
+        self.assertTrue(self.nginx_active)
+        self.assertTrue((self.root / "etc/runab/bootstrap.json").is_file())
+
+    def test_apply_matches_image_escaped_database_pattern_without_wildcard_grants(self):
+        self.apply_with_database_grant_fixture(existing_grant=True)
+
+    def test_apply_privileges_complete_after_a_previous_revoke_left_no_grant(self):
+        self.apply_with_database_grant_fixture(existing_grant=False)
 
 
 if __name__ == "__main__":
