@@ -239,10 +239,12 @@ class PolicySyncServiceTest {
             "서울,부산|광양시 기업 지원|중앙부처|NULL",
             "서울,부산,경기도|대구 국제 행사|중앙부처|경기도",
             BROAD_REGION_TAGS + ",경기도,제주특별자치도|기업 지원|중앙부처|NULL",
+            BROAD_REGION_TAGS + ",경기도,제주특별자치도|[부산] 기업 지원|중앙부처|NULL",
+            BROAD_REGION_TAGS + "|전국 기업 대상 서울 전시회 참가 지원|서울특별시|전국",
             "기술,서울,부산,대구,인천,전남광주,대전,울산,세종,경기,강원,충북,충남,전북,경북,경남|기업 지원|중앙부처|NULL",
             "전남광주,부산|광양시 기업 지원|중앙부처|전라남도",
             "서울,서울,서울특별시|기업 지원|중앙부처|서울특별시",
-            BROAD_REGION_TAGS + "|대구국제기계산업대전...|경기도|경기도"
+            BROAD_REGION_TAGS + "|대구국제기계산업대전...|경기도|전국"
     }, delimiter = '|', nullValues = "NULL")
     void resolvesTheWholeRegionalEvidenceSetInsteadOfTheFirstTag(String tags, String title,
                                                                  String agency, String expectedRegion) throws Exception {

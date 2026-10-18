@@ -170,16 +170,17 @@ public class PolicySyncService {
             }
         }
         if (regions.isEmpty()) return "전국";
-        if (regions.size() == 1) return regions.iterator().next();
         if (formalRegions.size() == 1) return formalRegions.iterator().next();
+        if (formalRegions.size() > 1) return null;
+        if (regions.size() == 1) return regions.iterator().next();
+        if (regions.containsAll(REGION_MAP.values())) return "전국";
 
         Set<String> clues = findRegionClues(title, agency);
         if (clues.size() == 1) {
             String region = clues.iterator().next();
             return regions.contains(region) ? region : null;
         }
-        if (!clues.isEmpty()) return null;
-        return formalRegions.isEmpty() && regions.containsAll(REGION_MAP.values()) ? "전국" : null;
+        return null;
     }
 
     private Set<String> findRegionClues(String title, String agency) {
