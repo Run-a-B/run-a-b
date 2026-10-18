@@ -4,10 +4,27 @@ import com.runab.api.entity.Policy;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class PolicyIndustryFallbackMatcherTest {
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "사업자등록증(도매 및 소매업, 숙박 및 음식점업 등) 소지자",
+            "서울시 내 외식업체에 맞춤형 컨설팅을 제공합니다",
+            "지원대상: 서울시 내 일반ㆍ휴게음식점",
+            "지원한도: 중소기업 2억 원, 소상공인 7천만 원, 음식점업 5천만 원 이내"
+    })
+    void liveCafeEligibilityAndBenefitPhrasesAreAffirmativeTargets(String description) {
+        Policy policy = Policy.builder().externalId("PBLN_LIVE_CAFE").industry("전체")
+                .title("서울시 소상공인 지원").targetGroup("중소기업")
+                .description(description).build();
+
+        assertThat(PolicyIndustryFallbackMatcher.evaluate(policy, "카페/베이커리"))
+                .isEqualTo(MatchStatus.PASS);
+    }
 
     @Test
     void selectedIndustryExclusionMustBeBoundToTheIndustryPhrase() {

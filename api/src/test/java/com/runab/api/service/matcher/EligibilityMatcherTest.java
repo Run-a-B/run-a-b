@@ -322,6 +322,45 @@ class EligibilityMatcherTest {
     }
 
     @Test
+    void liveCafePoliciesRecoverTheirRecommendationScoresFromAffirmativeText() {
+        BusinessInfo demoCafe = user(true, "카페/베이커리", "서울특별시", 30_000_000L, 7);
+        Policy fund = Policy.builder()
+                .externalId("PBLN_000000000127044")
+                .title("[서울] 은평구 2026년 4분기 중소기업육성기금 융자지원 계획 수정 공고")
+                .targetGroup("중소기업")
+                .description("지원한도 : 중소기업 2억 원, 소상공인 7천만 원, 음식점업 5천만 원 이내")
+                .region("서울특별시").industry("전체")
+                .applicationStartDate(LocalDate.now().minusDays(6))
+                .applicationEndDate(LocalDate.now().plusDays(5))
+                .build();
+        Policy zeroMarket = Policy.builder()
+                .externalId("PBLN_000000000123336")
+                .title("[서울] 2026년 2차 서울제로마켓 활성화 사업 참여자 모집 공고")
+                .targetGroup("중소기업")
+                .description("물품 판매 또는 음식 조리ㆍ판매가 가능한 사업자등록증"
+                        + "(도매 및 소매업, 숙박 및 음식점업 등) 소지자")
+                .region("서울특별시").industry("전체").build();
+        Policy consulting = Policy.builder()
+                .externalId("PBLN_000000000122153")
+                .title("[서울] 외식업 경영혁신 컨설팅 지원사업 컨설팅 참여업소 모집 공고")
+                .targetGroup("중소기업")
+                .description("서울시 내 외식업체에 맞춤형 컨설팅을 제공합니다. "
+                        + "지원대상: 서울시 내 일반ㆍ휴게음식점")
+                .region("서울특별시").industry("전체").build();
+
+        MatchResult fundResult = matcher.match(demoCafe, null, fund);
+        MatchResult zeroMarketResult = matcher.match(demoCafe, null, zeroMarket);
+        MatchResult consultingResult = matcher.match(demoCafe, null, consulting);
+
+        assertThat(fundResult.getPass()).contains("industry");
+        assertThat(zeroMarketResult.getPass()).contains("industry");
+        assertThat(consultingResult.getPass()).contains("industry");
+        assertThat(fundResult.getScore()).isEqualTo(85);
+        assertThat(zeroMarketResult.getScore()).isEqualTo(77);
+        assertThat(consultingResult.getScore()).isEqualTo(77);
+    }
+
+    @Test
     void cardDateBoundsOverrideStoredDatesAndStaleStatus() {
         LocalDate today = LocalDate.now();
         MatchResult result = matcher.match(user(true, "카페/음료", "서울특별시", null, null),

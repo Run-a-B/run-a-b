@@ -15,7 +15,8 @@ import java.util.stream.Stream;
 public final class PolicyIndustryFallbackMatcher {
 
     private static final Map<String, List<String>> KEYWORDS = Map.of(
-            "음식점업", List.of("음식점업", "외식업", "외식 업체", "외식업체", "식품접객업", "식당 사업자"),
+            "음식점업", List.of("음식점업", "외식업", "외식 업체", "외식업체", "식품접객업",
+                    "일반음식점", "휴게음식점", "식당 사업자"),
             "카페/음료", List.of("카페", "커피전문점", "음료업", "제과점", "제빵업", "베이커리", "디저트점"),
             "의류/패션", List.of("의류업", "의류 기업", "패션기업", "패션 기업", "봉제업", "섬유기업", "신발업", "가죽제품"),
             "뷰티/미용", List.of("미용업", "미용 사업자", "뷰티기업", "뷰티 기업", "화장품기업", "화장품 기업", "헤어샵", "네일샵"),
@@ -41,11 +42,18 @@ public final class PolicyIndustryFallbackMatcher {
                     + "(?:지원\\s*)?(?:제외|비대상|불가|대상(?:이)?\\s*(?:아님|아니)|하지\\s*않)");
     private static final Pattern EXCLUSION_BEFORE_KEYWORD = Pattern.compile(
             "(?:제외|비대상|지원\\s*불가)\\s*(?:대상|업종)?\\s*[:：]?\\s*$");
-    private static final Pattern TARGET_PREFIX = Pattern.compile("(?:지원|신청|참여|모집)\\s*대상\\s*[:：]?\\s*$");
+    private static final Pattern TARGET_PREFIX = Pattern.compile(
+            "(?:지원|신청|참여|모집)\\s*대상\\s*(?:[:：]\\s*[^.!?;\\n,]{0,50})?\\s*$");
     private static final Pattern TARGET_SUFFIX = Pattern.compile(
             "^\\s*(?:전용|대상|(?:사업자|기업|업체)?(?:을|를|에게)\\s*지원|(?:사업자|기업|업체)\\s*지원)");
     private static final Pattern OPERATING_TARGET_SUFFIX = Pattern.compile(
             "^\\s*(?:을|를)?\\s*(?:운영|경영)하는\\s+(?:소상공인|사업자|기업|업체)");
+    private static final Pattern QUALIFICATION_HOLDER_SUFFIX = Pattern.compile(
+            "^\\s*(?:등\\s*[)）]?\\s*)?소지자");
+    private static final Pattern CUSTOMIZED_SUPPORT_SUFFIX = Pattern.compile(
+            "^\\s*(?:에|에게)\\s+맞춤형\\s+(?:컨설팅|상담)(?:을|를)?(?:\\s*(?:제공|지원))?");
+    private static final Pattern INDUSTRY_LIMIT_SUFFIX = Pattern.compile(
+            "^\\s*\\d[\\d,.]*(?:천|만|억)*\\s*원\\s*이내");
     private static final Pattern TARGET_GROUP_SUFFIX = Pattern.compile("\\s*(?:사업자|기업|업체|소상공인|중소기업)?\\s*");
     private static final Pattern NOMINAL_SUPPORT_SUFFIX = Pattern.compile(
             "\\s+(?:[\\p{L}\\p{N}·/()-]+\\s+){0,4}(?:지원(?:사업)?|개선|향상|육성)\\s*");
@@ -131,7 +139,10 @@ public final class PolicyIndustryFallbackMatcher {
                     && ((targetGroup && TARGET_GROUP_SUFFIX.matcher(after).matches())
                     || TARGET_PREFIX.matcher(before).find()
                     || TARGET_SUFFIX.matcher(after).find()
-                    || OPERATING_TARGET_SUFFIX.matcher(after).find());
+                    || OPERATING_TARGET_SUFFIX.matcher(after).find()
+                    || QUALIFICATION_HOLDER_SUFFIX.matcher(after).find()
+                    || CUSTOMIZED_SUPPORT_SUFFIX.matcher(after).find()
+                    || INDUSTRY_LIMIT_SUFFIX.matcher(after).find());
             boolean nominalTarget = index == 0 && !NON_TARGET_CONTEXT.matcher(clause).find()
                     && NOMINAL_SUPPORT_SUFFIX.matcher(after).matches();
             if (directTarget || nominalTarget) {
