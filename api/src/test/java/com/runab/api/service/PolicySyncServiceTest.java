@@ -254,6 +254,20 @@ class PolicySyncServiceTest {
         assertThat(policy.getRegion()).isEqualTo(expectedRegion);
     }
 
+    @ParameterizedTest
+    @CsvSource(value = {
+            BROAD_REGION_TAGS + "|[서울] 소상공인 지원|서울특별시",
+            BROAD_REGION_TAGS + "|[전남광주] 강진군 소상공인 지원|전라남도",
+            BROAD_REGION_TAGS + "|[전남광주] 소상공인 지원|NULL"
+    }, delimiter = '|', nullValues = "NULL")
+    void leadingBracketScopeCanNarrowCompleteRegionalTagsWhenUnambiguous(String tags, String title,
+                                                                          String expectedRegion) throws Exception {
+        Policy policy = sync(payload().put("hashtags", tags).put("pblancNm", title).put("jrsdInsttNm", "중앙부처")
+                .without("hashTags"));
+
+        assertThat(policy.getRegion()).isEqualTo(expectedRegion);
+    }
+
     @Test
     void resyncCorrectsStoredFirstTagRegionWithoutDuplicatingOrLosingSource() throws Exception {
         Policy initial = sync(payload().put("hashTags", "서울").put("description", "<p>기존 공식 원문</p>"));

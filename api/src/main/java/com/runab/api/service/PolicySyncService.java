@@ -173,6 +173,19 @@ public class PolicySyncService {
         if (formalRegions.size() == 1) return formalRegions.iterator().next();
         if (formalRegions.size() > 1) return null;
         if (regions.size() == 1) return regions.iterator().next();
+
+        // 제목 선두의 [지역]만 공고 범위로 본다. 제목 중간이나 기관명은 전국 태그를 좁히지 않는다.
+        String leadingScope = leadingBracketScope(title);
+        Set<String> scopedRegions = regionsForScope(leadingScope);
+        if (!scopedRegions.isEmpty()) {
+            scopedRegions = new HashSet<>(scopedRegions);
+            scopedRegions.retainAll(regions);
+            if (scopedRegions.size() == 1) return scopedRegions.iterator().next();
+
+            Set<String> detailClues = findRegionClues(textAfterLeadingBracket(title), null);
+            detailClues.retainAll(scopedRegions);
+            return detailClues.size() == 1 ? detailClues.iterator().next() : null;
+        }
         if (regions.containsAll(REGION_MAP.values())) return "전국";
 
         Set<String> clues = findRegionClues(title, agency);
@@ -181,6 +194,27 @@ public class PolicySyncService {
             return regions.contains(region) ? region : null;
         }
         return null;
+    }
+
+    private String leadingBracketScope(String title) {
+        if (title == null) return null;
+        String trimmed = title.stripLeading();
+        if (!trimmed.startsWith("[")) return null;
+        int closingBracket = trimmed.indexOf(']');
+        return closingBracket > 1 ? trimmed.substring(1, closingBracket).trim() : null;
+    }
+
+    private Set<String> regionsForScope(String scope) {
+        if (scope == null) return Set.of();
+        if (REGION_MAP.containsKey(scope)) return Set.of(REGION_MAP.get(scope));
+        if (REGION_MAP.containsValue(scope)) return Set.of(scope);
+        if (scope.equals("전남광주")) return Set.of("전라남도", "광주광역시");
+        return Set.of();
+    }
+
+    private String textAfterLeadingBracket(String title) {
+        String trimmed = title.stripLeading();
+        return trimmed.substring(trimmed.indexOf(']') + 1);
     }
 
     private Set<String> findRegionClues(String title, String agency) {
