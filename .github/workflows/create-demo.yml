@@ -1,0 +1,55 @@
+name: Create one ordinary production demo account
+on:
+  push:
+    branches: [codex/ec2-preflight-20261019]
+    paths: ['.github/workflows/create-demo.yml']
+permissions:
+  contents: read
+concurrency:
+  group: runab-production
+  cancel-in-progress: false
+jobs:
+  create-demo:
+    if: github.ref == 'refs/heads/codex/ec2-preflight-20261019' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install SSH client
+        run: sudo apt-get update -qq && sudo apt-get install -y sshpass
+      - name: Insert only the synthetic demo identity
+        env:
+          SSHPASS: ${{ secrets.EC2_PASSWORD }}
+          EC2_KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+          DEMO_PASSWORD_HASH: ${{ secrets.RUNAB_DEMO_HASH_20261019 }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/codex/ec2-preflight-20261019 ]] || exit 1
+          : "${SSHPASS:?EC2 password is required}"
+          : "${EC2_KNOWN_HOSTS:?Pinned host is required}"
+          : "${DEMO_PASSWORD_HASH:?One-shot demo hash is required}"
+          install -d -m 700 "$HOME/.ssh"
+          install -m 600 /dev/null "$HOME/.ssh/known_hosts"
+          printf '%s\n' "$EC2_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          ssh-keygen -F 43.201.103.134 -f "$HOME/.ssh/known_hosts" > /dev/null
+          python3 - <<'PY'
+          import base64, os, re, subprocess, sys
+          try:
+              password_hash = os.environ['DEMO_PASSWORD_HASH']
+              assert re.fullmatch(r'\$2[aby]\$12\$[./A-Za-z0-9]{53}', password_hash)
+              source = base64.b64decode('IiIiT25lLXNob3QsIGluc2VydC1vbmx5IHByb3Zpc2lvbmluZyBvZiB0aGUgb3duZXIncyBzeW50aGV0aWMgZGVtbyBhY2NvdW50LiIiIgppbXBvcnQgZmNudGwKaW1wb3J0IGpzb24KaW1wb3J0IG9zCmZyb20gcGF0aGxpYiBpbXBvcnQgUGF0aAppbXBvcnQgcmUKaW1wb3J0IHN0YXQKaW1wb3J0IHN1YnByb2Nlc3MKaW1wb3J0IHN5cwoKRVhQRUNURURfU0hBID0gJ2ExMDFiOTE0ZTJjNTJhNmE5MjZmOTQzOGY3N2Y0NDdmOTg0ZWJjM2YnCkVNQUlMID0gJ2RlbW9AcnVuYWIubG9jYWwnCk1ZU1FMID0gWydkb2NrZXInLCAnZXhlYycsICctaScsICctLXVzZXInLCAnMCcsICdydW5hYi1teXNxbCcsICdteXNxbCcsCiAgICAgICAgICctLWRlZmF1bHRzLWV4dHJhLWZpbGU9L3J1bi9ydW5hYi1zZWNyZXRzL3Jvb3QtY2xpZW50LmNuZicsICctLXByb3RvY29sPVNPQ0tFVCcsCiAgICAgICAgICctLWNvbm5lY3QtdGltZW91dD0zJywgJy0tZGVmYXVsdC1jaGFyYWN0ZXItc2V0PXV0ZjhtYjQnLCAnLS1iYXRjaCcsCiAgICAgICAgICctLXNraXAtY29sdW1uLW5hbWVzJywgJy0tcmF3JywgJy0tYmluYXJ5LW1vZGUnLCAnLS1kYXRhYmFzZT1ydW5hYl9kYiddCgoKZGVmIHJlcXVpcmUoY29uZGl0aW9uKToKICAgIGlmIG5vdCBjb25kaXRpb246CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCdwcm92aXNpb25pbmcgcmVqZWN0ZWQnKQoKCmRlZiBjb21tYW5kKGFyZ3MsIGRhdGE9Tm9uZSk6CiAgICByZXN1bHQgPSBzdWJwcm9jZXNzLnJ1bihhcmdzLCBpbnB1dD1kYXRhLCB0ZXh0PVRydWUsIHN0ZG91dD1zdWJwcm9jZXNzLlBJUEUsCiAgICAgICAgICAgICAgICAgICAgICAgICAgICBzdGRlcnI9c3VicHJvY2Vzcy5QSVBFLCB0aW1lb3V0PTMwKQogICAgcmVxdWlyZShyZXN1bHQucmV0dXJuY29kZSA9PSAwKQogICAgcmV0dXJuIHJlc3VsdC5zdGRvdXQuc3RyaXAoKQoKCmRlZiBpbnNlcnRfc3FsKHBhc3N3b3JkX2hhc2gpOgogICAgcmVxdWlyZShpc2luc3RhbmNlKHBhc3N3b3JkX2hhc2gsIHN0cikgYW5kIGJvb2wocmUuZnVsbG1hdGNoKAogICAgICAgIHInXCQyW2FieV1cJDEyXCRbLi9BLVphLXowLTldezUzfScsIHBhc3N3b3JkX2hhc2gpKSkKICAgIHJldHVybiBmIiIiU0VUIFNFU1NJT04gc3FsX21vZGU9J1NUUklDVF9BTExfVEFCTEVTLE5PX0VOR0lORV9TVUJTVElUVVRJT04nOwpTRVQgU0VTU0lPTiBpbm5vZGJfbG9ja193YWl0X3RpbWVvdXQ9NTsKU1RBUlQgVFJBTlNBQ1RJT047CklOU0VSVCBJTlRPIHVzZXJzIChhZ2UsZW1haWwscHJvdmlkZXIscHJvdmlkZXJfaWQscGFzc3dvcmQsdXNlcm5hbWUsY3JlYXRlZF9hdCx1cGRhdGVkX2F0LGRlbGV0ZWQsZGVsZXRlZF9hdCkKVkFMVUVTIChOVUxMLCd7RU1BSUx9JywnTE9DQUwnLE5VTEwsJ3twYXNzd29yZF9oYXNofScsJ+yatOyYgeuNsOuqqCcsTk9XKCksTk9XKCksMCxOVUxMKTsKU0VUIEBkZW1vX3VzZXJfaWQ9TEFTVF9JTlNFUlRfSUQoKTsKSU5TRVJUIElOVE8gYnVzaW5lc3NfaW5mbyAodXNlcl9pZCxidXNpbmVzc19zdGF0dXMsam9iX2NhdGVnb3J5LHJlZ2lvbixhbm51YWxfcmV2ZW51ZSxlbXBsb3llZV9jb3VudCkKVkFMVUVTIChAZGVtb191c2VyX2lkLDEsJ+y5tO2OmC/snYzro4wnLCfshJzsmrjtirnrs4Tsi5wnLDIwMDAwMDAwMCwyKTsKQ09NTUlUOwpTRUxFQ1QgQ09VTlQoKikgRlJPTSB1c2VycyB1IEpPSU4gYnVzaW5lc3NfaW5mbyBiIE9OIGIudXNlcl9pZD11LmlkCldIRVJFIHUuaWQ9QGRlbW9fdXNlcl9pZCBBTkQgdS5lbWFpbD0ne0VNQUlMfScgQU5EIHUucHJvdmlkZXI9J0xPQ0FMJyBBTkQgdS5kZWxldGVkPTAKQU5EIHUucGFzc3dvcmQ9J3twYXNzd29yZF9oYXNofScgQU5EIHUudXNlcm5hbWU9J+yatOyYgeuNsOuqqCcKQU5EIGIuYnVzaW5lc3Nfc3RhdHVzPTEgQU5EIGIuam9iX2NhdGVnb3J5PSfsubTtjpgv7J2M66OMJyBBTkQgYi5yZWdpb249J+yEnOyauO2KueuzhOyLnCcKQU5EIGIuYW5udWFsX3JldmVudWU9MjAwMDAwMDAwIEFORCBiLmVtcGxveWVlX2NvdW50PTI7CiIiIgoKCmRlZiBjcmVhdGVfYWNjb3VudChwYXNzd29yZF9oYXNoLCBzcWwpOgogICAgc3RhdGVtZW50ID0gaW5zZXJ0X3NxbChwYXNzd29yZF9oYXNoKQogICAgcmVxdWlyZShzcWwoIlNFTEVDVCBDT1VOVCgqKSBGUk9NIGluZm9ybWF0aW9uX3NjaGVtYS5UQUJMRVMgV0hFUkUgVEFCTEVfU0NIRU1BPSdydW5hYl9kYicgQU5EIFRBQkxFX05BTUUgSU4gKCd1c2VycycsJ2J1c2luZXNzX2luZm8nKSBBTkQgRU5HSU5FPSdJbm5vREInOyIpID09ICcyJykKICAgIHJlcXVpcmUoc3FsKCJTRUxFQ1QgQ09VTlQoKikgRlJPTSBpbmZvcm1hdGlvbl9zY2hlbWEuVFJJR0dFUlMgV0hFUkUgVFJJR0dFUl9TQ0hFTUE9J3J1bmFiX2RiJyBBTkQgRVZFTlRfT0JKRUNUX1RBQkxFIElOICgndXNlcnMnLCdidXNpbmVzc19pbmZvJyk7IikgPT0gJzAnKQogICAgIyBJbmNsdWRlcyBkZWxldGVkIGFjY291bnRzOiBuZXZlciB0YWtlIG92ZXIgb3IgcmVzZXQgYW55IGV4aXN0aW5nIGlkZW50aXR5LgogICAgcmVxdWlyZShzcWwoZiJTRUxFQ1QgQ09VTlQoKikgRlJPTSB1c2VycyBXSEVSRSBlbWFpbD0ne0VNQUlMfSc7IikgPT0gJzAnKQogICAgcmVxdWlyZShzcWwoc3RhdGVtZW50KSA9PSAnMScpCgoKZGVmIG1haW4ocGFzc3dvcmRfaGFzaCk6CiAgICB0cnk6CiAgICAgICAgcmVxdWlyZShvcy5nZXRldWlkKCkgPT0gMCkKICAgICAgICByb290ID0gUGF0aCgnL3Nydi9ydW5hYicpCiAgICAgICAgY3VycmVudCA9IHJvb3QgLyAnY3VycmVudCcKICAgICAgICByZXF1aXJlKGN1cnJlbnQuaXNfc3ltbGluaygpIGFuZCBjdXJyZW50LmxzdGF0KCkuc3RfdWlkID09IDApCiAgICAgICAgdGFyZ2V0ID0gY3VycmVudC5yZXNvbHZlKHN0cmljdD1UcnVlKQogICAgICAgIHJlcXVpcmUodGFyZ2V0LnBhcmVudCA9PSByb290IC8gJ3JlbGVhc2VzJyBhbmQgYm9vbChyZS5mdWxsbWF0Y2goRVhQRUNURURfU0hBICsgcictWzAtOV0rLVswLTldKycsIHRhcmdldC5uYW1lKSkpCiAgICAgICAgcmVxdWlyZShzdGF0LlNfSVNESVIodGFyZ2V0LmxzdGF0KCkuc3RfbW9kZSkgYW5kIHRhcmdldC5sc3RhdCgpLnN0X3VpZCA9PSAwKQogICAgICAgIGZkID0gb3Mub3Blbihyb290IC8gJy5kZXBsb3kubG9jaycsIG9zLk9fUkRXUiB8IG9zLk9fTk9GT0xMT1cpCiAgICAgICAgd2l0aCBvcy5mZG9wZW4oZmQsICdyKycpIGFzIGxvY2s6CiAgICAgICAgICAgIGluZm8gPSBvcy5mc3RhdChsb2NrLmZpbGVubygpKQogICAgICAgICAgICByZXF1aXJlKHN0YXQuU19JU1JFRyhpbmZvLnN0X21vZGUpIGFuZCBpbmZvLnN0X3VpZCA9PSAwKQogICAgICAgICAgICBmY250bC5mbG9jayhsb2NrLCBmY250bC5MT0NLX0VYIHwgZmNudGwuTE9DS19OQikKICAgICAgICAgICAgcmVxdWlyZShjdXJyZW50LnJlc29sdmUoc3RyaWN0PVRydWUpID09IHRhcmdldCkKICAgICAgICAgICAgY29tbWFuZChbJ3N5c3RlbWN0bCcsICdpcy1hY3RpdmUnLCAnLS1xdWlldCcsICdydW5hYi1hcGknXSkKICAgICAgICAgICAgY3JlYXRlX2FjY291bnQocGFzc3dvcmRfaGFzaCwgbGFtYmRhIHRleHQ6IGNvbW1hbmQoTVlTUUwsIHRleHQgKyAnXG4nKSkKICAgICAgICBwcmludChqc29uLmR1bXBzKHsnY3JlYXRlZCc6IFRydWUsICdvcmRpbmFyeV9hY2NvdW50JzogVHJ1ZSwgJ2ZpY3Rpb25hbF9idXNpbmVzc19wcm9maWxlJzogVHJ1ZX0pKQogICAgZXhjZXB0IEJhc2VFeGNlcHRpb246CiAgICAgICAgcHJpbnQoJ0VSUk9SOiBkZW1vIGFjY291bnQgY3JlYXRpb24gbm90IGNvbmZpcm1lZDsgaW5zcGVjdCBzYWZlbHkgYmVmb3JlIHJldHJ5aW5nJywgZmlsZT1zeXMuc3RkZXJyKQogICAgICAgIHN5cy5leGl0KDEpCg==').decode()
+              source += '\nmain(' + repr(password_hash) + ')\n'
+              result = subprocess.run(['sshpass', '-e', 'ssh', '-T',
+                  '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
+                  '-o', 'UserKnownHostsFile=' + os.environ['HOME'] + '/.ssh/known_hosts',
+                  '-o', 'ConnectTimeout=15', '-o', 'NumberOfPasswordPrompts=1',
+                  '--', 'ec2-user@43.201.103.134', 'sudo', '-n', 'python3', '-I', '-'],
+                  input=source, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90)
+              assert result.returncode == 0
+              import json
+              status = json.loads(result.stdout)
+              assert status == {'created': True, 'ordinary_account': True, 'fictional_business_profile': True}
+              print(json.dumps(status))
+          except BaseException:
+              print('ERROR: creation not confirmed; do not reset an existing identity', file=sys.stderr)
+              sys.exit(1)
+          PY
